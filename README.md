@@ -1,51 +1,32 @@
 # IntelliCam
-Pro Camera with one click choose template
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Smart effect camera app. Pick a photography effect (Star, Light Trail, Waterfall, Portrait, Product...) and IntelliCam applies the right camera settings and guides you through the shot — no manual ISO/shutter/focus tuning required.
+
+MVP is rule-based presets. Premium adds AI scene detection and a natural-language photography assistant.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the technical design and [PROJECT_STATE.md](PROJECT_STATE.md) for what's built vs. planned.
 
 ## Get started
 
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
 ```bash
-npm run reset-project
+npm install
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Opens in a [development build](https://docs.expo.dev/develop/development-builds/introduction/), Android emulator, iOS simulator, or [Expo Go](https://expo.dev/go).
+
+This project uses [file-based routing](https://docs.expo.dev/router/introduction) — edit files under `app/`.
+
+> Built on Expo SDK 54. Docs: https://docs.expo.dev/versions/v54.0.0/
+
+## Tech stack
+
+- React Native + Expo Router
+- react-native-vision-camera (camera preview/capture, MVP)
+- SQLite (local presets, photo metadata, edit history)
+- Laravel/Node API + Supabase Postgres (premium accounts, sync — optional, not MVP)
 
 ## Learn more
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- [Expo documentation](https://docs.expo.dev/versions/v54.0.0/)
+- [Expo Router](https://docs.expo.dev/router/introduction)
