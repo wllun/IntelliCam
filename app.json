@@ -9,7 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "IntelliCam needs camera access to capture photos.",
+        "NSPhotoLibraryAddUsageDescription": "IntelliCam saves your captured photos to your photo library."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +23,17 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
+      ],
+      "package": "com.wltechfreelance.IntelliCam"
     },
     "web": {
       "output": "static",
@@ -38,11 +52,26 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "IntelliCam saves your captured photos to your photo library.",
+          "savePhotosPermission": "IntelliCam saves your captured photos to your photo library.",
+          "isAccessMediaLocationEnabled": false
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f30bf86b-1770-4444-b001-37201ba7914b"
+      }
+    },
+    "owner": "wltechfreelance"
   }
 }
