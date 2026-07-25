@@ -73,12 +73,11 @@ export default function CameraScreen() {
         shutterSound: false,
       });
       if (!photo) throw new Error('The camera did not return a photo.');
-      const asset = await MediaLibrary.createAssetAsync(photo.uri);
-      let album = await MediaLibrary.getAlbumAsync(ALBUM_NAME);
+      const album = await MediaLibrary.getAlbumAsync(ALBUM_NAME);
       if (!album) {
-        album = await MediaLibrary.createAlbumAsync(ALBUM_NAME, asset, false);
+        await MediaLibrary.createAlbumAsync(ALBUM_NAME, undefined, false, photo.uri);
       } else {
-        await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+        await MediaLibrary.createAssetAsync(photo.uri, album);
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {

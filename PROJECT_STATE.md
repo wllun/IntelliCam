@@ -12,7 +12,7 @@ and tips—but presets do not affect capture yet.
 ## Tasks
 
 - [x] Expo + Expo Router project scaffolded (SDK 54, TypeScript, new architecture enabled)
-- [x] Expo Camera wired: permission request -> camera preview -> silent shutter by default -> JPEG saved to an "IntelliCam" MediaLibrary album
+- [x] Expo Camera wired: permission request -> camera preview -> silent shutter by default -> JPEG saved directly to an "IntelliCam" MediaLibrary album without a save confirmation
 - [x] EAS Build configured (`eas.json`, `preview` profile builds an installable APK via `eas build -p android --profile preview`)
 - [x] Preset data (`constants/presets.ts`) - five launch modes (Star, Light Trail, Waterfall, Portrait, Product) as plain data
 - [x] "Focus card" preset UI on camera screen - swipe left/right to switch, floating card shows ISO/shutter/WB/RAW chips + shooting tip, dot indicator, preset-tinted shutter (UI only, no capture effect)
