@@ -16,6 +16,10 @@ and tips—but presets do not affect capture yet.
 - [x] EAS Build configured (`eas.json`, `preview` profile builds an installable APK via `eas build -p android --profile preview`)
 - [x] Preset data (`constants/presets.ts`) - five launch modes (Star, Light Trail, Waterfall, Portrait, Product) as plain data
 - [x] "Focus card" preset UI on camera screen - swipe left/right to switch, floating card shows ISO/shutter/WB/RAW chips + shooting tip, dot indicator, preset-tinted shutter (UI only, no capture effect)
+- [x] Camera control UI - IntelliCam gallery button left of the shutter, capture-mode button right of the shutter, and three-dot settings button at the top-right (UI only)
+- [ ] Open the IntelliCam MediaLibrary album from the gallery button
+- [ ] Open a capture-mode selector from the mode button
+- [ ] Open the camera settings panel from the three-dot button
 - [ ] Add and persist zoom, flash, capture-sound, and aspect-ratio settings
 - [ ] Wire presets into actual capture (apply ISO/shutter/focus/RAW to the camera before shooting)
 - [ ] Move presets to SQLite `camera_presets` table (enables custom/user presets)
