@@ -144,6 +144,14 @@ export default function CameraScreen() {
           </Pressable>
         )}
 
+        <Pressable
+          accessibilityLabel="Camera settings"
+          accessibilityHint="Settings are not available yet"
+          accessibilityRole="button"
+          style={[styles.settingsButton, { top: insets.top + 16 }]}>
+          <Ionicons name="ellipsis-horizontal" size={24} color="white" />
+        </Pressable>
+
         <View style={[styles.dots, { bottom: insets.bottom + 124 }]}>
           {PRESETS.map((p, i) => (
             <View
@@ -156,12 +164,34 @@ export default function CameraScreen() {
           ))}
         </View>
 
-        <Pressable
-          style={[styles.shutter, { bottom: insets.bottom + 36 }, capturing && styles.shutterDisabled]}
-          disabled={capturing || !cameraReady}
-          onPress={capture}>
-          <View style={[styles.shutterInner, { borderColor: preset.tint }]} />
-        </Pressable>
+        <View style={[styles.captureControls, { bottom: insets.bottom + 28 }]}>
+          <Pressable
+            accessibilityLabel="View IntelliCam photos"
+            accessibilityHint="Photo gallery is not available yet"
+            accessibilityRole="button"
+            style={styles.secondaryControl}>
+            <Ionicons name="images-outline" size={25} color="white" />
+            <Text style={styles.controlLabel}>Gallery</Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityLabel="Take picture"
+            accessibilityRole="button"
+            style={[styles.shutter, capturing && styles.shutterDisabled]}
+            disabled={capturing || !cameraReady}
+            onPress={capture}>
+            <View style={[styles.shutterInner, { borderColor: preset.tint }]} />
+          </Pressable>
+
+          <Pressable
+            accessibilityLabel="Change capture mode"
+            accessibilityHint="Capture mode selection is not available yet"
+            accessibilityRole="button"
+            style={styles.secondaryControl}>
+            <Ionicons name="options-outline" size={25} color="white" />
+            <Text style={styles.controlLabel}>Mode</Text>
+          </Pressable>
+        </View>
       </View>
     </GestureDetector>
   );
@@ -258,6 +288,18 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 13,
   },
+  settingsButton: {
+    position: 'absolute',
+    right: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(20,20,20,0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
   dots: {
     position: 'absolute',
     alignSelf: 'center',
@@ -270,9 +312,25 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: 'rgba(255,255,255,0.35)',
   },
-  shutter: {
+  captureControls: {
     position: 'absolute',
-    alignSelf: 'center',
+    left: 24,
+    right: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  secondaryControl: {
+    width: 64,
+    alignItems: 'center',
+    gap: 5,
+  },
+  controlLabel: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  shutter: {
     width: 72,
     height: 72,
     borderRadius: 36,
