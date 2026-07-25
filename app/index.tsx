@@ -1,11 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
-import {
-  Camera,
-  useCameraDevice,
-  useCameraPermission,
-  usePhotoOutput,
-} from 'react-native-vision-camera';
+import { CameraType, CameraView, useCameraPermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,11 +14,11 @@ const ALBUM_NAME = 'IntelliCam';
 
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
-  const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } =
-    useCameraPermission();
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
-  const device = useCameraDevice('back');
-  const photoOutput = usePhotoOutput();
+  const cameraRef = useRef<CameraView>(null);
+  const [facing, setFacing] = useState<CameraType>('back');
+  const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [presetIndex, setPresetIndex] = useState(0);
   const [cardVisible, setCardVisible] = useState(true);
@@ -34,6 +29,7 @@ export default function CameraScreen() {
     return () => sub.remove();
   }, []);
 
+  const hasCameraPermission = cameraPermission?.granted ?? false;
   const hasMediaPermission = mediaPermission?.granted ?? false;
   const preset = PRESETS[presetIndex];
 
@@ -68,20 +64,13 @@ export default function CameraScreen() {
     );
   }
 
-  if (!device) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.message}>No camera device found.</Text>
-      </View>
-    );
-  }
-
   const capture = async () => {
-    if (capturing) return;
+    if (capturing || !cameraReady) return;
     setCapturing(true);
     try {
-      const photoFile = await photoOutput.capturePhotoToFile({}, {});
-      const asset = await MediaLibrary.createAssetAsync(`file://${photoFile.filePath}`);
+      const photo = await cameraRef.current?.takePictureAsync({ quality: 1 });
+      if (!photo) throw new Error('The camera did not return a photo.');
+      const asset = await MediaLibrary.createAssetAsync(photo.uri);
       let album = await MediaLibrary.getAlbumAsync(ALBUM_NAME);
       if (!album) {
         album = await MediaLibrary.createAlbumAsync(ALBUM_NAME, asset, false);
@@ -99,12 +88,24 @@ export default function CameraScreen() {
   return (
     <GestureDetector gesture={swipe}>
       <View style={styles.container}>
-        <Camera
-          style={StyleSheet.absoluteFill}
-          device={device}
-          outputs={[photoOutput]}
-          isActive={appActive}
-        />
+        {appActive && (
+          <CameraView
+            key={facing}
+            ref={cameraRef}
+            style={StyleSheet.absoluteFill}
+            facing={facing}
+            mode="picture"
+            onCameraReady={() => setCameraReady(true)}
+            onMountError={(error) => {
+              setCameraReady(false);
+              if (facing === 'back') {
+                setFacing('front');
+              } else {
+                Alert.alert('Camera unavailable', error.message);
+              }
+            }}
+          />
+        )}
 
         {cardVisible && (
           <Animated.View
@@ -154,7 +155,7 @@ export default function CameraScreen() {
 
         <Pressable
           style={[styles.shutter, { bottom: insets.bottom + 36 }, capturing && styles.shutterDisabled]}
-          disabled={capturing}
+          disabled={capturing || !cameraReady}
           onPress={capture}>
           <View style={[styles.shutterInner, { borderColor: preset.tint }]} />
         </Pressable>
