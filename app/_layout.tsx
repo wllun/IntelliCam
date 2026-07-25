@@ -18,6 +18,16 @@ export default function RootLayout() {
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack>
           <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="gallery"
+            options={{
+              title: 'IntelliCam',
+              headerBackTitle: 'Camera',
+              headerStyle: { backgroundColor: '#080808' },
+              headerTintColor: 'white',
+              contentStyle: { backgroundColor: '#080808' },
+            }}
+          />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>
         <StatusBar style="auto" />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CameraType, CameraView, FlashMode, useCameraPermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { FadeIn, FadeOut, runOnJS } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
 
 import { PRESETS } from '@/constants/presets';
 
@@ -24,6 +25,7 @@ function formatPictureSize(size: string) {
 
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -33,6 +35,7 @@ export default function CameraScreen() {
   const [presetIndex, setPresetIndex] = useState(0);
   const [cardVisible, setCardVisible] = useState(true);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const [screenFocused, setScreenFocused] = useState(true);
   const [captureMode, setCaptureMode] = useState<CaptureMode>('normal');
   const [modeMenuVisible, setModeMenuVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -45,6 +48,13 @@ export default function CameraScreen() {
     const sub = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
     return () => sub.remove();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      setScreenFocused(true);
+      return () => setScreenFocused(false);
+    }, []),
+  );
 
   const hasCameraPermission = cameraPermission?.granted ?? false;
   const hasMediaPermission = mediaPermission?.granted ?? false;
@@ -139,7 +149,7 @@ export default function CameraScreen() {
   return (
     <GestureDetector gesture={swipe}>
       <View style={styles.container}>
-        {appActive && (
+        {appActive && screenFocused && (
           <CameraView
             key={`${facing}-${pictureSize ?? 'default'}`}
             ref={cameraRef}
@@ -274,8 +284,9 @@ export default function CameraScreen() {
         <View style={[styles.captureControls, { bottom: insets.bottom + 28 }]}>
           <Pressable
             accessibilityLabel="View IntelliCam photos"
-            accessibilityHint="Photo gallery is not available yet"
+            accessibilityHint="Opens photos saved in the IntelliCam album"
             accessibilityRole="button"
+            onPress={() => router.push('/gallery' as Href)}
             style={styles.secondaryControl}>
             <Ionicons name="images-outline" size={25} color="white" />
             <Text style={styles.controlLabel}>Gallery</Text>

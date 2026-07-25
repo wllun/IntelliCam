@@ -21,7 +21,7 @@ presets do not affect capture yet.
 - [x] Camera control UI - IntelliCam gallery button left of the shutter, capture-mode button right of the shutter, and three-dot settings button at the top-right (UI only)
 - [x] Normal camera capture mode - automatic photo capture with flash off/auto/on, zoom controls, front/rear camera switching, and device-supported photo sizes
 - [x] Capture-mode selector - switch between Normal camera and Smart Presets
-- [ ] Open the IntelliCam MediaLibrary album from the gallery button
+- [x] IntelliCam-only gallery - grid, pull-to-refresh, pagination, and full-screen preview for photos in the named MediaLibrary album
 - [x] Open a capture-mode selector from the mode button
 - [x] Open the camera settings panel from the three-dot button
 - [ ] Persist zoom, flash, camera-facing, and photo-size settings
