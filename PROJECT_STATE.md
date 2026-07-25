@@ -6,8 +6,10 @@ Last updated: 2026-07-25
 
 Camera preview and JPEG capture work end-to-end using Expo Camera. The app
 prefers the back camera and falls back to the front camera when necessary.
-The "Focus card" preset UI is built; swipe to switch presets and view settings
-and tips—but presets do not affect capture yet.
+Normal camera mode provides working flash, zoom, front/rear camera switching,
+and device-supported photo-size selection. Smart Preset mode provides the
+"Focus card" UI; swipe to switch presets and view settings and tips—but
+presets do not affect capture yet.
 
 ## Tasks
 
@@ -17,10 +19,13 @@ and tips—but presets do not affect capture yet.
 - [x] Preset data (`constants/presets.ts`) - five launch modes (Star, Light Trail, Waterfall, Portrait, Product) as plain data
 - [x] "Focus card" preset UI on camera screen - swipe left/right to switch, floating card shows ISO/shutter/WB/RAW chips + shooting tip, dot indicator, preset-tinted shutter (UI only, no capture effect)
 - [x] Camera control UI - IntelliCam gallery button left of the shutter, capture-mode button right of the shutter, and three-dot settings button at the top-right (UI only)
+- [x] Normal camera capture mode - automatic photo capture with flash off/auto/on, zoom controls, front/rear camera switching, and device-supported photo sizes
+- [x] Capture-mode selector - switch between Normal camera and Smart Presets
 - [ ] Open the IntelliCam MediaLibrary album from the gallery button
-- [ ] Open a capture-mode selector from the mode button
-- [ ] Open the camera settings panel from the three-dot button
-- [ ] Add and persist zoom, flash, capture-sound, and aspect-ratio settings
+- [x] Open a capture-mode selector from the mode button
+- [x] Open the camera settings panel from the three-dot button
+- [ ] Persist zoom, flash, camera-facing, and photo-size settings
+- [ ] Add capture-sound and aspect-ratio settings
 - [ ] Wire presets into actual capture (apply ISO/shutter/focus/RAW to the camera before shooting)
 - [ ] Move presets to SQLite `camera_presets` table (enables custom/user presets)
 - [ ] Local SQLite `photos` table (capture metadata)
