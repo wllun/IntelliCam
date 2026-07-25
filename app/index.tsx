@@ -68,7 +68,10 @@ export default function CameraScreen() {
     if (capturing || !cameraReady) return;
     setCapturing(true);
     try {
-      const photo = await cameraRef.current?.takePictureAsync({ quality: 1 });
+      const photo = await cameraRef.current?.takePictureAsync({
+        quality: 1,
+        shutterSound: false,
+      });
       if (!photo) throw new Error('The camera did not return a photo.');
       const asset = await MediaLibrary.createAssetAsync(photo.uri);
       let album = await MediaLibrary.getAlbumAsync(ALBUM_NAME);
