@@ -27,6 +27,7 @@ presets do not affect capture yet.
 - [x] Camera settings panel contains Gridlines, Aspect Ratio, Timer, and HDR; zoom, flash, camera-facing, and photo-size remain camera-surface controls instead of three-dot settings
 - [x] Gridlines overlay and 3-second/10-second capture countdown
 - [x] Aspect-ratio selection (`4:3`, `1:1`, `16:9`) passed to Expo Camera
+- [ ] Upgrade camera zoom controls: add `0.5x`, keep `1x`, `2x`, and `3x`, and support hand-controlled pinch gestures to zoom smoothly in and out
 - [ ] Implement real HDR multi-frame capture and merge (current HDR selection is UI only)
 - [ ] Persist gridlines, aspect ratio, timer, and HDR choices
 - [ ] Wire presets into actual capture (apply ISO/shutter/focus/RAW to the camera before shooting)
@@ -51,6 +52,17 @@ The three-dot camera settings panel contains:
 
 Flash, zoom, and front/rear switching remain direct controls on the camera
 surface. Photo-size selection is no longer exposed in the settings panel.
+
+### Planned zoom interaction
+
+- Provide quick lens/zoom buttons for `0.5x`, `1x`, `2x`, and `3x`.
+- Support two-finger pinch gestures directly on the camera preview for smooth
+  zooming in and out.
+- Keep the displayed zoom value synchronized when the user switches between
+  quick buttons and pinch gestures.
+- Clamp the requested zoom to the limits supported by the active device camera.
+- Treat `0.5x` as device-dependent: show or enable it only when an ultrawide
+  camera/lens is available.
 
 These choices are currently session-only. Persist them in the future
 `user_settings` table so they remain selected after the app restarts.
