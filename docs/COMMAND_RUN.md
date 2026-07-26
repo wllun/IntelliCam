@@ -2,7 +2,56 @@
 
 Use these steps to run IntelliCam on an Android emulator or physical device.
 
-## Quick start: four commands
+## Physical device: install and debug
+
+Enable **Developer options** and **USB debugging** on the phone, connect it by
+USB, and accept the authorization prompt. Confirm that Android Debug Bridge can
+see it:
+
+```powershell
+adb devices -l
+```
+
+The phone must be listed as `device`. If it shows `unauthorized`, unlock the
+phone and accept the USB debugging prompt.
+
+For the first debug installation, after native dependency changes, or when a
+standalone preview APK is currently installed, run:
+
+```powershell
+npm.cmd run android -- --device
+```
+
+Select the physical phone when Expo displays the device list. This command
+builds the native debug APK, installs it, starts Metro, and opens IntelliCam.
+The first build may download Gradle and can take several minutes.
+
+### Later debug sessions
+
+Once the matching debug APK is installed, normal USB debugging only needs:
+
+```powershell
+adb -d reverse tcp:8081 tcp:8081
+npx.cmd expo start --dev-client --localhost
+```
+
+Keep the Metro window open. At its command prompt:
+
+- Press `a` to open IntelliCam on Android.
+- Press `j` to launch Hermes React Native DevTools.
+- Press `r` to reload after the debugger attaches, allowing startup
+  breakpoints to trigger.
+
+Breakpoints must be placed on executable code. If a breakpoint on an import,
+type, or constant declaration does not pause, place it inside `CameraScreen`,
+an event handler, or another function that runs after the debugger attaches.
+
+> An EAS `preview` APK is a standalone build. It can run without Metro but
+> cannot be used for local Metro/Hermes source-breakpoint debugging. Install
+> the native debug build with `npm.cmd run android -- --device` before
+> debugging.
+
+## Emulator quick start
 
 Run these commands in order from the IntelliCam project folder:
 
@@ -104,7 +153,7 @@ the APK in the cloud. When the build finishes:
 
 This preview APK runs independently, so Metro does not need to remain open.
 
-## Build and install an APK locally by USB
+## Build and install a debug APK manually by USB
 
 Enable **Developer options** and **USB debugging** on the phone, connect it by
 USB, and accept the debugging prompt. Confirm the phone is detected:
@@ -147,7 +196,7 @@ npx.cmd expo start --dev-client --localhost
 Open IntelliCam on the phone. Keep the Metro PowerShell window running while
 testing.
 
-### One-command shortcut
+### Recommended one-command workflow
 
 With the phone connected and USB debugging enabled, this command lets you
 select the phone, builds IntelliCam, installs it, and starts Metro:
@@ -173,3 +222,10 @@ If Metro has stale cached files:
 ```powershell
 npx.cmd expo start --dev-client --localhost --clear
 ```
+
+If DevTools reports that no compatible Hermes app is connected:
+
+1. Confirm IntelliCam is open in the foreground.
+2. Confirm the installed app is the local debug build, not an EAS preview APK.
+3. Run `adb -d reverse tcp:8081 tcp:8081`.
+4. Restart Metro, press `a`, wait for bundling to finish, then press `j`.
