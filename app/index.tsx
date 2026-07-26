@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
-import { CameraType, CameraView, FlashMode, useCameraPermissions } from 'expo-camera';
+import {
+  CameraType,
+  CameraView,
+  FlashMode,
+  type CameraRatio,
+  useCameraPermissions,
+} from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,15 +20,11 @@ import { CaptureModeCarousel } from '@/components/capture-mode-carousel';
 
 const ALBUM_NAME = 'IntelliCam';
 type CaptureMode = 'normal' | 'preset';
+type TimerSeconds = 0 | 3 | 10;
 
 const FLASH_MODES: FlashMode[] = ['off', 'auto', 'on'];
-
-function formatPictureSize(size: string) {
-  const [width, height] = size.split('x').map(Number);
-  if (!width || !height) return size;
-  const megapixels = ((width * height) / 1_000_000).toFixed(1);
-  return `${megapixels} MP · ${size}`;
-}
+const ASPECT_RATIOS: CameraRatio[] = ['4:3', '1:1', '16:9'];
+const TIMER_OPTIONS: TimerSeconds[] = [0, 3, 10];
 
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
@@ -42,8 +44,11 @@ export default function CameraScreen() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [flash, setFlash] = useState<FlashMode>('off');
   const [zoom, setZoom] = useState(0);
-  const [pictureSizes, setPictureSizes] = useState<string[]>([]);
-  const [pictureSize, setPictureSize] = useState<string>();
+  const [gridLines, setGridLines] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
+  const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
+  const [hdrEnabled, setHdrEnabled] = useState(false);
+  const [countdown, setCountdown] = useState<number>();
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
@@ -61,24 +66,6 @@ export default function CameraScreen() {
   const hasMediaPermission = mediaPermission?.granted ?? false;
   const preset = PRESETS[presetIndex];
   const isNormalMode = captureMode === 'normal';
-
-  const loadPictureSizes = async () => {
-    try {
-      const sizes = await cameraRef.current?.getAvailablePictureSizesAsync();
-      if (!sizes?.length) return;
-      const sorted = [...sizes].sort((a, b) => {
-        const pixels = (value: string) => {
-          const [width, height] = value.split('x').map(Number);
-          return (width || 0) * (height || 0);
-        };
-        return pixels(b) - pixels(a);
-      });
-      setPictureSizes(sorted.slice(0, 6));
-      setPictureSize((current) => current ?? sorted[0]);
-    } catch {
-      setPictureSizes([]);
-    }
-  };
 
   const changePreset = (direction: 1 | -1) => {
     setPresetIndex((i) => (i + direction + PRESETS.length) % PRESETS.length);
@@ -135,6 +122,13 @@ export default function CameraScreen() {
     if (capturing || !cameraReady) return;
     setCapturing(true);
     try {
+      for (let remaining = timerSeconds; remaining > 0; remaining -= 1) {
+        setCountdown(remaining);
+        Haptics.selectionAsync();
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      setCountdown(undefined);
+
       const photo = await cameraRef.current?.takePictureAsync({
         quality: 1,
         shutterSound: false,
@@ -150,6 +144,7 @@ export default function CameraScreen() {
     } catch (error) {
       Alert.alert('Capture failed', String(error));
     } finally {
+      setCountdown(undefined);
       setCapturing(false);
     }
   };
@@ -159,19 +154,16 @@ export default function CameraScreen() {
       <View style={styles.container}>
         {appActive && screenFocused && (
           <CameraView
-            key={`${facing}-${pictureSize ?? 'default'}`}
+            key={`${facing}-${aspectRatio}`}
             ref={cameraRef}
             style={StyleSheet.absoluteFill}
             facing={facing}
             mode="picture"
             flash={flash}
             zoom={zoom}
-            pictureSize={pictureSize}
+            ratio={aspectRatio}
             mirror={facing === 'front'}
-            onCameraReady={() => {
-              setCameraReady(true);
-              loadPictureSizes();
-            }}
+            onCameraReady={() => setCameraReady(true)}
             onMountError={(error) => {
               setCameraReady(false);
               if (facing === 'back') {
@@ -181,6 +173,21 @@ export default function CameraScreen() {
               }
             }}
           />
+        )}
+
+        {gridLines && (
+          <View pointerEvents="none" style={styles.grid}>
+            <View style={[styles.gridLineVertical, { left: '33.333%' }]} />
+            <View style={[styles.gridLineVertical, { left: '66.666%' }]} />
+            <View style={[styles.gridLineHorizontal, { top: '33.333%' }]} />
+            <View style={[styles.gridLineHorizontal, { top: '66.666%' }]} />
+          </View>
+        )}
+
+        {countdown !== undefined && (
+          <Animated.View entering={FadeIn.duration(120)} style={styles.countdown}>
+            <Text style={styles.countdownText}>{countdown}</Text>
+          </Animated.View>
         )}
 
         {!isNormalMode && cardVisible && (
@@ -336,66 +343,87 @@ export default function CameraScreen() {
             exiting={FadeOut.duration(120)}
             style={[styles.settingsSheet, { top: insets.top + 68 }]}>
             <Text style={styles.sheetTitle}>Camera settings</Text>
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityState={{ checked: gridLines }}
+              onPress={() => setGridLines((enabled) => !enabled)}
+              style={styles.toggleRow}>
+              <View style={styles.settingIcon}>
+                <Ionicons name="grid-outline" size={20} color="white" />
+              </View>
+              <View style={styles.settingCopy}>
+                <Text style={styles.settingTitle}>Gridlines</Text>
+                <Text style={styles.settingsDescription}>Rule-of-thirds composition guide</Text>
+              </View>
+              <View style={[styles.switchTrack, gridLines && styles.switchTrackActive]}>
+                <View style={[styles.switchThumb, gridLines && styles.switchThumbActive]} />
+              </View>
+            </Pressable>
+
             <View style={styles.settingRow}>
-              <Text style={styles.settingLabel}>Flash</Text>
+              <View style={styles.settingHeading}>
+                <Ionicons name="scan-outline" size={18} color="#bbb" />
+                <Text style={styles.settingLabel}>Aspect ratio</Text>
+              </View>
               <View style={styles.segmented}>
-                {FLASH_MODES.map((mode) => (
+                {ASPECT_RATIOS.map((ratio) => (
                   <Pressable
-                    key={mode}
-                    onPress={() => setFlash(mode)}
-                    style={[styles.segment, flash === mode && styles.segmentActive]}>
-                    <Text style={[styles.segmentText, flash === mode && styles.segmentTextActive]}>
-                      {mode[0].toUpperCase() + mode.slice(1)}
+                    key={ratio}
+                    onPress={() => {
+                      setCameraReady(false);
+                      setAspectRatio(ratio);
+                      Haptics.selectionAsync();
+                    }}
+                    style={[styles.segment, aspectRatio === ratio && styles.segmentActive]}>
+                    <Text style={[styles.segmentText, aspectRatio === ratio && styles.segmentTextActive]}>
+                      {ratio}
                     </Text>
                   </Pressable>
                 ))}
               </View>
             </View>
+
             <View style={styles.settingRow}>
-              <Text style={styles.settingLabel}>Zoom</Text>
-              <View style={styles.zoomStepper}>
-                <Pressable
-                  accessibilityLabel="Zoom out"
-                  onPress={() => setZoom((value) => Math.max(0, Number((value - 0.05).toFixed(2))))}
-                  style={styles.stepButton}>
-                  <Ionicons name="remove" size={18} color="white" />
-                </Pressable>
-                <Text style={styles.zoomValue}>{Math.round(zoom * 100)}%</Text>
-                <Pressable
-                  accessibilityLabel="Zoom in"
-                  onPress={() => setZoom((value) => Math.min(1, Number((value + 0.05).toFixed(2))))}
-                  style={styles.stepButton}>
-                  <Ionicons name="add" size={18} color="white" />
-                </Pressable>
+              <View style={styles.settingHeading}>
+                <Ionicons name="timer-outline" size={18} color="#bbb" />
+                <Text style={styles.settingLabel}>Timer</Text>
+              </View>
+              <View style={styles.segmented}>
+                {TIMER_OPTIONS.map((seconds) => (
+                  <Pressable
+                    key={seconds}
+                    onPress={() => {
+                      setTimerSeconds(seconds);
+                      Haptics.selectionAsync();
+                    }}
+                    style={[styles.segment, timerSeconds === seconds && styles.segmentActive]}>
+                    <Text style={[styles.segmentText, timerSeconds === seconds && styles.segmentTextActive]}>
+                      {seconds === 0 ? 'Off' : `${seconds}s`}
+                    </Text>
+                  </Pressable>
+                ))}
               </View>
             </View>
-            <View style={styles.settingRow}>
-              <Text style={styles.settingLabel}>Camera</Text>
-              <Pressable
-                onPress={() => {
-                  setCameraReady(false);
-                  setFacing((current) => (current === 'back' ? 'front' : 'back'));
-                }}
-                style={styles.valueButton}>
-                <Text style={styles.valueButtonText}>{facing === 'back' ? 'Rear' : 'Front'}</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.settingLabel}>Photo size</Text>
-            <View style={styles.sizeList}>
-              {pictureSizes.length ? pictureSizes.map((size) => (
-                <Pressable
-                  key={size}
-                  onPress={() => {
-                    setCameraReady(false);
-                    setPictureSize(size);
-                  }}
-                  style={[styles.sizeButton, pictureSize === size && styles.sizeButtonActive]}>
-                  <Text style={[styles.sizeText, pictureSize === size && styles.sizeTextActive]}>
-                    {formatPictureSize(size)}
-                  </Text>
-                </Pressable>
-              )) : <Text style={styles.settingsDescription}>Using the device&apos;s default photo size</Text>}
-            </View>
+
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityState={{ checked: hdrEnabled }}
+              onPress={() => setHdrEnabled((enabled) => !enabled)}
+              style={styles.toggleRow}>
+              <View style={styles.settingIcon}>
+                <Ionicons name="contrast-outline" size={20} color="white" />
+              </View>
+              <View style={styles.settingCopy}>
+                <View style={styles.hdrTitleRow}>
+                  <Text style={styles.settingTitle}>HDR</Text>
+                  <Text style={styles.plannedBadge}>UI ONLY</Text>
+                </View>
+                <Text style={styles.settingsDescription}>Multi-frame processing is not connected yet</Text>
+              </View>
+              <View style={[styles.switchTrack, hdrEnabled && styles.switchTrackActive]}>
+                <View style={[styles.switchThumb, hdrEnabled && styles.switchThumbActive]} />
+              </View>
+            </Pressable>
           </Animated.View>
         )}
       </View>
@@ -616,6 +644,42 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.16)',
   },
+  grid: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  gridLineVertical: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.48)',
+  },
+  gridLineHorizontal: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.48)',
+  },
+  countdown: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: '39%',
+    width: 108,
+    height: 108,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 54,
+    backgroundColor: 'rgba(10,10,10,0.68)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.34)',
+  },
+  countdownText: {
+    color: 'white',
+    fontSize: 54,
+    fontWeight: '300',
+    fontVariant: ['tabular-nums'],
+  },
   sheetTitle: {
     color: 'white',
     fontSize: 17,
@@ -629,11 +693,70 @@ const styles = StyleSheet.create({
   settingRow: {
     gap: 8,
   },
+  settingHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
   settingLabel: {
     color: '#bbb',
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
+  },
+  toggleRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+  },
+  settingIcon: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+  },
+  settingCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  settingTitle: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  switchTrack: {
+    width: 46,
+    height: 28,
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderRadius: 14,
+    backgroundColor: '#444947',
+  },
+  switchTrackActive: {
+    backgroundColor: '#85B7EB',
+  },
+  switchThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'white',
+  },
+  switchThumbActive: {
+    alignSelf: 'flex-end',
+  },
+  hdrTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  plannedBadge: {
+    color: '#FAC775',
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 0.7,
   },
   segmented: {
     flexDirection: 'row',
@@ -656,59 +779,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   segmentTextActive: {
-    color: '#111',
-  },
-  zoomStepper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  stepButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-  },
-  zoomValue: {
-    minWidth: 44,
-    color: 'white',
-    textAlign: 'center',
-    fontVariant: ['tabular-nums'],
-  },
-  valueButton: {
-    alignSelf: 'flex-start',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-  },
-  valueButtonText: {
-    color: 'white',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  sizeList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 7,
-  },
-  sizeButton: {
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderRadius: 9,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  sizeButtonActive: {
-    backgroundColor: 'white',
-  },
-  sizeText: {
-    color: '#ccc',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  sizeTextActive: {
     color: '#111',
   },
 });
