@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 
 import { PRESETS } from '@/constants/presets';
+import { CaptureModeCarousel } from '@/components/capture-mode-carousel';
 
 const ALBUM_NAME = 'IntelliCam';
 type CaptureMode = 'normal' | 'preset';
@@ -99,11 +100,18 @@ export default function CameraScreen() {
     Haptics.selectionAsync();
   };
 
-  const chooseMode = (mode: CaptureMode) => {
-    setCaptureMode(mode);
+  const applyCaptureMode = (modeId: string) => {
+    if (modeId === 'normal') {
+      setCaptureMode('normal');
+      setCardVisible(false);
+    } else {
+      const nextPresetIndex = PRESETS.findIndex((item) => item.id === modeId);
+      if (nextPresetIndex >= 0) setPresetIndex(nextPresetIndex);
+      setCaptureMode('preset');
+      setCardVisible(true);
+    }
     setModeMenuVisible(false);
-    setCardVisible(mode === 'preset');
-    Haptics.selectionAsync();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   if (!hasCameraPermission || !hasMediaPermission) {
@@ -311,34 +319,16 @@ export default function CameraScreen() {
             }}
             style={styles.secondaryControl}>
             <Ionicons name="options-outline" size={25} color="white" />
-            <Text style={styles.controlLabel}>{isNormalMode ? 'Normal' : 'Preset'}</Text>
+            <Text style={styles.controlLabel}>{isNormalMode ? 'Normal' : preset.name.replace(' photography', '')}</Text>
           </Pressable>
         </View>
 
-        {modeMenuVisible && (
-          <Animated.View
-            entering={FadeIn.duration(160)}
-            exiting={FadeOut.duration(120)}
-            style={[styles.bottomSheet, { bottom: insets.bottom + 118 }]}>
-            <Text style={styles.sheetTitle}>Capture mode</Text>
-            <Pressable style={styles.modeRow} onPress={() => chooseMode('normal')}>
-              <Ionicons name="camera-outline" size={22} color="#85B7EB" />
-              <View style={styles.modeCopy}>
-                <Text style={styles.modeTitle}>Normal camera</Text>
-                <Text style={styles.modeDescription}>Automatic photo with flash, zoom and size controls</Text>
-              </View>
-              {isNormalMode && <Ionicons name="checkmark-circle" size={22} color="#85B7EB" />}
-            </Pressable>
-            <Pressable style={styles.modeRow} onPress={() => chooseMode('preset')}>
-              <Ionicons name="color-wand-outline" size={22} color="#9FE1CB" />
-              <View style={styles.modeCopy}>
-                <Text style={styles.modeTitle}>Smart presets</Text>
-                <Text style={styles.modeDescription}>Guided modes for stars, portraits and more</Text>
-              </View>
-              {!isNormalMode && <Ionicons name="checkmark-circle" size={22} color="#9FE1CB" />}
-            </Pressable>
-          </Animated.View>
-        )}
+        <CaptureModeCarousel
+          visible={modeMenuVisible}
+          selectedId={isNormalMode ? 'normal' : preset.id}
+          onClose={() => setModeMenuVisible(false)}
+          onApply={applyCaptureMode}
+        />
 
         {settingsVisible && (
           <Animated.View
@@ -404,7 +394,7 @@ export default function CameraScreen() {
                     {formatPictureSize(size)}
                   </Text>
                 </Pressable>
-              )) : <Text style={styles.modeDescription}>Using the device&apos;s default photo size</Text>}
+              )) : <Text style={styles.settingsDescription}>Using the device&apos;s default photo size</Text>}
             </View>
           </Animated.View>
         )}
@@ -614,17 +604,6 @@ const styles = StyleSheet.create({
   shutterDisabled: {
     opacity: 0.5,
   },
-  bottomSheet: {
-    position: 'absolute',
-    left: 18,
-    right: 18,
-    padding: 16,
-    gap: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(20,20,20,0.96)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-  },
   settingsSheet: {
     position: 'absolute',
     right: 18,
@@ -642,23 +621,7 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
   },
-  modeRow: {
-    minHeight: 64,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 8,
-  },
-  modeCopy: {
-    flex: 1,
-    gap: 3,
-  },
-  modeTitle: {
-    color: 'white',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  modeDescription: {
+  settingsDescription: {
     color: '#aaa',
     fontSize: 12,
     lineHeight: 16,
