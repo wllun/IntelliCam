@@ -58,7 +58,6 @@ export default function GalleryScreen() {
         first: PAGE_SIZE,
         mediaType: MediaLibrary.MediaType.photo,
         sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-        resolveWithFullInfo: true,
       });
       setAssets(page.assets);
       setEndCursor(page.endCursor);
@@ -94,7 +93,6 @@ export default function GalleryScreen() {
         after: endCursor,
         mediaType: MediaLibrary.MediaType.photo,
         sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-        resolveWithFullInfo: true,
       });
       setAssets((current) => {
         const known = new Set(current.map((asset) => asset.id));

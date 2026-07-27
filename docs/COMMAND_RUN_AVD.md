@@ -40,10 +40,19 @@ emulator-5554    device
 ## 3. Install the existing native build
 
 IntelliCam uses the native Expo Camera module, so install its current native
-debug build before starting Metro:
+debug build before starting Metro. The shared APK contains both `arm64-v8a`
+for physical phones and `x86_64` for this AVD:
 
 ```powershell
 adb install -r ".\android\app\build\outputs\apk\debug\app-debug.apk"
+```
+
+If the APK does not exist or was previously built as ARM64-only, rebuild the
+shared artifact before installing it:
+
+```powershell
+npm.cmd run android:apk
+adb -e install -r ".\android\app\build\outputs\apk\debug\app-debug.apk"
 ```
 
 ## 4. Start IntelliCam through localhost

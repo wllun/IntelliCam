@@ -57,12 +57,11 @@ an event handler, or another function that runs after the debugger attaches.
 
 ## Build and install a debug APK manually by USB
 
-Build an ARM64 debug APK for a modern Android phone:
+Build one debug APK containing both the physical-device ARM64 libraries and the
+AVD x86_64 libraries:
 
 ```powershell
-cd android
-.\gradlew.bat assembleDebug -PreactNativeArchitectures=arm64-v8a
-cd ..
+npm.cmd run android:apk
 ```
 
 The generated APK is located at:
@@ -76,6 +75,9 @@ Install or update it on the connected phone:
 ```powershell
 adb -d install -r ".\android\app\build\outputs\apk\debug\app-debug.apk"
 ```
+
+The same APK can also be installed on the project's x86_64 AVD. Do not rebuild
+this shared output with an ARM64-only `reactNativeArchitectures` override.
 
 Then connect it to Metro:
 
