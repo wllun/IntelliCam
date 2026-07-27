@@ -18,6 +18,7 @@ import {
   useCameraPermissions,
 } from 'expo-camera';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+import { Image } from 'expo-image';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +28,7 @@ import Animated, {
   FadeOut,
   runOnJS,
   useSharedValue,
+  ZoomIn,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
@@ -51,6 +53,11 @@ const ZOOM_TRANSITION_MS = 180;
 interface FocusPoint {
   x: number;
   y: number;
+}
+
+interface LatestPhoto {
+  key: string;
+  uri: string;
 }
 
 function getLensLabel(lens: string) {
@@ -151,6 +158,7 @@ export default function CameraScreen() {
   const [facing, setFacing] = useState<CameraType>('back');
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  const [latestPhoto, setLatestPhoto] = useState<LatestPhoto>();
   const [presetIndex, setPresetIndex] = useState(0);
   const [cardVisible, setCardVisible] = useState(true);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
@@ -183,11 +191,33 @@ export default function CameraScreen() {
     return () => sub.remove();
   }, []);
 
+  const loadLatestPhoto = useCallback(async () => {
+    try {
+      const album = await MediaLibrary.getAlbumAsync(ALBUM_NAME);
+      if (!album) {
+        setLatestPhoto(undefined);
+        return;
+      }
+
+      const page = await MediaLibrary.getAssetsAsync({
+        album,
+        first: 1,
+        mediaType: MediaLibrary.MediaType.photo,
+        sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+      });
+      const asset = page.assets[0];
+      setLatestPhoto(asset ? { key: asset.id, uri: asset.uri } : undefined);
+    } catch (error) {
+      console.warn('Could not load the latest IntelliCam photo:', error);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       setScreenFocused(true);
+      void loadLatestPhoto();
       return () => setScreenFocused(false);
-    }, []),
+    }, [loadLatestPhoto]),
   );
 
   const cancelMeteringReset = useCallback(() => {
@@ -410,6 +440,10 @@ export default function CameraScreen() {
       } else {
         await MediaLibrary.createAssetAsync(savedPhotoUri, album);
       }
+      setLatestPhoto({
+        key: `${Date.now()}-${savedPhotoUri}`,
+        uri: savedPhotoUri,
+      });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       Alert.alert('Capture failed', String(error));
@@ -708,7 +742,23 @@ export default function CameraScreen() {
             accessibilityRole="button"
             onPress={() => router.push('/gallery' as Href)}
             style={styles.secondaryControl}>
-            <Ionicons name="images-outline" size={25} color="white" />
+            {latestPhoto ? (
+              <Animated.View
+                key={latestPhoto.key}
+                entering={ZoomIn.duration(220).springify()}
+                style={styles.thumbnailFrame}>
+                <Image
+                  source={{ uri: latestPhoto.uri }}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="cover"
+                  transition={100}
+                />
+              </Animated.View>
+            ) : (
+              <View style={styles.thumbnailPlaceholder}>
+                <Ionicons name="images-outline" size={24} color="white" />
+              </View>
+            )}
             <Text style={styles.controlLabel}>Gallery</Text>
           </Pressable>
 
@@ -1040,6 +1090,27 @@ const styles = StyleSheet.create({
     width: 64,
     alignItems: 'center',
     gap: 5,
+  },
+  thumbnailFrame: {
+    width: 46,
+    height: 46,
+    overflow: 'hidden',
+    borderRadius: 12,
+    borderCurve: 'continuous',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: '#222',
+  },
+  thumbnailPlaceholder: {
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderCurve: 'continuous',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(20,20,20,0.7)',
   },
   controlLabel: {
     color: 'white',
