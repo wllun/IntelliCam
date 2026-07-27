@@ -10,12 +10,14 @@ import {
   type GestureResponderEvent,
 } from 'react-native';
 import {
+  CameraOrientation,
   CameraType,
   CameraView,
   FlashMode,
   type CameraRatio,
   useCameraPermissions,
 } from 'expo-camera';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
@@ -66,6 +68,79 @@ function getLensOrder(lens: string) {
   return 3;
 }
 
+function getRatioValue(ratio: CameraRatio, landscape: boolean) {
+  const [first, second] = ratio.split(':').map(Number);
+  const longSide = Math.max(first, second);
+  const shortSide = Math.min(first, second);
+  return landscape ? longSide / shortSide : shortSide / longSide;
+}
+
+function getPreviewFrame(
+  containerWidth: number,
+  containerHeight: number,
+  ratio: CameraRatio,
+  landscape: boolean,
+) {
+  const targetRatio = getRatioValue(ratio, landscape);
+  let frameWidth = containerWidth;
+  let frameHeight = frameWidth / targetRatio;
+
+  if (frameHeight > containerHeight) {
+    frameHeight = containerHeight;
+    frameWidth = frameHeight * targetRatio;
+  }
+
+  return {
+    left: (containerWidth - frameWidth) / 2,
+    top: (containerHeight - frameHeight) / 2,
+    width: frameWidth,
+    height: frameHeight,
+  };
+}
+
+function getLargestPictureSize(sizes: string[]) {
+  return sizes.reduce<{ size?: string; pixels: number }>(
+    (largest, size) => {
+      const [pictureWidth, pictureHeight] = size.toLowerCase().split('x').map(Number);
+      const pixels = pictureWidth * pictureHeight;
+      return Number.isFinite(pixels) && pixels > largest.pixels
+        ? { size, pixels }
+        : largest;
+    },
+    { pixels: 0 },
+  ).size;
+}
+
+function getCenteredCrop(
+  sourceWidth: number,
+  sourceHeight: number,
+  ratio: CameraRatio,
+) {
+  const landscape = sourceWidth >= sourceHeight;
+  const targetRatio = getRatioValue(ratio, landscape);
+  const sourceRatio = sourceWidth / sourceHeight;
+
+  if (Math.abs(sourceRatio - targetRatio) < 0.001) return undefined;
+
+  if (sourceRatio > targetRatio) {
+    const width = Math.round(sourceHeight * targetRatio);
+    return {
+      originX: Math.floor((sourceWidth - width) / 2),
+      originY: 0,
+      width,
+      height: sourceHeight,
+    };
+  }
+
+  const height = Math.round(sourceWidth / targetRatio);
+  return {
+    originX: 0,
+    originY: Math.floor((sourceHeight - height) / 2),
+    width: sourceWidth,
+    height,
+  };
+}
+
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -87,6 +162,10 @@ export default function CameraScreen() {
   const [zoom, setZoom] = useState(0);
   const [availableLenses, setAvailableLenses] = useState<string[]>([]);
   const [selectedLens, setSelectedLens] = useState<string>();
+  const [pictureSize, setPictureSize] = useState<string>();
+  const [cameraOrientation, setCameraOrientation] = useState<CameraOrientation>(
+    width > height ? 'landscapeLeft' : 'portrait',
+  );
   const [gridLines, setGridLines] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
@@ -170,12 +249,24 @@ export default function CameraScreen() {
     setZoom(0);
     setAvailableLenses([]);
     setSelectedLens(undefined);
+    setPictureSize(undefined);
   }, [cancelZoomAnimation, facing]);
+
+  useEffect(() => {
+    setCameraOrientation(width > height ? 'landscapeLeft' : 'portrait');
+  }, [height, width]);
 
   const hasCameraPermission = cameraPermission?.granted ?? false;
   const hasMediaPermission = mediaPermission?.granted ?? false;
   const preset = PRESETS[presetIndex];
   const isNormalMode = captureMode === 'normal';
+  const isLandscapeCapture = cameraOrientation.startsWith('landscape');
+  const previewFrame = getPreviewFrame(
+    width,
+    height,
+    aspectRatio,
+    isLandscapeCapture,
+  );
 
   const changePreset = (direction: 1 | -1) => {
     setPresetIndex((i) => (i + direction + PRESETS.length) % PRESETS.length);
@@ -218,8 +309,8 @@ export default function CameraScreen() {
     if (!isNormalMode || settingsVisible || modeMenuVisible) return;
     const { locationX, locationY } = event.nativeEvent;
     const point = {
-      x: Math.max(48, Math.min(width - 48, locationX)),
-      y: Math.max(insets.top + 76, Math.min(height - insets.bottom - 190, locationY)),
+      x: previewFrame.left + locationX,
+      y: previewFrame.top + locationY,
     };
     setFocusPoint(point);
     setExposureCompensation(0);
@@ -299,11 +390,25 @@ export default function CameraScreen() {
         shutterSound: false,
       });
       if (!photo) throw new Error('The camera did not return a photo.');
+      const crop = getCenteredCrop(photo.width, photo.height, aspectRatio);
+      let savedPhotoUri = photo.uri;
+
+      if (crop) {
+        const context = ImageManipulator.manipulate(photo.uri);
+        context.crop(crop);
+        const renderedImage = await context.renderAsync();
+        const croppedPhoto = await renderedImage.saveAsync({
+          compress: 1,
+          format: SaveFormat.JPEG,
+        });
+        savedPhotoUri = croppedPhoto.uri;
+      }
+
       const album = await MediaLibrary.getAlbumAsync(ALBUM_NAME);
       if (!album) {
-        await MediaLibrary.createAlbumAsync(ALBUM_NAME, undefined, false, photo.uri);
+        await MediaLibrary.createAlbumAsync(ALBUM_NAME, undefined, false, savedPhotoUri);
       } else {
-        await MediaLibrary.createAssetAsync(photo.uri, album);
+        await MediaLibrary.createAssetAsync(savedPhotoUri, album);
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
@@ -317,73 +422,87 @@ export default function CameraScreen() {
   return (
     <GestureDetector gesture={cameraGesture}>
       <View style={styles.container}>
-        {appActive && screenFocused && (
-          <CameraView
-            key={`${facing}-${aspectRatio}`}
-            ref={cameraRef}
-            style={StyleSheet.absoluteFill}
-            facing={facing}
-            mode="picture"
-            autofocus={focusPoint ? 'on' : 'off'}
-            flash={flash}
-            zoom={zoom}
-            selectedLens={process.env.EXPO_OS === 'ios' && facing === 'back' ? selectedLens : undefined}
-            ratio={aspectRatio}
-            mirror={facing === 'front'}
-            onAvailableLensesChanged={({ lenses }) => {
-              const sortedLenses = [...lenses].sort((a, b) => getLensOrder(a) - getLensOrder(b));
-              setAvailableLenses(sortedLenses);
-              setSelectedLens((current) => (
-                current && sortedLenses.includes(current)
-                  ? current
-                  : sortedLenses.find((lens) => lens.includes('WideAngle')) ?? sortedLenses[0]
-              ));
-            }}
-            onCameraReady={async () => {
-              setCameraReady(true);
-              if (process.env.EXPO_OS === 'ios' && facing === 'back') {
-                const lenses = await cameraRef.current?.getAvailableLensesAsync();
-                if (lenses?.length) {
-                  const sortedLenses = [...lenses].sort(
-                    (a, b) => getLensOrder(a) - getLensOrder(b),
-                  );
-                  setAvailableLenses(sortedLenses);
-                  setSelectedLens((current) => (
-                    current && sortedLenses.includes(current)
-                      ? current
-                      : sortedLenses.find((lens) => lens.includes('WideAngle')) ?? sortedLenses[0]
-                  ));
+        <View style={[styles.previewFrame, previewFrame]}>
+          {appActive && screenFocused && (
+            <CameraView
+              key={facing}
+              ref={cameraRef}
+              style={StyleSheet.absoluteFill}
+              facing={facing}
+              mode="picture"
+              autofocus={focusPoint ? 'on' : 'off'}
+              flash={flash}
+              zoom={zoom}
+              pictureSize={pictureSize}
+              responsiveOrientationWhenOrientationLocked
+              selectedLens={process.env.EXPO_OS === 'ios' && facing === 'back' ? selectedLens : undefined}
+              mirror={facing === 'front'}
+              onResponsiveOrientationChanged={({ orientation }) => {
+                setCameraOrientation(orientation);
+              }}
+              onAvailableLensesChanged={({ lenses }) => {
+                const sortedLenses = [...lenses].sort((a, b) => getLensOrder(a) - getLensOrder(b));
+                setAvailableLenses(sortedLenses);
+                setSelectedLens((current) => (
+                  current && sortedLenses.includes(current)
+                    ? current
+                    : sortedLenses.find((lens) => lens.includes('WideAngle')) ?? sortedLenses[0]
+                ));
+              }}
+              onCameraReady={async () => {
+                try {
+                  const sizes = await cameraRef.current?.getAvailablePictureSizesAsync();
+                  if (sizes?.length) setPictureSize(getLargestPictureSize(sizes));
+
+                  if (process.env.EXPO_OS === 'ios' && facing === 'back') {
+                    const lenses = await cameraRef.current?.getAvailableLensesAsync();
+                    if (lenses?.length) {
+                      const sortedLenses = [...lenses].sort(
+                        (a, b) => getLensOrder(a) - getLensOrder(b),
+                      );
+                      setAvailableLenses(sortedLenses);
+                      setSelectedLens((current) => (
+                        current && sortedLenses.includes(current)
+                          ? current
+                          : sortedLenses.find((lens) => lens.includes('WideAngle')) ?? sortedLenses[0]
+                      ));
+                    }
+                  }
+                } catch (error) {
+                  console.warn('Could not query camera capabilities:', error);
+                } finally {
+                  setCameraReady(true);
                 }
-              }
-            }}
-            onMountError={(error) => {
-              setCameraReady(false);
-              if (facing === 'back') {
-                setFacing('front');
-              } else {
-                Alert.alert('Camera unavailable', error.message);
-              }
-            }}
-          />
-        )}
+              }}
+              onMountError={(error) => {
+                setCameraReady(false);
+                if (facing === 'back') {
+                  setFacing('front');
+                } else {
+                  Alert.alert('Camera unavailable', error.message);
+                }
+              }}
+            />
+          )}
 
-        {isNormalMode && (
-          <Pressable
-            accessibilityLabel="Camera preview"
-            accessibilityHint="Tap a subject to focus and meter"
-            onPress={focusAt}
-            style={StyleSheet.absoluteFill}
-          />
-        )}
+          {isNormalMode && (
+            <Pressable
+              accessibilityLabel="Camera preview"
+              accessibilityHint="Tap a subject to focus and meter"
+              onPress={focusAt}
+              style={StyleSheet.absoluteFill}
+            />
+          )}
 
-        {gridLines && (
-          <View pointerEvents="none" style={styles.grid}>
-            <View style={[styles.gridLineVertical, { left: '33.333%' }]} />
-            <View style={[styles.gridLineVertical, { left: '66.666%' }]} />
-            <View style={[styles.gridLineHorizontal, { top: '33.333%' }]} />
-            <View style={[styles.gridLineHorizontal, { top: '66.666%' }]} />
-          </View>
-        )}
+          {gridLines && (
+            <View pointerEvents="none" style={styles.grid}>
+              <View style={[styles.gridLineVertical, { left: '33.333%' }]} />
+              <View style={[styles.gridLineVertical, { left: '66.666%' }]} />
+              <View style={[styles.gridLineHorizontal, { top: '33.333%' }]} />
+              <View style={[styles.gridLineHorizontal, { top: '66.666%' }]} />
+            </View>
+          )}
+        </View>
 
         {countdown !== undefined && (
           <Animated.View entering={FadeIn.duration(120)} style={styles.countdown}>
@@ -656,7 +775,6 @@ export default function CameraScreen() {
                   <Pressable
                     key={ratio}
                     onPress={() => {
-                      setCameraReady(false);
                       setAspectRatio(ratio);
                       Haptics.selectionAsync();
                     }}
@@ -720,6 +838,11 @@ export default function CameraScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'black',
+  },
+  previewFrame: {
+    position: 'absolute',
+    overflow: 'hidden',
     backgroundColor: 'black',
   },
   centered: {
