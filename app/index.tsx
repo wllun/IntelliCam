@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  AppState,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+  type GestureResponderEvent,
+} from 'react-native';
 import {
   CameraType,
   CameraView,
@@ -25,9 +34,19 @@ type TimerSeconds = 0 | 3 | 10;
 const FLASH_MODES: FlashMode[] = ['off', 'auto', 'on'];
 const ASPECT_RATIOS: CameraRatio[] = ['4:3', '1:1', '16:9'];
 const TIMER_OPTIONS: TimerSeconds[] = [0, 3, 10];
+const METERING_RESET_MS = 5000;
+const EXPOSURE_MIN = -2;
+const EXPOSURE_MAX = 2;
+const EXPOSURE_STEP = 0.3;
+
+interface FocusPoint {
+  x: number;
+  y: number;
+}
 
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
   const router = useRouter();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
@@ -49,6 +68,10 @@ export default function CameraScreen() {
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
   const [hdrEnabled, setHdrEnabled] = useState(false);
   const [countdown, setCountdown] = useState<number>();
+  const [focusPoint, setFocusPoint] = useState<FocusPoint>();
+  const [exposureCompensation, setExposureCompensation] = useState(0);
+  const [meteringLocked, setMeteringLocked] = useState(false);
+  const meteringResetRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
@@ -61,6 +84,31 @@ export default function CameraScreen() {
       return () => setScreenFocused(false);
     }, []),
   );
+
+  const cancelMeteringReset = useCallback(() => {
+    if (meteringResetRef.current) {
+      clearTimeout(meteringResetRef.current);
+      meteringResetRef.current = undefined;
+    }
+  }, []);
+
+  const resetMetering = useCallback(() => {
+    cancelMeteringReset();
+    setFocusPoint(undefined);
+    setExposureCompensation(0);
+    setMeteringLocked(false);
+  }, [cancelMeteringReset]);
+
+  const scheduleMeteringReset = useCallback(() => {
+    cancelMeteringReset();
+    meteringResetRef.current = setTimeout(resetMetering, METERING_RESET_MS);
+  }, [cancelMeteringReset, resetMetering]);
+
+  useEffect(() => cancelMeteringReset, [cancelMeteringReset]);
+
+  useEffect(() => {
+    resetMetering();
+  }, [captureMode, facing, resetMetering]);
 
   const hasCameraPermission = cameraPermission?.granted ?? false;
   const hasMediaPermission = mediaPermission?.granted ?? false;
@@ -84,6 +132,44 @@ export default function CameraScreen() {
 
   const cycleFlash = () => {
     setFlash((current) => FLASH_MODES[(FLASH_MODES.indexOf(current) + 1) % FLASH_MODES.length]);
+    Haptics.selectionAsync();
+  };
+
+  const focusAt = (event: GestureResponderEvent) => {
+    if (!isNormalMode || settingsVisible || modeMenuVisible) return;
+    const { locationX, locationY } = event.nativeEvent;
+    const point = {
+      x: Math.max(48, Math.min(width - 48, locationX)),
+      y: Math.max(insets.top + 76, Math.min(height - insets.bottom - 190, locationY)),
+    };
+    setFocusPoint(point);
+    setExposureCompensation(0);
+    setMeteringLocked(false);
+    scheduleMeteringReset();
+    Haptics.selectionAsync();
+  };
+
+  const changeExposure = (direction: 1 | -1) => {
+    setExposureCompensation((current) =>
+      Math.max(
+        EXPOSURE_MIN,
+        Math.min(EXPOSURE_MAX, Number((current + direction * EXPOSURE_STEP).toFixed(1))),
+      ),
+    );
+    if (!meteringLocked) scheduleMeteringReset();
+    Haptics.selectionAsync();
+  };
+
+  const toggleMeteringLock = () => {
+    if (!focusPoint) return;
+    setMeteringLocked((locked) => {
+      if (locked) {
+        scheduleMeteringReset();
+      } else {
+        cancelMeteringReset();
+      }
+      return !locked;
+    });
     Haptics.selectionAsync();
   };
 
@@ -159,6 +245,7 @@ export default function CameraScreen() {
             style={StyleSheet.absoluteFill}
             facing={facing}
             mode="picture"
+            autofocus={focusPoint ? 'on' : 'off'}
             flash={flash}
             zoom={zoom}
             ratio={aspectRatio}
@@ -175,6 +262,15 @@ export default function CameraScreen() {
           />
         )}
 
+        {isNormalMode && (
+          <Pressable
+            accessibilityLabel="Camera preview"
+            accessibilityHint="Tap a subject to focus and meter"
+            onPress={focusAt}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
+
         {gridLines && (
           <View pointerEvents="none" style={styles.grid}>
             <View style={[styles.gridLineVertical, { left: '33.333%' }]} />
@@ -187,6 +283,61 @@ export default function CameraScreen() {
         {countdown !== undefined && (
           <Animated.View entering={FadeIn.duration(120)} style={styles.countdown}>
             <Text style={styles.countdownText}>{countdown}</Text>
+          </Animated.View>
+        )}
+
+        {isNormalMode && focusPoint && (
+          <Animated.View
+            entering={FadeIn.duration(120)}
+            exiting={FadeOut.duration(160)}
+            pointerEvents="box-none"
+            style={[
+              styles.meteringControl,
+              {
+                left: Math.min(width - 126, focusPoint.x - 38),
+                top: Math.min(height - insets.bottom - 270, focusPoint.y - 38),
+              },
+            ]}>
+            <View
+              accessible
+              accessibilityLabel={`Focus point. Exposure ${exposureCompensation > 0 ? 'plus ' : ''}${exposureCompensation.toFixed(1)} EV. ${meteringLocked ? 'Locked' : 'Automatic reset enabled'}`}
+              style={[styles.focusReticle, meteringLocked && styles.focusReticleLocked]}>
+              <View style={styles.focusReticleCenter} />
+            </View>
+            <View style={styles.exposureControl}>
+              <Pressable
+                accessibilityLabel="Increase exposure"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => changeExposure(1)}
+                style={styles.exposureButton}>
+                <Ionicons name="sunny-outline" size={16} color="white" />
+                <Ionicons name="add" size={11} color="white" />
+              </Pressable>
+              <Text style={styles.exposureValue}>
+                {exposureCompensation > 0 ? '+' : ''}
+                {exposureCompensation.toFixed(1)}
+              </Text>
+              <Pressable
+                accessibilityLabel="Decrease exposure"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => changeExposure(-1)}
+                style={styles.exposureButton}>
+                <Ionicons name="sunny-outline" size={16} color="white" />
+                <Ionicons name="remove" size={11} color="white" />
+              </Pressable>
+            </View>
+            <Pressable
+              accessibilityLabel={meteringLocked ? 'Unlock focus and exposure' : 'Lock focus and exposure'}
+              accessibilityRole="button"
+              accessibilityState={{ checked: meteringLocked }}
+              hitSlop={8}
+              onPress={toggleMeteringLock}
+              style={[styles.meteringLock, meteringLocked && styles.meteringLockActive]}>
+              <Ionicons name={meteringLocked ? 'lock-closed' : 'lock-open-outline'} size={14} color="white" />
+              <Text style={styles.meteringLockText}>{meteringLocked ? 'AE/AF LOCK' : 'LOCK'}</Text>
+            </Pressable>
           </Animated.View>
         )}
 
@@ -679,6 +830,84 @@ const styles = StyleSheet.create({
     fontSize: 54,
     fontWeight: '300',
     fontVariant: ['tabular-nums'],
+  },
+  meteringControl: {
+    position: 'absolute',
+    width: 126,
+    height: 142,
+  },
+  focusReticle: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 76,
+    height: 76,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFD84D',
+    borderRadius: 10,
+  },
+  focusReticleLocked: {
+    borderColor: '#FFB329',
+    borderWidth: 2,
+  },
+  focusReticleCenter: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#FFD84D',
+  },
+  exposureControl: {
+    position: 'absolute',
+    left: 84,
+    top: -8,
+    width: 42,
+    height: 94,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    borderRadius: 21,
+    backgroundColor: 'rgba(16,16,16,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  exposureButton: {
+    width: 34,
+    height: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exposureValue: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  meteringLock: {
+    position: 'absolute',
+    left: 0,
+    top: 86,
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    borderRadius: 17,
+    backgroundColor: 'rgba(16,16,16,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  meteringLockActive: {
+    backgroundColor: 'rgba(118,77,0,0.88)',
+    borderColor: '#FFB329',
+  },
+  meteringLockText: {
+    color: 'white',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
   sheetTitle: {
     color: 'white',
