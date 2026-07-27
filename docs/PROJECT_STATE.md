@@ -11,6 +11,10 @@ gridlines, aspect-ratio selection, and a capture timer. Smart Preset mode provid
 "Focus card" UI; swipe to switch presets and view settings and tips—but
 presets do not affect capture yet.
 
+The implementation proposal for adapting each mode to the current environment
+and device capabilities is documented in
+[`ADAPTIVE_CAPTURE_PROPOSAL.md`](ADAPTIVE_CAPTURE_PROPOSAL.md).
+
 ## Tasks
 
 - [x] Expo + Expo Router project scaffolded (SDK 54, TypeScript, new architecture enabled)
@@ -31,6 +35,7 @@ presets do not affect capture yet.
 - [ ] Implement real HDR multi-frame capture and merge (current HDR selection is UI only)
 - [ ] Persist gridlines, aspect ratio, timer, and HDR choices
 - [ ] Wire presets into actual capture (apply ISO/shutter/focus/RAW to the camera before shooting)
+- [ ] Implement the adaptive capture engine defined in `ADAPTIVE_CAPTURE_PROPOSAL.md`; fixed preset values remain UI suggestions until a resolved capture plan is applied
 - [ ] Move presets to SQLite `camera_presets` table (enables custom/user presets)
 - [ ] Local SQLite `photos` table (capture metadata)
 - [ ] Local SQLite for `user_settings`, `edit_history`, `capture_sessions`
