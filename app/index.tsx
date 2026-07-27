@@ -20,7 +20,12 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { FadeIn, FadeOut, runOnJS } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  runOnJS,
+  useSharedValue,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 
@@ -38,10 +43,27 @@ const METERING_RESET_MS = 5000;
 const EXPOSURE_MIN = -2;
 const EXPOSURE_MAX = 2;
 const EXPOSURE_STEP = 0.3;
+const DIGITAL_ZOOM_STOPS = [0, 0.25, 0.5];
+const ZOOM_TRANSITION_MS = 180;
 
 interface FocusPoint {
   x: number;
   y: number;
+}
+
+function getLensLabel(lens: string) {
+  if (lens.includes('UltraWide')) return '0.5×';
+  if (lens.includes('Telephoto')) return 'Tele';
+  if (lens.includes('WideAngle')) return '1×';
+  if (lens.includes('TrueDepth')) return 'Front';
+  return 'Lens';
+}
+
+function getLensOrder(lens: string) {
+  if (lens.includes('UltraWide')) return 0;
+  if (lens.includes('WideAngle')) return 1;
+  if (lens.includes('Telephoto')) return 2;
+  return 3;
 }
 
 export default function CameraScreen() {
@@ -63,6 +85,8 @@ export default function CameraScreen() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [flash, setFlash] = useState<FlashMode>('off');
   const [zoom, setZoom] = useState(0);
+  const [availableLenses, setAvailableLenses] = useState<string[]>([]);
+  const [selectedLens, setSelectedLens] = useState<string>();
   const [gridLines, setGridLines] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
@@ -72,6 +96,8 @@ export default function CameraScreen() {
   const [exposureCompensation, setExposureCompensation] = useState(0);
   const [meteringLocked, setMeteringLocked] = useState(false);
   const meteringResetRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const zoomAnimationRef = useRef<number | undefined>(undefined);
+  const pinchStartZoom = useSharedValue(0);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
@@ -106,9 +132,45 @@ export default function CameraScreen() {
 
   useEffect(() => cancelMeteringReset, [cancelMeteringReset]);
 
+  const cancelZoomAnimation = useCallback(() => {
+    if (zoomAnimationRef.current !== undefined) {
+      cancelAnimationFrame(zoomAnimationRef.current);
+      zoomAnimationRef.current = undefined;
+    }
+  }, []);
+
+  const animateZoomTo = useCallback((target: number) => {
+    cancelZoomAnimation();
+    const clampedTarget = Math.max(0, Math.min(1, target));
+    const startedAt = Date.now();
+    const startZoom = zoom;
+
+    const step = () => {
+      const progress = Math.min(1, (Date.now() - startedAt) / ZOOM_TRANSITION_MS);
+      const easedProgress = 1 - Math.pow(1 - progress, 3);
+      setZoom(startZoom + (clampedTarget - startZoom) * easedProgress);
+      if (progress < 1) {
+        zoomAnimationRef.current = requestAnimationFrame(step);
+      } else {
+        zoomAnimationRef.current = undefined;
+      }
+    };
+
+    zoomAnimationRef.current = requestAnimationFrame(step);
+  }, [cancelZoomAnimation, zoom]);
+
+  useEffect(() => cancelZoomAnimation, [cancelZoomAnimation]);
+
   useEffect(() => {
     resetMetering();
   }, [captureMode, facing, resetMetering]);
+
+  useEffect(() => {
+    cancelZoomAnimation();
+    setZoom(0);
+    setAvailableLenses([]);
+    setSelectedLens(undefined);
+  }, [cancelZoomAnimation, facing]);
 
   const hasCameraPermission = cameraPermission?.granted ?? false;
   const hasMediaPermission = mediaPermission?.granted ?? false;
@@ -121,6 +183,10 @@ export default function CameraScreen() {
     Haptics.selectionAsync();
   };
 
+  const updateZoomFromPinch = (nextZoom: number) => {
+    setZoom(Math.max(0, Math.min(1, nextZoom)));
+  };
+
   const swipe = Gesture.Pan()
     .enabled(!isNormalMode)
     .activeOffsetX([-30, 30])
@@ -129,6 +195,19 @@ export default function CameraScreen() {
         runOnJS(changePreset)(e.translationX < 0 ? 1 : -1);
       }
     });
+
+  const pinch = Gesture.Pinch()
+    .enabled(isNormalMode)
+    .onBegin(() => {
+      pinchStartZoom.value = zoom;
+      runOnJS(cancelZoomAnimation)();
+    })
+    .onUpdate((event) => {
+      const delta = Math.log2(Math.max(0.1, event.scale)) * 0.22;
+      runOnJS(updateZoomFromPinch)(pinchStartZoom.value + delta);
+    });
+
+  const cameraGesture = Gesture.Simultaneous(swipe, pinch);
 
   const cycleFlash = () => {
     setFlash((current) => FLASH_MODES[(FLASH_MODES.indexOf(current) + 1) % FLASH_MODES.length]);
@@ -236,7 +315,7 @@ export default function CameraScreen() {
   };
 
   return (
-    <GestureDetector gesture={swipe}>
+    <GestureDetector gesture={cameraGesture}>
       <View style={styles.container}>
         {appActive && screenFocused && (
           <CameraView
@@ -248,9 +327,35 @@ export default function CameraScreen() {
             autofocus={focusPoint ? 'on' : 'off'}
             flash={flash}
             zoom={zoom}
+            selectedLens={process.env.EXPO_OS === 'ios' && facing === 'back' ? selectedLens : undefined}
             ratio={aspectRatio}
             mirror={facing === 'front'}
-            onCameraReady={() => setCameraReady(true)}
+            onAvailableLensesChanged={({ lenses }) => {
+              const sortedLenses = [...lenses].sort((a, b) => getLensOrder(a) - getLensOrder(b));
+              setAvailableLenses(sortedLenses);
+              setSelectedLens((current) => (
+                current && sortedLenses.includes(current)
+                  ? current
+                  : sortedLenses.find((lens) => lens.includes('WideAngle')) ?? sortedLenses[0]
+              ));
+            }}
+            onCameraReady={async () => {
+              setCameraReady(true);
+              if (process.env.EXPO_OS === 'ios' && facing === 'back') {
+                const lenses = await cameraRef.current?.getAvailableLensesAsync();
+                if (lenses?.length) {
+                  const sortedLenses = [...lenses].sort(
+                    (a, b) => getLensOrder(a) - getLensOrder(b),
+                  );
+                  setAvailableLenses(sortedLenses);
+                  setSelectedLens((current) => (
+                    current && sortedLenses.includes(current)
+                      ? current
+                      : sortedLenses.find((lens) => lens.includes('WideAngle')) ?? sortedLenses[0]
+                  ));
+                }
+              }
+            }}
             onMountError={(error) => {
               setCameraReady(false);
               if (facing === 'back') {
@@ -428,22 +533,52 @@ export default function CameraScreen() {
         </View>}
 
         {isNormalMode && (
-          <View style={[styles.zoomControls, { bottom: insets.bottom + 122 }]}>
-            {[0, 0.12, 0.28].map((value, index) => (
-              <Pressable
-                key={value}
-                accessibilityLabel={`Zoom level ${index + 1}`}
-                accessibilityRole="button"
-                onPress={() => {
-                  setZoom(value);
-                  Haptics.selectionAsync();
-                }}
-                style={[styles.zoomButton, zoom === value && styles.zoomButtonActive]}>
-                <Text style={[styles.zoomText, zoom === value && styles.zoomTextActive]}>
-                  {index + 1}×
-                </Text>
-              </Pressable>
-            ))}
+          <View style={[styles.zoomCluster, { bottom: insets.bottom + 112 }]}>
+            <View style={styles.zoomReadout}>
+              <Text style={styles.zoomReadoutText}>
+                {selectedLens ? `${getLensLabel(selectedLens)} lens · ` : ''}
+                Digital {Math.round(zoom * 100)}% of max
+              </Text>
+            </View>
+            <View style={styles.zoomControls}>
+              {availableLenses.length > 1
+                ? availableLenses.map((lens) => (
+                    <Pressable
+                      key={lens}
+                      accessibilityLabel={`Use ${getLensLabel(lens)} camera lens`}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        cancelZoomAnimation();
+                        setZoom(0);
+                        setSelectedLens(lens);
+                        Haptics.selectionAsync();
+                      }}
+                      style={[styles.zoomButton, selectedLens === lens && styles.zoomButtonActive]}>
+                      <Text style={[styles.zoomText, selectedLens === lens && styles.zoomTextActive]}>
+                        {getLensLabel(lens)}
+                      </Text>
+                    </Pressable>
+                  ))
+                : DIGITAL_ZOOM_STOPS.map((value) => {
+                    const active = Math.abs(zoom - value) < 0.015;
+                    return (
+                      <Pressable
+                        key={value}
+                        accessibilityLabel={`Digital zoom ${Math.round(value * 100)} percent of maximum`}
+                        accessibilityRole="button"
+                        onPress={() => {
+                          animateZoomTo(value);
+                          Haptics.selectionAsync();
+                        }}
+                        style={[styles.zoomButton, active && styles.zoomButtonActive]}>
+                        <Text style={[styles.zoomText, active && styles.zoomTextActive]}>
+                          {Math.round(value * 100)}%
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+            </View>
+            <Text style={styles.pinchHint}>Pinch anywhere to zoom</Text>
           </View>
         )}
 
@@ -721,9 +856,25 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: 'rgba(255,255,255,0.35)',
   },
-  zoomControls: {
+  zoomCluster: {
     position: 'absolute',
     alignSelf: 'center',
+    alignItems: 'center',
+    gap: 5,
+  },
+  zoomReadout: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(20,20,20,0.65)',
+  },
+  zoomReadoutText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  zoomControls: {
     flexDirection: 'row',
     gap: 8,
     padding: 5,
@@ -731,8 +882,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(20,20,20,0.65)',
   },
   zoomButton: {
-    width: 34,
+    minWidth: 44,
     height: 34,
+    paddingHorizontal: 7,
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
@@ -747,6 +899,11 @@ const styles = StyleSheet.create({
   },
   zoomTextActive: {
     color: '#111',
+  },
+  pinchHint: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 9,
+    fontWeight: '600',
   },
   captureControls: {
     position: 'absolute',
