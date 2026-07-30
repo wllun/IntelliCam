@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-07-26
+Last updated: 2026-07-27
 
 ## Where we are
 
@@ -32,7 +32,8 @@ and device capabilities is documented in
 - [x] Gridlines overlay and 3-second/10-second capture countdown
 - [x] Aspect-ratio selection (`4:3`, `1:1`, `16:9`) passed to Expo Camera
 - [ ] Upgrade camera zoom controls: add `0.5x`, keep `1x`, `2x`, and `3x`, and support hand-controlled pinch gestures to zoom smoothly in and out
-- [ ] Implement real HDR multi-frame capture and merge (current HDR selection is UI only)
+- [ ] Implement real HDR multi-frame capture and merge (HDR must remain disabled
+  and labelled "Coming later" until capture processing is implemented)
 - [ ] Persist gridlines, aspect ratio, timer, and HDR choices
 - [ ] Wire presets into actual capture (apply ISO/shutter/focus/RAW to the camera before shooting)
 - [ ] Implement the adaptive capture engine defined in `ADAPTIVE_CAPTURE_PROPOSAL.md`; fixed preset values remain UI suggestions until a resolved capture plan is applied
@@ -52,8 +53,14 @@ The three-dot camera settings panel contains:
 - **Aspect ratio:** `4:3`, `1:1`, or `16:9`. Default: `4:3`. In portrait
   orientation, the `4:3` camera ratio appears as 3:4 on screen.
 - **Timer:** off, 3 seconds, or 10 seconds. Default: off.
-- **HDR:** selectable in the UI, but not applied to capture until the
-  multi-frame processing engine is implemented.
+- **HDR:** disabled and labelled **Coming later**. It must not be selectable
+  while it has no effect on captured photos. A genuine HDR implementation
+  requires:
+  - several exposure-bracketed frames;
+  - frame alignment;
+  - ghost removal for moving subjects;
+  - tone mapping;
+  - final image merging and saving.
 
 Flash, zoom, and front/rear switching remain direct controls on the camera
 surface. Photo-size selection is no longer exposed in the settings panel.
