@@ -1,3 +1,23 @@
+1. Copy the latest code to the short build folder
+    robocopy "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules android ios .expo dist web-build
+
+2. Update the generated project
+    cd C:\ICBuild
+    npm.cmd install
+    npx.cmd expo prebuild --clean --platform android --no-install
+
+3. Build the physical-device APK
+    cd C:\ICBuild\android
+    .\gradlew.bat app:assembleRelease -PreactNativeArchitectures=arm64-v8a "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
+
+4. Wait until `BUILD SUCCESSFUL`
+
+5. Connect and update the app
+    adb devices
+    adb -d install -r "C:\ICBuild\android\app\build\outputs\apk\release\app-release.apk"
+
+-------------------------------------------------------------------------------------------------------
+
 1. Local development APK (Best for coding and debugging. It contains the Expo development launcher and requires Metro)
     a. Build, install, start Metro, and open the app
     npx.cmd expo run:android --device
