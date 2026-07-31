@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-07-27
+Last updated: 2026-08-01
 
 ## Where we are
 
@@ -28,10 +28,10 @@ and device capabilities is documented in
 - [x] IntelliCam-only gallery - grid, pull-to-refresh, pagination, and full-screen preview for photos in the named MediaLibrary album
 - [x] Open a capture-mode selector from the mode button
 - [x] Open the camera settings panel from the three-dot button
-- [x] Camera settings panel contains Gridlines, Aspect Ratio, Timer, and HDR; zoom, flash, camera-facing, and photo-size remain camera-surface controls instead of three-dot settings
+- [x] Camera settings panel contains Gridlines, Aspect Ratio, Timer, Shutter sound, and HDR; zoom, flash, camera-facing, and photo-size remain camera-surface controls instead of three-dot settings
 - [x] Gridlines overlay and 3-second/10-second capture countdown
 - [x] Aspect-ratio selection (`4:3`, `1:1`, `16:9`) passed to Expo Camera
-- [ ] Upgrade camera zoom controls: add `0.5x`, keep `1x`, `2x`, and `3x`, and support hand-controlled pinch gestures to zoom smoothly in and out
+- [x] Upgrade camera zoom controls: add `0.5x`, keep `1x`, `2x`, and `3x`, and support hand-controlled pinch gestures to zoom smoothly in and out
 - [ ] Implement real HDR multi-frame capture and merge (HDR must remain disabled
   and labelled "Coming later" until capture processing is implemented)
 - [ ] Persist gridlines, aspect ratio, timer, and HDR choices
@@ -53,6 +53,8 @@ The three-dot camera settings panel contains:
 - **Aspect ratio:** `4:3`, `1:1`, or `16:9`. Default: `4:3`. In portrait
   orientation, the `4:3` camera ratio appears as 3:4 on screen.
 - **Timer:** off, 3 seconds, or 10 seconds. Default: off.
+- **Shutter sound:** plays the native camera shutter sound when enabled.
+  Default: off.
 - **HDR:** disabled and labelled **Coming later**. It must not be selectable
   while it has no effect on captured photos. A genuine HDR implementation
   requires:
@@ -65,16 +67,18 @@ The three-dot camera settings panel contains:
 Flash, zoom, and front/rear switching remain direct controls on the camera
 surface. Photo-size selection is no longer exposed in the settings panel.
 
-### Planned zoom interaction
+### Zoom interaction
 
-- Provide quick lens/zoom buttons for `0.5x`, `1x`, `2x`, and `3x`.
-- Support two-finger pinch gestures directly on the camera preview for smooth
+- Provides quick lens/zoom buttons for `0.5x`, `1x`, `2x`, and `3x`.
+- Supports two-finger pinch gestures directly on the camera preview for smooth
   zooming in and out.
-- Keep the displayed zoom value synchronized when the user switches between
+- Keeps the displayed zoom value synchronized when the user switches between
   quick buttons and pinch gestures.
-- Clamp the requested zoom to the limits supported by the active device camera.
-- Treat `0.5x` as device-dependent: show or enable it only when an ultrawide
+- Clamps the requested zoom to the limits supported by the active device camera.
+- Treats `0.5x` as device-dependent: it is enabled only when an ultrawide
   camera/lens is available.
+- Uses device-dependent Expo Camera zoom percentages for the `2x` and `3x`
+  quick presets; they are not guaranteed optical magnifications.
 
 These choices are currently session-only. Persist them in the future
 `user_settings` table so they remain selected after the app restarts.

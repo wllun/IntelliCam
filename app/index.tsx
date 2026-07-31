@@ -47,7 +47,12 @@ const METERING_RESET_MS = 5000;
 const EXPOSURE_MIN = -2;
 const EXPOSURE_MAX = 2;
 const EXPOSURE_STEP = 0.3;
-const DIGITAL_ZOOM_STOPS = [0, 0.25, 0.5];
+const QUICK_ZOOM_LEVELS = [0.5, 1, 2, 3] as const;
+const DIGITAL_ZOOM_BY_LEVEL: Record<Exclude<(typeof QUICK_ZOOM_LEVELS)[number], 0.5>, number> = {
+  1: 0,
+  2: 0.25,
+  3: 0.5,
+};
 const ZOOM_TRANSITION_MS = 180;
 
 interface FocusPoint {
@@ -291,6 +296,10 @@ export default function CameraScreen() {
   const hasMediaPermission = mediaPermission?.granted ?? false;
   const preset = PRESETS[presetIndex];
   const isNormalMode = captureMode === 'normal';
+  const ultraWideLens = availableLenses.find((lens) => lens.includes('UltraWide'));
+  const wideAngleLens = availableLenses.find(
+    (lens) => lens.includes('WideAngle') && !lens.includes('UltraWide'),
+  );
   const isLandscapeCapture = cameraOrientation.startsWith('landscape');
   const previewFrame = getPreviewFrame(
     width,
@@ -307,6 +316,22 @@ export default function CameraScreen() {
 
   const updateZoomFromPinch = (nextZoom: number) => {
     setZoom(Math.max(0, Math.min(1, nextZoom)));
+  };
+
+  const selectQuickZoom = (level: (typeof QUICK_ZOOM_LEVELS)[number]) => {
+    if (level === 0.5) {
+      if (!ultraWideLens) return;
+      cancelZoomAnimation();
+      setSelectedLens(ultraWideLens);
+      setZoom(0);
+    } else if (wideAngleLens && selectedLens !== wideAngleLens) {
+      cancelZoomAnimation();
+      setSelectedLens(wideAngleLens);
+      setZoom(DIGITAL_ZOOM_BY_LEVEL[level]);
+    } else {
+      animateZoomTo(DIGITAL_ZOOM_BY_LEVEL[level]);
+    }
+    Haptics.selectionAsync();
   };
 
   const swipe = Gesture.Pan()
@@ -695,42 +720,40 @@ export default function CameraScreen() {
               </Text>
             </View>
             <View style={styles.zoomControls}>
-              {availableLenses.length > 1
-                ? availableLenses.map((lens) => (
-                    <Pressable
-                      key={lens}
-                      accessibilityLabel={`Use ${getLensLabel(lens)} camera lens`}
-                      accessibilityRole="button"
-                      onPress={() => {
-                        cancelZoomAnimation();
-                        setZoom(0);
-                        setSelectedLens(lens);
-                        Haptics.selectionAsync();
-                      }}
-                      style={[styles.zoomButton, selectedLens === lens && styles.zoomButtonActive]}>
-                      <Text style={[styles.zoomText, selectedLens === lens && styles.zoomTextActive]}>
-                        {getLensLabel(lens)}
-                      </Text>
-                    </Pressable>
-                  ))
-                : DIGITAL_ZOOM_STOPS.map((value) => {
-                    const active = Math.abs(zoom - value) < 0.015;
-                    return (
-                      <Pressable
-                        key={value}
-                        accessibilityLabel={`Digital zoom ${Math.round(value * 100)} percent of maximum`}
-                        accessibilityRole="button"
-                        onPress={() => {
-                          animateZoomTo(value);
-                          Haptics.selectionAsync();
-                        }}
-                        style={[styles.zoomButton, active && styles.zoomButtonActive]}>
-                        <Text style={[styles.zoomText, active && styles.zoomTextActive]}>
-                          {Math.round(value * 100)}%
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+              {QUICK_ZOOM_LEVELS.map((level) => {
+                const unavailable = level === 0.5 && !ultraWideLens;
+                const targetZoom = level === 0.5 ? 0 : DIGITAL_ZOOM_BY_LEVEL[level];
+                const onUltraWide = Boolean(ultraWideLens && selectedLens === ultraWideLens);
+                const active = level === 0.5
+                  ? onUltraWide && Math.abs(zoom) < 0.015
+                  : !onUltraWide && Math.abs(zoom - targetZoom) < 0.015;
+
+                return (
+                  <Pressable
+                    key={level}
+                    accessibilityLabel={`${level} times zoom`}
+                    accessibilityHint={unavailable ? 'Ultrawide lens is not available on this device' : undefined}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: unavailable, selected: active }}
+                    disabled={unavailable}
+                    onPress={() => selectQuickZoom(level)}
+                    style={({ pressed }) => [
+                      styles.zoomButton,
+                      active && styles.zoomButtonActive,
+                      pressed && !unavailable && styles.zoomButtonPressed,
+                      unavailable && styles.zoomButtonDisabled,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.zoomText,
+                        active && styles.zoomTextActive,
+                        unavailable && styles.zoomTextDisabled,
+                      ]}>
+                      {level}×
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
             <Text style={styles.pinchHint}>Pinch anywhere to zoom</Text>
           </View>
@@ -1085,15 +1108,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(20,20,20,0.65)',
   },
   zoomButton: {
-    minWidth: 44,
-    height: 34,
+    minWidth: 48,
+    height: 48,
     paddingHorizontal: 7,
-    borderRadius: 17,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
   zoomButtonActive: {
     backgroundColor: 'white',
+  },
+  zoomButtonPressed: {
+    opacity: 0.72,
   },
   zoomText: {
     color: 'white',
@@ -1102,6 +1128,12 @@ const styles = StyleSheet.create({
   },
   zoomTextActive: {
     color: '#111',
+  },
+  zoomButtonDisabled: {
+    opacity: 0.38,
+  },
+  zoomTextDisabled: {
+    color: 'rgba(255,255,255,0.7)',
   },
   pinchHint: {
     color: 'rgba(255,255,255,0.65)',
