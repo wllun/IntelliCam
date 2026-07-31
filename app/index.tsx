@@ -177,6 +177,7 @@ export default function CameraScreen() {
   const [gridLines, setGridLines] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
+  const [shutterSoundEnabled, setShutterSoundEnabled] = useState(false);
   const [hdrEnabled, setHdrEnabled] = useState(false);
   const [countdown, setCountdown] = useState<number>();
   const [focusPoint, setFocusPoint] = useState<FocusPoint>();
@@ -417,7 +418,7 @@ export default function CameraScreen() {
 
       const photo = await cameraRef.current?.takePictureAsync({
         quality: 1,
-        shutterSound: false,
+        shutterSound: shutterSoundEnabled,
       });
       if (!photo) throw new Error('The camera did not return a photo.');
       const crop = getCenteredCrop(photo.width, photo.height, aspectRatio);
@@ -858,6 +859,35 @@ export default function CameraScreen() {
                 ))}
               </View>
             </View>
+
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityState={{ checked: shutterSoundEnabled }}
+              onPress={() => {
+                setShutterSoundEnabled((enabled) => !enabled);
+                Haptics.selectionAsync();
+              }}
+              style={styles.toggleRow}>
+              <View style={styles.settingIcon}>
+                <Ionicons name="volume-high-outline" size={20} color="white" />
+              </View>
+              <View style={styles.settingCopy}>
+                <Text style={styles.settingTitle}>Shutter sound</Text>
+                <Text style={styles.settingsDescription}>Play a sound when taking a photo</Text>
+              </View>
+              <View
+                style={[
+                  styles.switchTrack,
+                  shutterSoundEnabled && styles.switchTrackActive,
+                ]}>
+                <View
+                  style={[
+                    styles.switchThumb,
+                    shutterSoundEnabled && styles.switchThumbActive,
+                  ]}
+                />
+              </View>
+            </Pressable>
 
             <Pressable
               accessibilityRole="switch"
