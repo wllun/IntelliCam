@@ -190,12 +190,48 @@ export default function CameraScreen() {
   const [meteringLocked, setMeteringLocked] = useState(false);
   const meteringResetRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const zoomAnimationRef = useRef<number | undefined>(undefined);
+  const countdownTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const countdownResolveRef = useRef<(() => void) | undefined>(undefined);
+  const countdownActiveRef = useRef(false);
+  const captureSessionRef = useRef(0);
+  const appActiveRef = useRef(AppState.currentState === 'active');
+  const screenFocusedRef = useRef(true);
+  const cameraReadyRef = useRef(false);
   const pinchStartZoom = useSharedValue(0);
 
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
-    return () => sub.remove();
+  const cancelPendingCapture = useCallback((withHapticFeedback = false) => {
+    const wasCountingDown = countdownActiveRef.current;
+    captureSessionRef.current += 1;
+    countdownActiveRef.current = false;
+
+    if (countdownTimeoutRef.current) {
+      clearTimeout(countdownTimeoutRef.current);
+      countdownTimeoutRef.current = undefined;
+    }
+    const resolveCountdown = countdownResolveRef.current;
+    countdownResolveRef.current = undefined;
+    resolveCountdown?.();
+
+    setCountdown(undefined);
+    setCapturing(false);
+    if (wasCountingDown && withHapticFeedback) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    }
   }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      const active = state === 'active';
+      appActiveRef.current = active;
+      setAppActive(active);
+      if (!active) {
+        cameraReadyRef.current = false;
+        setCameraReady(false);
+        cancelPendingCapture();
+      }
+    });
+    return () => sub.remove();
+  }, [cancelPendingCapture]);
 
   const loadLatestPhoto = useCallback(async () => {
     try {
@@ -220,10 +256,17 @@ export default function CameraScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      screenFocusedRef.current = true;
       setScreenFocused(true);
       void loadLatestPhoto();
-      return () => setScreenFocused(false);
-    }, [loadLatestPhoto]),
+      return () => {
+        screenFocusedRef.current = false;
+        cameraReadyRef.current = false;
+        setCameraReady(false);
+        setScreenFocused(false);
+        cancelPendingCapture();
+      };
+    }, [cancelPendingCapture, loadLatestPhoto]),
   );
 
   const cancelMeteringReset = useCallback(() => {
@@ -281,12 +324,15 @@ export default function CameraScreen() {
   }, [captureMode, facing, resetMetering]);
 
   useEffect(() => {
+    cameraReadyRef.current = false;
+    setCameraReady(false);
+    cancelPendingCapture();
     cancelZoomAnimation();
     setZoom(0);
     setAvailableLenses([]);
     setSelectedLens(undefined);
     setPictureSize(undefined);
-  }, [cancelZoomAnimation, facing]);
+  }, [cancelPendingCapture, cancelZoomAnimation, facing]);
 
   useEffect(() => {
     setCameraOrientation(width > height ? 'landscapeLeft' : 'portrait');
@@ -431,21 +477,69 @@ export default function CameraScreen() {
   }
 
   const capture = async () => {
-    if (capturing || !cameraReady) return;
+    if (
+      capturing
+      || !cameraReadyRef.current
+      || !appActiveRef.current
+      || !screenFocusedRef.current
+    ) return;
+
+    const captureSession = captureSessionRef.current + 1;
+    captureSessionRef.current = captureSession;
+    countdownActiveRef.current = timerSeconds > 0;
     setCapturing(true);
     try {
-      for (let remaining = timerSeconds; remaining > 0; remaining -= 1) {
+      for (let remaining: number = timerSeconds; remaining > 0; remaining -= 1) {
+        if (
+          captureSessionRef.current !== captureSession
+          || !cameraReadyRef.current
+          || !appActiveRef.current
+          || !screenFocusedRef.current
+        ) return;
+
         setCountdown(remaining);
-        Haptics.selectionAsync();
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        void Haptics.impactAsync(
+          remaining === 1
+            ? Haptics.ImpactFeedbackStyle.Medium
+            : Haptics.ImpactFeedbackStyle.Light,
+        );
+
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const finishTick = () => {
+            if (settled) return;
+            settled = true;
+            countdownTimeoutRef.current = undefined;
+            countdownResolveRef.current = undefined;
+            resolve();
+          };
+          countdownResolveRef.current = finishTick;
+          countdownTimeoutRef.current = setTimeout(finishTick, 1000);
+        });
       }
+
+      if (
+        captureSessionRef.current !== captureSession
+        || !cameraReadyRef.current
+        || !appActiveRef.current
+        || !screenFocusedRef.current
+        || !cameraRef.current
+      ) return;
+
+      countdownActiveRef.current = false;
       setCountdown(undefined);
 
-      const photo = await cameraRef.current?.takePictureAsync({
+      const photo = await cameraRef.current.takePictureAsync({
         quality: 1,
         shutterSound: shutterSoundEnabled,
       });
       if (!photo) throw new Error('The camera did not return a photo.');
+      if (
+        captureSessionRef.current !== captureSession
+        || !appActiveRef.current
+        || !screenFocusedRef.current
+      ) return;
+
       const crop = getCenteredCrop(photo.width, photo.height, aspectRatio);
       let savedPhotoUri = photo.uri;
 
@@ -472,10 +566,15 @@ export default function CameraScreen() {
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
-      Alert.alert('Capture failed', String(error));
+      if (captureSessionRef.current === captureSession) {
+        Alert.alert('Capture failed', String(error));
+      }
     } finally {
-      setCountdown(undefined);
-      setCapturing(false);
+      if (captureSessionRef.current === captureSession) {
+        countdownActiveRef.current = false;
+        setCountdown(undefined);
+        setCapturing(false);
+      }
     }
   };
 
@@ -531,11 +630,16 @@ export default function CameraScreen() {
                 } catch (error) {
                   console.warn('Could not query camera capabilities:', error);
                 } finally {
-                  setCameraReady(true);
+                  if (appActiveRef.current && screenFocusedRef.current) {
+                    cameraReadyRef.current = true;
+                    setCameraReady(true);
+                  }
                 }
               }}
               onMountError={(error) => {
+                cameraReadyRef.current = false;
                 setCameraReady(false);
+                cancelPendingCapture();
                 if (facing === 'back') {
                   setFacing('front');
                 } else {
@@ -565,8 +669,18 @@ export default function CameraScreen() {
         </View>
 
         {countdown !== undefined && (
-          <Animated.View entering={FadeIn.duration(120)} style={styles.countdown}>
-            <Text style={styles.countdownText}>{countdown}</Text>
+          <Animated.View
+            key={countdown}
+            accessible
+            accessibilityLabel={`Taking photo in ${countdown} ${countdown === 1 ? 'second' : 'seconds'}. Tap the shutter to cancel.`}
+            accessibilityLiveRegion="assertive"
+            entering={ZoomIn.duration(180)}
+            pointerEvents="none"
+            style={styles.countdown}>
+            <View style={styles.countdownBadge}>
+              <Text style={styles.countdownText}>{countdown}</Text>
+            </View>
+            <Text style={styles.countdownHint}>Tap shutter to cancel</Text>
           </Animated.View>
         )}
 
@@ -689,7 +803,9 @@ export default function CameraScreen() {
               accessibilityLabel="Flip camera"
               accessibilityRole="button"
               onPress={() => {
+                cameraReadyRef.current = false;
                 setCameraReady(false);
+                cancelPendingCapture();
                 setFacing((current) => (current === 'back' ? 'front' : 'back'));
                 Haptics.selectionAsync();
               }}
@@ -787,12 +903,25 @@ export default function CameraScreen() {
           </Pressable>
 
           <Pressable
-            accessibilityLabel="Take picture"
+            accessibilityLabel={countdown !== undefined ? 'Cancel photo timer' : 'Take picture'}
+            accessibilityHint={countdown !== undefined ? 'Stops the countdown without taking a photo' : undefined}
             accessibilityRole="button"
-            style={[styles.shutter, capturing && styles.shutterDisabled]}
-            disabled={capturing || !cameraReady}
-            onPress={capture}>
-            <View style={[styles.shutterInner, { borderColor: preset.tint }]} />
+            accessibilityState={{ disabled: !cameraReady || (capturing && countdown === undefined) }}
+            style={[
+              styles.shutter,
+              countdown !== undefined && styles.shutterCancelling,
+              capturing && countdown === undefined && styles.shutterDisabled,
+            ]}
+            disabled={!cameraReady || (capturing && countdown === undefined)}
+            onPress={countdown !== undefined ? () => cancelPendingCapture(true) : capture}>
+            <View
+              style={[
+                styles.shutterInner,
+                { borderColor: preset.tint },
+                countdown !== undefined && styles.shutterInnerCancelling,
+              ]}>
+              {countdown !== undefined && <Ionicons name="close" size={30} color="white" />}
+            </View>
           </Pressable>
 
           <Pressable
@@ -1196,6 +1325,14 @@ const styles = StyleSheet.create({
   shutterDisabled: {
     opacity: 0.5,
   },
+  shutterCancelling: {
+    backgroundColor: '#FF6B61',
+  },
+  shutterInnerCancelling: {
+    borderColor: 'white',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   settingsSheet: {
     position: 'absolute',
     right: 18,
@@ -1229,6 +1366,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     alignSelf: 'center',
     top: '39%',
+    width: 220,
+    alignItems: 'center',
+    gap: 10,
+  },
+  countdownBadge: {
     width: 108,
     height: 108,
     alignItems: 'center',
@@ -1243,6 +1385,16 @@ const styles = StyleSheet.create({
     fontSize: 54,
     fontWeight: '300',
     fontVariant: ['tabular-nums'],
+  },
+  countdownHint: {
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(10,10,10,0.74)',
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '700',
   },
   meteringControl: {
     position: 'absolute',

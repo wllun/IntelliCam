@@ -30,6 +30,7 @@ and device capabilities is documented in
 - [x] Open the camera settings panel from the three-dot button
 - [x] Camera settings panel contains Gridlines, Aspect Ratio, Timer, Shutter sound, and HDR; zoom, flash, camera-facing, and photo-size remain camera-surface controls instead of three-dot settings
 - [x] Gridlines overlay and 3-second/10-second capture countdown
+- [x] Cancellable capture timer - tapping the shutter again cancels; backgrounding, leaving the camera screen, camera remounts, and mount failures invalidate pending capture; countdown includes animated text and per-second haptics
 - [x] Aspect-ratio selection (`4:3`, `1:1`, `16:9`) passed to Expo Camera
 - [x] Upgrade camera zoom controls: add `0.5x`, keep `1x`, `2x`, and `3x`, and support hand-controlled pinch gestures to zoom smoothly in and out
 - [ ] Implement real HDR multi-frame capture and merge (HDR must remain disabled
@@ -52,7 +53,10 @@ The three-dot camera settings panel contains:
 - **Gridlines:** rule-of-thirds overlay. Default: off.
 - **Aspect ratio:** `4:3`, `1:1`, or `16:9`. Default: `4:3`. In portrait
   orientation, the `4:3` camera ratio appears as 3:4 on screen.
-- **Timer:** off, 3 seconds, or 10 seconds. Default: off.
+- **Timer:** off, 3 seconds, or 10 seconds. Default: off. During a
+  countdown, tap the shutter again to cancel. Pending timer captures are also
+  cancelled if the app is backgrounded, the camera screen closes, or the
+  camera becomes unavailable.
 - **Shutter sound:** plays the native camera shutter sound when enabled.
   Default: off.
 - **HDR:** disabled and labelled **Coming later**. It must not be selectable
