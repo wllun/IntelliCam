@@ -47,6 +47,8 @@ const METERING_RESET_MS = 5000;
 const EXPOSURE_MIN = -2;
 const EXPOSURE_MAX = 2;
 const EXPOSURE_STEP = 0.3;
+const EXPOSURE_DRAG_PIXELS_PER_EV = 42;
+const EXPOSURE_TRACK_HEIGHT = 42;
 const QUICK_ZOOM_LEVELS = [0.5, 1, 2, 3] as const;
 const DIGITAL_ZOOM_BY_LEVEL: Record<Exclude<(typeof QUICK_ZOOM_LEVELS)[number], 0.5>, number> = {
   1: 0,
@@ -198,6 +200,7 @@ export default function CameraScreen() {
   const screenFocusedRef = useRef(true);
   const cameraReadyRef = useRef(false);
   const pinchStartZoom = useSharedValue(0);
+  const exposureDragStart = useSharedValue(0);
 
   const cancelPendingCapture = useCallback((withHapticFeedback = false) => {
     const wasCountingDown = countdownActiveRef.current;
@@ -431,6 +434,37 @@ export default function CameraScreen() {
     if (!meteringLocked) scheduleMeteringReset();
     Haptics.selectionAsync();
   };
+
+  const updateExposureFromDrag = (value: number) => {
+    setExposureCompensation(
+      Math.max(EXPOSURE_MIN, Math.min(EXPOSURE_MAX, Number(value.toFixed(1)))),
+    );
+  };
+
+  const finishExposureDrag = () => {
+    if (!meteringLocked) scheduleMeteringReset();
+    void Haptics.selectionAsync();
+  };
+
+  const exposureDrag = Gesture.Pan()
+    .activeOffsetY([-4, 4])
+    .failOffsetX([-18, 18])
+    .onBegin(() => {
+      exposureDragStart.value = exposureCompensation;
+      runOnJS(cancelMeteringReset)();
+    })
+    .onUpdate((event) => {
+      const nextExposure = exposureDragStart.value
+        - event.translationY / EXPOSURE_DRAG_PIXELS_PER_EV;
+      runOnJS(updateExposureFromDrag)(nextExposure);
+    })
+    .onFinalize(() => {
+      runOnJS(finishExposureDrag)();
+    });
+
+  const exposureThumbTop =
+    ((EXPOSURE_MAX - exposureCompensation) / (EXPOSURE_MAX - EXPOSURE_MIN))
+    * EXPOSURE_TRACK_HEIGHT;
 
   const toggleMeteringLock = () => {
     if (!focusPoint) return;
@@ -702,30 +736,35 @@ export default function CameraScreen() {
               style={[styles.focusReticle, meteringLocked && styles.focusReticleLocked]}>
               <View style={styles.focusReticleCenter} />
             </View>
-            <View style={styles.exposureControl}>
-              <Pressable
-                accessibilityLabel="Increase exposure"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={() => changeExposure(1)}
-                style={styles.exposureButton}>
-                <Ionicons name="sunny-outline" size={16} color="white" />
-                <Ionicons name="add" size={11} color="white" />
-              </Pressable>
-              <Text style={styles.exposureValue}>
-                {exposureCompensation > 0 ? '+' : ''}
-                {exposureCompensation.toFixed(1)}
-              </Text>
-              <Pressable
-                accessibilityLabel="Decrease exposure"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={() => changeExposure(-1)}
-                style={styles.exposureButton}>
-                <Ionicons name="sunny-outline" size={16} color="white" />
-                <Ionicons name="remove" size={11} color="white" />
-              </Pressable>
-            </View>
+            <GestureDetector gesture={exposureDrag}>
+              <View
+                accessible
+                accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+                accessibilityHint="Swipe up to brighten or down to darken"
+                accessibilityLabel="Exposure"
+                accessibilityRole="adjustable"
+                accessibilityValue={{
+                  min: EXPOSURE_MIN,
+                  max: EXPOSURE_MAX,
+                  now: exposureCompensation,
+                  text: `${exposureCompensation > 0 ? 'plus ' : ''}${exposureCompensation.toFixed(1)} EV`,
+                }}
+                onAccessibilityAction={(event) => {
+                  if (event.nativeEvent.actionName === 'increment') changeExposure(1);
+                  if (event.nativeEvent.actionName === 'decrement') changeExposure(-1);
+                }}
+                style={styles.exposureControl}>
+                <Ionicons name="sunny-outline" size={17} color="white" />
+                <View style={styles.exposureTrack}>
+                  <View style={styles.exposureTrackLine} />
+                  <View style={[styles.exposureThumb, { top: exposureThumbTop - 5 }]} />
+                </View>
+                <Text style={styles.exposureValue}>
+                  {exposureCompensation > 0 ? '+' : ''}
+                  {exposureCompensation.toFixed(1)}
+                </Text>
+              </View>
+            </GestureDetector>
             <Pressable
               accessibilityLabel={meteringLocked ? 'Unlock focus and exposure' : 'Lock focus and exposure'}
               accessibilityRole="button"
@@ -733,8 +772,7 @@ export default function CameraScreen() {
               hitSlop={8}
               onPress={toggleMeteringLock}
               style={[styles.meteringLock, meteringLocked && styles.meteringLockActive]}>
-              <Ionicons name={meteringLocked ? 'lock-closed' : 'lock-open-outline'} size={14} color="white" />
-              <Text style={styles.meteringLockText}>{meteringLocked ? 'AE/AF LOCK' : 'LOCK'}</Text>
+              <Ionicons name={meteringLocked ? 'lock-closed' : 'lock-open-outline'} size={18} color="white" />
             </Pressable>
           </Animated.View>
         )}
@@ -1428,21 +1466,34 @@ const styles = StyleSheet.create({
     left: 84,
     top: -8,
     width: 42,
-    height: 94,
+    height: 112,
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    paddingVertical: 8,
     borderRadius: 21,
     backgroundColor: 'rgba(16,16,16,0.72)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
   },
-  exposureButton: {
-    width: 34,
-    height: 28,
-    flexDirection: 'row',
+  exposureTrack: {
+    width: 18,
+    height: EXPOSURE_TRACK_HEIGHT,
     alignItems: 'center',
-    justifyContent: 'center',
+  },
+  exposureTrackLine: {
+    width: 2,
+    height: '100%',
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+  },
+  exposureThumb: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FFD84D',
+    borderWidth: 1,
+    borderColor: 'white',
   },
   exposureValue: {
     color: 'white',
@@ -1454,12 +1505,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     top: 86,
-    minHeight: 34,
-    flexDirection: 'row',
+    width: 44,
+    height: 44,
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    borderRadius: 17,
+    justifyContent: 'center',
+    borderRadius: 22,
     backgroundColor: 'rgba(16,16,16,0.72)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
@@ -1467,12 +1517,6 @@ const styles = StyleSheet.create({
   meteringLockActive: {
     backgroundColor: 'rgba(118,77,0,0.88)',
     borderColor: '#FFB329',
-  },
-  meteringLockText: {
-    color: 'white',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.4,
   },
   sheetTitle: {
     color: 'white',

@@ -33,6 +33,7 @@ and device capabilities is documented in
 - [x] Cancellable capture timer - tapping the shutter again cancels; backgrounding, leaving the camera screen, camera remounts, and mount failures invalidate pending capture; countdown includes animated text and per-second haptics
 - [x] Aspect-ratio selection (`4:3`, `1:1`, `16:9`) passed to Expo Camera
 - [x] Upgrade camera zoom controls: add `0.5x`, keep `1x`, `2x`, and `3x`, and support hand-controlled pinch gestures to zoom smoothly in and out
+- [x] Replace exposure +/- buttons with a vertical drag control and use an icon-only focus/exposure lock button
 - [ ] Implement real HDR multi-frame capture and merge (HDR must remain disabled
   and labelled "Coming later" until capture processing is implemented)
 - [ ] Persist gridlines, aspect ratio, timer, and HDR choices
