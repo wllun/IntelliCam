@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-08-01
+Last updated: 2026-08-09
 
 ## Where we are
 
@@ -24,7 +24,7 @@ and device capabilities is documented in
 - [x] "Focus card" preset UI on camera screen - swipe left/right to switch, floating card shows ISO/shutter/WB/RAW chips + shooting tip, dot indicator, preset-tinted shutter (UI only, no capture effect)
 - [x] Camera control UI - IntelliCam gallery button left of the shutter, capture-mode button right of the shutter, and three-dot settings button at the top-right (UI only)
 - [x] Normal camera capture mode - automatic photo capture with flash off/auto/on, zoom controls, front/rear camera switching, gridlines, aspect ratio, and timer
-- [x] Cinematic capture-mode selector - right-side Mode button opens a snapping 3D cover-flow carousel for Normal, Star, Light Trail, Waterfall, Portrait, and Product; selection updates the camera UI only
+- [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Normal, Star, Light Trail, Waterfall, Portrait, and Product; selection updates the camera UI only
 - [x] IntelliCam-only gallery - grid, pull-to-refresh, pagination, and full-screen preview for photos in the named MediaLibrary album
 - [x] Open a capture-mode selector from the mode button
 - [x] Open the camera settings panel from the three-dot button
