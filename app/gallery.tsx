@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
+  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -10,10 +12,13 @@ import {
   View,
 } from 'react-native';
 import { Image } from 'expo-image';
+import * as Haptics from 'expo-haptics';
 import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import MediaTrash from '@/modules/media-trash';
 
 const ALBUM_NAME = 'IntelliCam';
 const PAGE_SIZE = 60;
@@ -29,6 +34,7 @@ export default function GalleryScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [deletingAssetId, setDeletingAssetId] = useState<string>();
   const [error, setError] = useState<string>();
   const itemSize = (width - GRID_GAP * 2) / 3;
 
@@ -107,6 +113,56 @@ export default function GalleryScreen() {
     }
   };
 
+  const moveAssetToRecycleBin = async (asset: MediaLibrary.Asset) => {
+    setDeletingAssetId(asset.id);
+    try {
+      let moved = false;
+      if (Platform.OS === 'android') {
+        if (!MediaTrash) {
+          throw new Error('Recycle-bin support requires a rebuilt development app.');
+        }
+        if (!MediaTrash.isSupported) {
+          throw new Error('The recycle bin requires Android 11 or newer.');
+        }
+        moved = await MediaTrash.trashAssetAsync(asset.id);
+      } else if (Platform.OS === 'ios') {
+        moved = await MediaLibrary.deleteAssetsAsync([asset.id]);
+      } else {
+        throw new Error('The recycle bin is not available on this platform.');
+      }
+
+      if (!moved) return;
+      setAssets((current) => current.filter((item) => item.id !== asset.id));
+      setSelectedAsset((current) => current?.id === asset.id ? null : current);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (deleteError) {
+      Alert.alert(
+        'Could not move photo',
+        deleteError instanceof Error ? deleteError.message : 'The photo could not be moved to the recycle bin.',
+      );
+    } finally {
+      setDeletingAssetId(undefined);
+    }
+  };
+
+  const confirmMoveToRecycleBin = () => {
+    const asset = selectedAsset;
+    if (!asset || deletingAssetId) return;
+    const destination = Platform.OS === 'ios' ? 'Recently Deleted' : 'Recycle Bin';
+    Alert.alert(
+      `Move to ${destination}?`,
+      'The photo will leave the IntelliCam gallery and can be restored from your device gallery for a limited time.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Move',
+          style: 'destructive',
+          onPress: () => void moveAssetToRecycleBin(asset),
+        },
+      ],
+    );
+  };
+
   if (loading && assets.length === 0) {
     return (
       <View style={styles.centered}>
@@ -163,6 +219,27 @@ export default function GalleryScreen() {
       {selectedAsset && (
         <View style={styles.preview}>
           <Image source={{ uri: selectedAsset.uri }} style={StyleSheet.absoluteFill} contentFit="contain" />
+          <Pressable
+            accessibilityHint="Moves this photo out of IntelliCam so it can be restored from the device gallery for a limited time"
+            accessibilityLabel={Platform.OS === 'ios' ? 'Move photo to Recently Deleted' : 'Move photo to Recycle Bin'}
+            accessibilityRole="button"
+            accessibilityState={{
+              busy: deletingAssetId === selectedAsset.id,
+              disabled: Boolean(deletingAssetId),
+            }}
+            disabled={Boolean(deletingAssetId)}
+            onPress={confirmMoveToRecycleBin}
+            style={({ pressed }) => [
+              styles.trashButton,
+              { top: insets.top + 14 },
+              pressed && !deletingAssetId && styles.trashButtonPressed,
+            ]}>
+            {deletingAssetId === selectedAsset.id ? (
+              <ActivityIndicator color="#ffb4ab" />
+            ) : (
+              <Ionicons name="trash-outline" size={23} color="#ffb4ab" />
+            )}
+          </Pressable>
           <Pressable
             accessibilityLabel="Close photo"
             accessibilityRole="button"
@@ -236,6 +313,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(20,20,20,0.72)',
+  },
+  trashButton: {
+    position: 'absolute',
+    left: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(86,22,22,0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,180,171,0.4)',
+  },
+  trashButtonPressed: {
+    opacity: 0.72,
   },
   photoInfo: {
     position: 'absolute',

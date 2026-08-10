@@ -26,7 +26,7 @@ and device capabilities is documented in
 - [x] Camera control UI - IntelliCam gallery button left of the shutter, capture-mode button right of the shutter, and three-dot settings button at the top-right (UI only)
 - [x] Normal camera capture mode - automatic photo capture with flash off/auto/on, zoom controls, front/rear camera switching, gridlines, aspect ratio, and timer
 - [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Normal, Star, Light Trail, Waterfall, Portrait, and Product; selection updates the camera UI only
-- [x] IntelliCam-only gallery - grid, pull-to-refresh, pagination, and full-screen preview for photos in the named MediaLibrary album
+- [x] IntelliCam-only gallery - grid, pull-to-refresh, pagination, full-screen preview, and recoverable deletion through iOS Recently Deleted or the Android 11+ system recycle bin
 - [x] Open a capture-mode selector from the mode button
 - [x] Open the camera settings panel from the three-dot button
 - [x] Camera settings panel contains Gridlines, Aspect Ratio, Timer, Shutter sound, and HDR; zoom, flash, and camera-facing remain camera-surface controls instead of three-dot settings
