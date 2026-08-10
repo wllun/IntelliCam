@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -10,14 +10,16 @@ import {
   type GestureResponderEvent,
 } from 'react-native';
 import {
-  CameraOrientation,
-  CameraType,
-  CameraView,
-  FlashMode,
-  type CameraRatio,
-  useCameraPermissions,
-} from 'expo-camera';
-import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+  Camera,
+  type CameraRef,
+  type Constraint,
+  type DeviceFilter,
+  type FlashMode,
+  type MeteringMode,
+  useCameraDevice,
+  useCameraPermission,
+  usePhotoOutput,
+} from 'react-native-vision-camera';
 import { Image } from 'expo-image';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
@@ -39,6 +41,8 @@ import { CaptureModeCarousel } from '@/components/capture-mode-carousel';
 const ALBUM_NAME = 'IntelliCam';
 type CaptureMode = 'normal' | 'preset';
 type TimerSeconds = 0 | 3 | 10;
+type CameraFacing = 'front' | 'back';
+type CameraRatio = '4:3' | '1:1' | '16:9';
 
 const FLASH_MODES: FlashMode[] = ['off', 'auto', 'on'];
 const ASPECT_RATIOS: CameraRatio[] = ['4:3', '1:1', '16:9'];
@@ -50,36 +54,21 @@ const EXPOSURE_STEP = 0.3;
 const EXPOSURE_DRAG_PIXELS_PER_EV = 42;
 const EXPOSURE_TRACK_HEIGHT = 42;
 const QUICK_ZOOM_LEVELS = [0.5, 1, 2, 3] as const;
-const DIGITAL_ZOOM_BY_LEVEL: Record<Exclude<(typeof QUICK_ZOOM_LEVELS)[number], 0.5>, number> = {
-  1: 0,
-  2: 0.25,
-  3: 0.5,
-};
 const ZOOM_TRANSITION_MS = 180;
+const BACK_CAMERA_FILTER = {
+  physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'],
+} satisfies DeviceFilter;
 
 interface FocusPoint {
-  x: number;
-  y: number;
+  screenX: number;
+  screenY: number;
+  viewX: number;
+  viewY: number;
 }
 
 interface LatestPhoto {
   key: string;
   uri: string;
-}
-
-function getLensLabel(lens: string) {
-  if (lens.includes('UltraWide')) return '0.5×';
-  if (lens.includes('Telephoto')) return 'Tele';
-  if (lens.includes('WideAngle')) return '1×';
-  if (lens.includes('TrueDepth')) return 'Front';
-  return 'Lens';
-}
-
-function getLensOrder(lens: string) {
-  if (lens.includes('UltraWide')) return 0;
-  if (lens.includes('WideAngle')) return 1;
-  if (lens.includes('Telephoto')) return 2;
-  return 3;
 }
 
 function getRatioValue(ratio: CameraRatio, landscape: boolean) {
@@ -110,19 +99,6 @@ function getPreviewFrame(
     width: frameWidth,
     height: frameHeight,
   };
-}
-
-function getLargestPictureSize(sizes: string[]) {
-  return sizes.reduce<{ size?: string; pixels: number }>(
-    (largest, size) => {
-      const [pictureWidth, pictureHeight] = size.toLowerCase().split('x').map(Number);
-      const pixels = pictureWidth * pictureHeight;
-      return Number.isFinite(pixels) && pixels > largest.pixels
-        ? { size, pixels }
-        : largest;
-    },
-    { pixels: 0 },
-  ).size;
 }
 
 function getCenteredCrop(
@@ -159,10 +135,16 @@ export default function CameraScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const router = useRouter();
-  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
   const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
-  const cameraRef = useRef<CameraView>(null);
-  const [facing, setFacing] = useState<CameraType>('back');
+  const cameraRef = useRef<CameraRef>(null);
+  const [facing, setFacing] = useState<CameraFacing>('back');
+  const cameraDevice = useCameraDevice(facing, facing === 'back' ? BACK_CAMERA_FILTER : undefined);
+  const photoOutput = usePhotoOutput({
+    containerFormat: 'jpeg',
+    quality: 1,
+    qualityPrioritization: 'quality',
+  });
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [latestPhoto, setLatestPhoto] = useState<LatestPhoto>();
@@ -174,18 +156,13 @@ export default function CameraScreen() {
   const [modeMenuVisible, setModeMenuVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [flash, setFlash] = useState<FlashMode>('off');
-  const [zoom, setZoom] = useState(0);
-  const [availableLenses, setAvailableLenses] = useState<string[]>([]);
-  const [selectedLens, setSelectedLens] = useState<string>();
-  const [pictureSize, setPictureSize] = useState<string>();
-  const [cameraOrientation, setCameraOrientation] = useState<CameraOrientation>(
-    width > height ? 'landscapeLeft' : 'portrait',
-  );
+  const [zoom, setZoom] = useState(1);
   const [gridLines, setGridLines] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
   const [shutterSoundEnabled, setShutterSoundEnabled] = useState(false);
   const [hdrEnabled, setHdrEnabled] = useState(false);
+  const [hdrApplied, setHdrApplied] = useState(false);
   const [countdown, setCountdown] = useState<number>();
   const [focusPoint, setFocusPoint] = useState<FocusPoint>();
   const [exposureCompensation, setExposureCompensation] = useState(0);
@@ -281,6 +258,7 @@ export default function CameraScreen() {
 
   const resetMetering = useCallback(() => {
     cancelMeteringReset();
+    void cameraRef.current?.resetFocus().catch(() => undefined);
     setFocusPoint(undefined);
     setExposureCompensation(0);
     setMeteringLocked(false);
@@ -302,7 +280,9 @@ export default function CameraScreen() {
 
   const animateZoomTo = useCallback((target: number) => {
     cancelZoomAnimation();
-    const clampedTarget = Math.max(0, Math.min(1, target));
+    const cameraMinZoom = cameraDevice?.minZoom ?? 1;
+    const cameraMaxZoom = cameraDevice?.maxZoom ?? cameraMinZoom;
+    const clampedTarget = Math.max(cameraMinZoom, Math.min(cameraMaxZoom, target));
     const startedAt = Date.now();
     const startZoom = zoom;
 
@@ -318,7 +298,7 @@ export default function CameraScreen() {
     };
 
     zoomAnimationRef.current = requestAnimationFrame(step);
-  }, [cancelZoomAnimation, zoom]);
+  }, [cameraDevice, cancelZoomAnimation, zoom]);
 
   useEffect(() => cancelZoomAnimation, [cancelZoomAnimation]);
 
@@ -331,31 +311,63 @@ export default function CameraScreen() {
     setCameraReady(false);
     cancelPendingCapture();
     cancelZoomAnimation();
-    setZoom(0);
-    setAvailableLenses([]);
-    setSelectedLens(undefined);
-    setPictureSize(undefined);
-  }, [cancelPendingCapture, cancelZoomAnimation, facing]);
+    setZoom(1);
+  }, [cameraDevice?.id, cancelPendingCapture, cancelZoomAnimation, facing]);
 
-  useEffect(() => {
-    setCameraOrientation(width > height ? 'landscapeLeft' : 'portrait');
-  }, [height, width]);
-
-  const hasCameraPermission = cameraPermission?.granted ?? false;
   const hasMediaPermission = mediaPermission?.granted ?? false;
   const preset = PRESETS[presetIndex];
   const isNormalMode = captureMode === 'normal';
-  const ultraWideLens = availableLenses.find((lens) => lens.includes('UltraWide'));
-  const wideAngleLens = availableLenses.find(
-    (lens) => lens.includes('WideAngle') && !lens.includes('UltraWide'),
-  );
-  const isLandscapeCapture = cameraOrientation.startsWith('landscape');
+  const neutralZoom = 1;
+  const minZoom = cameraDevice?.minZoom ?? neutralZoom;
+  const maxZoom = cameraDevice?.maxZoom ?? neutralZoom;
+  const supportsUltraWide = minZoom < neutralZoom - 0.01;
+  const supportsExposure = cameraDevice?.supportsExposureBias ?? false;
+  const exposureMin = supportsExposure
+    ? Math.max(EXPOSURE_MIN, cameraDevice?.minExposureBias ?? EXPOSURE_MIN)
+    : 0;
+  const exposureMax = supportsExposure
+    ? Math.min(EXPOSURE_MAX, cameraDevice?.maxExposureBias ?? EXPOSURE_MAX)
+    : 0;
+  const supportsHdr = cameraDevice?.supportsPhotoHDR ?? false;
+  const meteringModes = useMemo<MeteringMode[]>(() => {
+    if (!cameraDevice) return [];
+    const modes: MeteringMode[] = [];
+    if (cameraDevice.supportsExposureMetering) modes.push('AE');
+    if (cameraDevice.supportsFocusMetering) modes.push('AF');
+    if (cameraDevice.supportsWhiteBalanceMetering) modes.push('AWB');
+    return modes;
+  }, [cameraDevice]);
+  const lockModes = useMemo<MeteringMode[]>(() => {
+    if (!cameraDevice) return [];
+    const modes: MeteringMode[] = [];
+    if (cameraDevice.supportsExposureMetering && cameraDevice.supportsExposureLocking) modes.push('AE');
+    if (cameraDevice.supportsFocusMetering && cameraDevice.supportsFocusLocking) modes.push('AF');
+    if (cameraDevice.supportsWhiteBalanceMetering && cameraDevice.supportsWhiteBalanceLocking) modes.push('AWB');
+    return modes;
+  }, [cameraDevice]);
+  const cameraOutputs = useMemo(() => [photoOutput], [photoOutput]);
+  const cameraConstraints = useMemo<Constraint[]>(() => [
+    { photoHDR: hdrEnabled && supportsHdr },
+    { resolutionBias: photoOutput },
+  ], [hdrEnabled, photoOutput, supportsHdr]);
+  const isLandscapeCapture = width > height;
   const previewFrame = getPreviewFrame(
     width,
     height,
     aspectRatio,
     isLandscapeCapture,
   );
+
+  useEffect(() => {
+    setExposureCompensation((current) => Math.max(exposureMin, Math.min(exposureMax, current)));
+  }, [exposureMax, exposureMin]);
+
+  useEffect(() => {
+    if (!supportsHdr) {
+      setHdrEnabled(false);
+      setHdrApplied(false);
+    }
+  }, [supportsHdr]);
 
   const changePreset = (direction: 1 | -1) => {
     setPresetIndex((i) => (i + direction + PRESETS.length) % PRESETS.length);
@@ -364,22 +376,13 @@ export default function CameraScreen() {
   };
 
   const updateZoomFromPinch = (nextZoom: number) => {
-    setZoom(Math.max(0, Math.min(1, nextZoom)));
+    setZoom(Math.max(minZoom, Math.min(maxZoom, nextZoom)));
   };
 
   const selectQuickZoom = (level: (typeof QUICK_ZOOM_LEVELS)[number]) => {
-    if (level === 0.5) {
-      if (!ultraWideLens) return;
-      cancelZoomAnimation();
-      setSelectedLens(ultraWideLens);
-      setZoom(0);
-    } else if (wideAngleLens && selectedLens !== wideAngleLens) {
-      cancelZoomAnimation();
-      setSelectedLens(wideAngleLens);
-      setZoom(DIGITAL_ZOOM_BY_LEVEL[level]);
-    } else {
-      animateZoomTo(DIGITAL_ZOOM_BY_LEVEL[level]);
-    }
+    const targetZoom = neutralZoom * level;
+    if (targetZoom < minZoom - 0.01 || targetZoom > maxZoom + 0.01) return;
+    animateZoomTo(targetZoom);
     Haptics.selectionAsync();
   };
 
@@ -399,8 +402,7 @@ export default function CameraScreen() {
       runOnJS(cancelZoomAnimation)();
     })
     .onUpdate((event) => {
-      const delta = Math.log2(Math.max(0.1, event.scale)) * 0.22;
-      runOnJS(updateZoomFromPinch)(pinchStartZoom.value + delta);
+      runOnJS(updateZoomFromPinch)(pinchStartZoom.value * event.scale);
     });
 
   const cameraGesture = Gesture.Simultaneous(swipe, pinch);
@@ -410,25 +412,47 @@ export default function CameraScreen() {
     Haptics.selectionAsync();
   };
 
-  const focusAt = (event: GestureResponderEvent) => {
+  const focusAt = async (event: GestureResponderEvent) => {
     if (!isNormalMode || settingsVisible || modeMenuVisible) return;
     const { locationX, locationY } = event.nativeEvent;
+    const camera = cameraRef.current;
+    if (!camera || meteringModes.length === 0) {
+      Alert.alert('Focus unavailable', 'This camera does not support point focus or metering.');
+      return;
+    }
     const point = {
-      x: previewFrame.left + locationX,
-      y: previewFrame.top + locationY,
+      screenX: previewFrame.left + locationX,
+      screenY: previewFrame.top + locationY,
+      viewX: locationX,
+      viewY: locationY,
     };
     setFocusPoint(point);
     setExposureCompensation(0);
     setMeteringLocked(false);
     scheduleMeteringReset();
-    Haptics.selectionAsync();
+    void Haptics.selectionAsync();
+    try {
+      await camera.focusTo(
+        { x: locationX, y: locationY },
+        {
+          modes: meteringModes,
+          responsiveness: 'snappy',
+          adaptiveness: 'continuous',
+          autoResetAfter: METERING_RESET_MS / 1000,
+        },
+      );
+    } catch (error) {
+      resetMetering();
+      Alert.alert('Focus failed', String(error));
+    }
   };
 
   const changeExposure = (direction: 1 | -1) => {
+    if (!supportsExposure) return;
     setExposureCompensation((current) =>
       Math.max(
-        EXPOSURE_MIN,
-        Math.min(EXPOSURE_MAX, Number((current + direction * EXPOSURE_STEP).toFixed(1))),
+        exposureMin,
+        Math.min(exposureMax, Number((current + direction * EXPOSURE_STEP).toFixed(1))),
       ),
     );
     if (!meteringLocked) scheduleMeteringReset();
@@ -436,8 +460,9 @@ export default function CameraScreen() {
   };
 
   const updateExposureFromDrag = (value: number) => {
+    if (!supportsExposure) return;
     setExposureCompensation(
-      Math.max(EXPOSURE_MIN, Math.min(EXPOSURE_MAX, Number(value.toFixed(1)))),
+      Math.max(exposureMin, Math.min(exposureMax, Number(value.toFixed(1)))),
     );
   };
 
@@ -447,6 +472,7 @@ export default function CameraScreen() {
   };
 
   const exposureDrag = Gesture.Pan()
+    .enabled(supportsExposure)
     .activeOffsetY([-4, 4])
     .failOffsetX([-18, 18])
     .onBegin(() => {
@@ -463,20 +489,34 @@ export default function CameraScreen() {
     });
 
   const exposureThumbTop =
-    ((EXPOSURE_MAX - exposureCompensation) / (EXPOSURE_MAX - EXPOSURE_MIN))
+    (exposureMax === exposureMin ? 0.5 : (exposureMax - exposureCompensation) / (exposureMax - exposureMin))
     * EXPOSURE_TRACK_HEIGHT;
 
-  const toggleMeteringLock = () => {
-    if (!focusPoint) return;
-    setMeteringLocked((locked) => {
-      if (locked) {
+  const toggleMeteringLock = async () => {
+    const camera = cameraRef.current;
+    if (!focusPoint || !camera || lockModes.length === 0) return;
+    try {
+      if (meteringLocked) {
+        await camera.resetFocus();
+        setMeteringLocked(false);
         scheduleMeteringReset();
       } else {
         cancelMeteringReset();
+        await camera.focusTo(
+          { x: focusPoint.viewX, y: focusPoint.viewY },
+          {
+            modes: lockModes,
+            responsiveness: 'snappy',
+            adaptiveness: 'locked',
+            autoResetAfter: null,
+          },
+        );
+        setMeteringLocked(true);
       }
-      return !locked;
-    });
-    Haptics.selectionAsync();
+      void Haptics.selectionAsync();
+    } catch (error) {
+      Alert.alert('Metering lock failed', String(error));
+    }
   };
 
   const applyCaptureMode = (modeId: string) => {
@@ -563,30 +603,44 @@ export default function CameraScreen() {
       countdownActiveRef.current = false;
       setCountdown(undefined);
 
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 1,
-        shutterSound: shutterSoundEnabled,
-      });
-      if (!photo) throw new Error('The camera did not return a photo.');
+      const photo = await photoOutput.capturePhoto(
+        {
+          flashMode: cameraDevice?.hasFlash ? flash : 'off',
+          enableShutterSound: shutterSoundEnabled,
+        },
+        {},
+      );
+      let savedPhotoUri: string;
+      try {
+        const normalizedImage = await photo.toImageAsync();
+        try {
+          const crop = getCenteredCrop(normalizedImage.width, normalizedImage.height, aspectRatio);
+          if (crop) {
+            const croppedImage = normalizedImage.crop(
+              crop.originX,
+              crop.originY,
+              crop.originX + crop.width,
+              crop.originY + crop.height,
+            );
+            try {
+              savedPhotoUri = `file://${await croppedImage.saveToTemporaryFileAsync('jpg', 100)}`;
+            } finally {
+              croppedImage.dispose();
+            }
+          } else {
+            savedPhotoUri = `file://${await normalizedImage.saveToTemporaryFileAsync('jpg', 100)}`;
+          }
+        } finally {
+          normalizedImage.dispose();
+        }
+      } finally {
+        photo.dispose();
+      }
       if (
         captureSessionRef.current !== captureSession
         || !appActiveRef.current
         || !screenFocusedRef.current
       ) return;
-
-      const crop = getCenteredCrop(photo.width, photo.height, aspectRatio);
-      let savedPhotoUri = photo.uri;
-
-      if (crop) {
-        const context = ImageManipulator.manipulate(photo.uri);
-        context.crop(crop);
-        const renderedImage = await context.renderAsync();
-        const croppedPhoto = await renderedImage.saveAsync({
-          compress: 1,
-          format: SaveFormat.JPEG,
-        });
-        savedPhotoUri = croppedPhoto.uri;
-      }
 
       const album = await MediaLibrary.getAlbumAsync(ALBUM_NAME);
       if (!album) {
@@ -616,61 +670,40 @@ export default function CameraScreen() {
     <GestureDetector gesture={cameraGesture}>
       <View style={styles.container}>
         <View style={[styles.previewFrame, previewFrame]}>
-          {appActive && screenFocused && (
-            <CameraView
+          {appActive && screenFocused && cameraDevice && (
+            <Camera
               key={facing}
               ref={cameraRef}
               style={StyleSheet.absoluteFill}
-              facing={facing}
-              mode="picture"
-              autofocus={focusPoint ? 'on' : 'off'}
-              flash={flash}
+              device={cameraDevice}
+              outputs={cameraOutputs}
+              constraints={cameraConstraints}
+              isActive={appActive && screenFocused}
+              exposure={supportsExposure ? exposureCompensation : undefined}
               zoom={zoom}
-              pictureSize={pictureSize}
-              responsiveOrientationWhenOrientationLocked
-              selectedLens={process.env.EXPO_OS === 'ios' && facing === 'back' ? selectedLens : undefined}
-              mirror={facing === 'front'}
-              onResponsiveOrientationChanged={({ orientation }) => {
-                setCameraOrientation(orientation);
+              mirrorMode="auto"
+              orientationSource="device"
+              resizeMode="cover"
+              onSessionConfigSelected={(config) => {
+                setHdrApplied(config.isPhotoHDREnabled);
               }}
-              onAvailableLensesChanged={({ lenses }) => {
-                const sortedLenses = [...lenses].sort((a, b) => getLensOrder(a) - getLensOrder(b));
-                setAvailableLenses(sortedLenses);
-                setSelectedLens((current) => (
-                  current && sortedLenses.includes(current)
-                    ? current
-                    : sortedLenses.find((lens) => lens.includes('WideAngle')) ?? sortedLenses[0]
-                ));
-              }}
-              onCameraReady={async () => {
-                try {
-                  const sizes = await cameraRef.current?.getAvailablePictureSizesAsync();
-                  if (sizes?.length) setPictureSize(getLargestPictureSize(sizes));
-
-                  if (process.env.EXPO_OS === 'ios' && facing === 'back') {
-                    const lenses = await cameraRef.current?.getAvailableLensesAsync();
-                    if (lenses?.length) {
-                      const sortedLenses = [...lenses].sort(
-                        (a, b) => getLensOrder(a) - getLensOrder(b),
-                      );
-                      setAvailableLenses(sortedLenses);
-                      setSelectedLens((current) => (
-                        current && sortedLenses.includes(current)
-                          ? current
-                          : sortedLenses.find((lens) => lens.includes('WideAngle')) ?? sortedLenses[0]
-                      ));
-                    }
-                  }
-                } catch (error) {
-                  console.warn('Could not query camera capabilities:', error);
-                } finally {
-                  if (appActiveRef.current && screenFocusedRef.current) {
-                    cameraReadyRef.current = true;
-                    setCameraReady(true);
-                  }
+              onConfigured={() => {
+                if (appActiveRef.current && screenFocusedRef.current) {
+                  cameraReadyRef.current = true;
+                  setCameraReady(true);
                 }
               }}
-              onMountError={(error) => {
+              onStarted={() => {
+                if (appActiveRef.current && screenFocusedRef.current) {
+                  cameraReadyRef.current = true;
+                  setCameraReady(true);
+                }
+              }}
+              onStopped={() => {
+                cameraReadyRef.current = false;
+                setCameraReady(false);
+              }}
+              onError={(error) => {
                 cameraReadyRef.current = false;
                 setCameraReady(false);
                 cancelPendingCapture();
@@ -726,8 +759,8 @@ export default function CameraScreen() {
             style={[
               styles.meteringControl,
               {
-                left: Math.min(width - 126, focusPoint.x - 38),
-                top: Math.min(height - insets.bottom - 270, focusPoint.y - 38),
+                left: Math.min(width - 126, focusPoint.screenX - 38),
+                top: Math.min(height - insets.bottom - 270, focusPoint.screenY - 38),
               },
             ]}>
             <View
@@ -743,9 +776,10 @@ export default function CameraScreen() {
                 accessibilityHint="Swipe up to brighten or down to darken"
                 accessibilityLabel="Exposure"
                 accessibilityRole="adjustable"
+                accessibilityState={{ disabled: !supportsExposure }}
                 accessibilityValue={{
-                  min: EXPOSURE_MIN,
-                  max: EXPOSURE_MAX,
+                  min: exposureMin,
+                  max: exposureMax,
                   now: exposureCompensation,
                   text: `${exposureCompensation > 0 ? 'plus ' : ''}${exposureCompensation.toFixed(1)} EV`,
                 }}
@@ -768,7 +802,8 @@ export default function CameraScreen() {
             <Pressable
               accessibilityLabel={meteringLocked ? 'Unlock focus and exposure' : 'Lock focus and exposure'}
               accessibilityRole="button"
-              accessibilityState={{ checked: meteringLocked }}
+              accessibilityState={{ checked: meteringLocked, disabled: lockModes.length === 0 }}
+              disabled={lockModes.length === 0}
               hitSlop={8}
               onPress={toggleMeteringLock}
               style={[styles.meteringLock, meteringLocked && styles.meteringLockActive]}>
@@ -869,18 +904,16 @@ export default function CameraScreen() {
           <View style={[styles.zoomCluster, { bottom: insets.bottom + 112 }]}>
             <View style={styles.zoomReadout}>
               <Text style={styles.zoomReadoutText}>
-                {selectedLens ? `${getLensLabel(selectedLens)} lens · ` : ''}
-                Digital {Math.round(zoom * 100)}% of max
+                {(zoom / neutralZoom).toFixed(1)}× relative zoom
               </Text>
             </View>
             <View style={styles.zoomControls}>
               {QUICK_ZOOM_LEVELS.map((level) => {
-                const unavailable = level === 0.5 && !ultraWideLens;
-                const targetZoom = level === 0.5 ? 0 : DIGITAL_ZOOM_BY_LEVEL[level];
-                const onUltraWide = Boolean(ultraWideLens && selectedLens === ultraWideLens);
-                const active = level === 0.5
-                  ? onUltraWide && Math.abs(zoom) < 0.015
-                  : !onUltraWide && Math.abs(zoom - targetZoom) < 0.015;
+                const targetZoom = neutralZoom * level;
+                const unavailable = (level === 0.5 && !supportsUltraWide)
+                  || targetZoom < minZoom - 0.01
+                  || targetZoom > maxZoom + 0.01;
+                const active = Math.abs(zoom - targetZoom) < 0.03;
 
                 return (
                   <Pressable
@@ -1081,21 +1114,38 @@ export default function CameraScreen() {
 
             <Pressable
               accessibilityRole="switch"
-              accessibilityState={{ checked: hdrEnabled }}
-              onPress={() => setHdrEnabled((enabled) => !enabled)}
-              style={styles.toggleRow}>
+              accessibilityState={{ checked: hdrApplied, disabled: !supportsHdr }}
+              disabled={!supportsHdr}
+              onPress={() => {
+                cameraReadyRef.current = false;
+                setCameraReady(false);
+                setHdrApplied(false);
+                setHdrEnabled((enabled) => !enabled);
+                void Haptics.selectionAsync();
+              }}
+              style={[styles.toggleRow, !supportsHdr && styles.toggleRowDisabled]}>
               <View style={styles.settingIcon}>
                 <Ionicons name="contrast-outline" size={20} color="white" />
               </View>
               <View style={styles.settingCopy}>
                 <View style={styles.hdrTitleRow}>
                   <Text style={styles.settingTitle}>HDR</Text>
-                  <Text style={styles.plannedBadge}>UI ONLY</Text>
+                  {supportsHdr && (
+                    <Text style={styles.plannedBadge}>{hdrApplied ? 'ACTIVE' : 'SUPPORTED'}</Text>
+                  )}
                 </View>
-                <Text style={styles.settingsDescription}>Multi-frame processing is not connected yet</Text>
+                <Text style={styles.settingsDescription}>
+                  {supportsHdr
+                    ? hdrEnabled
+                      ? hdrApplied
+                        ? 'Multi-frame HDR capture is active'
+                        : 'Configuring multi-frame HDR capture'
+                      : 'Preserve detail in highlights and shadows'
+                    : 'Not supported by this camera'}
+                </Text>
               </View>
-              <View style={[styles.switchTrack, hdrEnabled && styles.switchTrackActive]}>
-                <View style={[styles.switchThumb, hdrEnabled && styles.switchThumbActive]} />
+              <View style={[styles.switchTrack, hdrApplied && styles.switchTrackActive]}>
+                <View style={[styles.switchThumb, hdrApplied && styles.switchThumbActive]} />
               </View>
             </Pressable>
           </Animated.View>
@@ -1547,6 +1597,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 11,
+  },
+  toggleRowDisabled: {
+    opacity: 0.5,
   },
   settingIcon: {
     width: 38,

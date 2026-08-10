@@ -13,7 +13,9 @@ npm install
 npx expo start
 ```
 
-Opens in a [development build](https://docs.expo.dev/develop/development-builds/introduction/), Android emulator, iOS simulator, or [Expo Go](https://expo.dev/go).
+Open it in a [development build](https://docs.expo.dev/develop/development-builds/introduction/)
+on a physical device or an Android emulator. The native Vision Camera backend
+is not available in Expo Go.
 
 This project uses [file-based routing](https://docs.expo.dev/router/introduction) — edit files under `app/`.
 

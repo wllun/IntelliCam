@@ -1,13 +1,14 @@
 # Project State
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 ## Where we are
 
-Camera preview and JPEG capture work end-to-end using Expo Camera. The app
+Camera preview and JPEG capture work end-to-end using React Native Vision Camera 5. The app
 prefers the back camera and falls back to the front camera when necessary.
 Normal camera mode provides working flash, zoom, front/rear camera switching,
-gridlines, aspect-ratio selection, and a capture timer. Smart Preset mode provides the
+tap-to-focus/metering, AE/AF/AWB lock, exposure compensation, device-native
+Photo HDR, gridlines, aspect-ratio selection, and a capture timer. Smart Preset mode provides the
 "Focus card" UI; swipe to switch presets and view settings and tips—but
 presets do not affect capture yet.
 
@@ -18,7 +19,7 @@ and device capabilities is documented in
 ## Tasks
 
 - [x] Expo + Expo Router project scaffolded (SDK 54, TypeScript, new architecture enabled)
-- [x] Expo Camera wired: permission request -> camera preview -> silent shutter by default -> JPEG saved directly to an "IntelliCam" MediaLibrary album without a save confirmation
+- [x] Vision Camera wired: permission request -> camera preview -> silent shutter by default -> JPEG saved directly to an "IntelliCam" MediaLibrary album without a save confirmation
 - [x] EAS Build configured (`eas.json`, `preview` profile builds an installable APK via `eas build -p android --profile preview`)
 - [x] Preset data (`constants/presets.ts`) - five launch modes (Star, Light Trail, Waterfall, Portrait, Product) as plain data
 - [x] "Focus card" preset UI on camera screen - swipe left/right to switch, floating card shows ISO/shutter/WB/RAW chips + shooting tip, dot indicator, preset-tinted shutter (UI only, no capture effect)
@@ -28,14 +29,14 @@ and device capabilities is documented in
 - [x] IntelliCam-only gallery - grid, pull-to-refresh, pagination, and full-screen preview for photos in the named MediaLibrary album
 - [x] Open a capture-mode selector from the mode button
 - [x] Open the camera settings panel from the three-dot button
-- [x] Camera settings panel contains Gridlines, Aspect Ratio, Timer, Shutter sound, and HDR; zoom, flash, camera-facing, and photo-size remain camera-surface controls instead of three-dot settings
+- [x] Camera settings panel contains Gridlines, Aspect Ratio, Timer, Shutter sound, and HDR; zoom, flash, and camera-facing remain camera-surface controls instead of three-dot settings
 - [x] Gridlines overlay and 3-second/10-second capture countdown
 - [x] Cancellable capture timer - tapping the shutter again cancels; backgrounding, leaving the camera screen, camera remounts, and mount failures invalidate pending capture; countdown includes animated text and per-second haptics
-- [x] Aspect-ratio selection (`4:3`, `1:1`, `16:9`) passed to Expo Camera
+- [x] Aspect-ratio selection (`4:3`, `1:1`, `16:9`) applied as a centered crop to the captured JPEG
 - [x] Upgrade camera zoom controls: add `0.5x`, keep `1x`, `2x`, and `3x`, and support hand-controlled pinch gestures to zoom smoothly in and out
 - [x] Replace exposure +/- buttons with a vertical drag control and use an icon-only focus/exposure lock button
-- [ ] Implement real HDR multi-frame capture and merge (HDR must remain disabled
-  and labelled "Coming later" until capture processing is implemented)
+- [x] Connect tap focus/metering, AE/AF/AWB lock, and EV compensation to the native camera session with per-device capability/range checks
+- [x] Enable device-native multi-frame Photo HDR when the active camera supports it; keep the setting disabled on unsupported cameras
 - [ ] Persist gridlines, aspect ratio, timer, and HDR choices
 - [ ] Wire presets into actual capture (apply ISO/shutter/focus/RAW to the camera before shooting)
 - [ ] Implement the adaptive capture engine defined in `ADAPTIVE_CAPTURE_PROPOSAL.md`; fixed preset values remain UI suggestions until a resolved capture plan is applied
@@ -60,14 +61,10 @@ The three-dot camera settings panel contains:
   camera becomes unavailable.
 - **Shutter sound:** plays the native camera shutter sound when enabled.
   Default: off.
-- **HDR:** disabled and labelled **Coming later**. It must not be selectable
-  while it has no effect on captured photos. A genuine HDR implementation
-  requires:
-  - several exposure-bracketed frames;
-  - frame alignment;
-  - ghost removal for moving subjects;
-  - tone mapping;
-  - final image merging and saving.
+- **HDR:** requests the active device's native multi-frame Photo HDR pipeline.
+  The switch is selectable only when the camera reports Photo HDR support, and
+  shows **Active** only after the negotiated camera-session configuration confirms
+  that HDR was applied. Unsupported cameras show a disabled setting.
 
 Flash, zoom, and front/rear switching remain direct controls on the camera
 surface. Photo-size selection is no longer exposed in the settings panel.
@@ -82,8 +79,8 @@ surface. Photo-size selection is no longer exposed in the settings panel.
 - Clamps the requested zoom to the limits supported by the active device camera.
 - Treats `0.5x` as device-dependent: it is enabled only when an ultrawide
   camera/lens is available.
-- Uses device-dependent Expo Camera zoom percentages for the `2x` and `3x`
-  quick presets; they are not guaranteed optical magnifications.
+- Uses Vision Camera's device zoom factors for the `2x` and `3x` quick presets;
+  the active virtual camera may switch physical lenses at supported thresholds.
 
 These choices are currently session-only. Persist them in the future
 `user_settings` table so they remain selected after the app restarts.
