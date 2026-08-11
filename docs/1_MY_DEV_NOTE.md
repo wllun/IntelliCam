@@ -1,5 +1,6 @@
 1. Copy the latest code to the short build folder
-    robocopy "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules android ios .expo dist web-build
+    `robocopy "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules android ios .expo dist web-build`
+    [Company Laptop Cmd] : `robocopy "C:\Users\User\Desktop\React App\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules android ios .expo dist web-build`
 
 2. Update the generated project
     cd C:\ICBuild
