@@ -136,7 +136,9 @@ export default function CameraScreen() {
   const { width, height } = useWindowDimensions();
   const router = useRouter();
   const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
-  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
+  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions({
+    granularPermissions: ['photo'],
+  });
   const cameraRef = useRef<CameraRef>(null);
   const [facing, setFacing] = useState<CameraFacing>('back');
   const cameraDevice = useCameraDevice(facing, facing === 'back' ? BACK_CAMERA_FILTER : undefined);
