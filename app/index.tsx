@@ -131,6 +131,17 @@ function getCenteredCrop(
   };
 }
 
+function isCameraLifecycleCancellation(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('OperationCanceledException')
+    || message.includes('Camera is not active');
+}
+
+function getCameraErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.split('\n')[0] || 'The camera could not be started.';
+}
+
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -363,6 +374,20 @@ export default function CameraScreen() {
   useEffect(() => {
     setExposureCompensation((current) => Math.max(exposureMin, Math.min(exposureMax, current)));
   }, [exposureMax, exposureMin]);
+
+  useEffect(() => {
+    if (!supportsExposure || !cameraReady || !appActive || !screenFocused) return;
+
+    const controller = cameraRef.current?.controller;
+    if (!controller) return;
+
+    void controller.setExposureBias(exposureCompensation).catch((error: unknown) => {
+      // CameraX cancels pending controls when the camera is stopping or reconfiguring.
+      if (!isCameraLifecycleCancellation(error)) {
+        console.warn('Could not update camera exposure:', error);
+      }
+    });
+  }, [appActive, cameraReady, exposureCompensation, screenFocused, supportsExposure]);
 
   useEffect(() => {
     if (!supportsHdr) {
@@ -681,7 +706,6 @@ export default function CameraScreen() {
               outputs={cameraOutputs}
               constraints={cameraConstraints}
               isActive={appActive && screenFocused}
-              exposure={supportsExposure ? exposureCompensation : undefined}
               zoom={zoom}
               mirrorMode="auto"
               orientationSource="device"
@@ -690,30 +714,30 @@ export default function CameraScreen() {
                 setHdrApplied(config.isPhotoHDREnabled);
               }}
               onConfigured={() => {
+                cameraReadyRef.current = false;
+                setCameraReady(false);
+              }}
+              onPreviewStarted={() => {
                 if (appActiveRef.current && screenFocusedRef.current) {
                   cameraReadyRef.current = true;
                   setCameraReady(true);
                 }
               }}
-              onStarted={() => {
-                if (appActiveRef.current && screenFocusedRef.current) {
-                  cameraReadyRef.current = true;
-                  setCameraReady(true);
-                }
+              onPreviewStopped={() => {
+                cameraReadyRef.current = false;
+                setCameraReady(false);
               }}
               onStopped={() => {
                 cameraReadyRef.current = false;
                 setCameraReady(false);
               }}
               onError={(error) => {
+                if (isCameraLifecycleCancellation(error)) return;
+
                 cameraReadyRef.current = false;
                 setCameraReady(false);
                 cancelPendingCapture();
-                if (facing === 'back') {
-                  setFacing('front');
-                } else {
-                  Alert.alert('Camera unavailable', error.message);
-                }
+                Alert.alert('Camera unavailable', getCameraErrorMessage(error));
               }}
             />
           )}
