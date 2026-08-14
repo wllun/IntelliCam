@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import {
   Camera,
+  type CameraDevice,
   type CameraRef,
   type Constraint,
   type DeviceFilter,
@@ -129,6 +130,30 @@ function getCenteredCrop(
     width: sourceWidth,
     height,
   };
+}
+
+function getNeutralZoom(device: CameraDevice | undefined) {
+  if (!device) return 1;
+
+  const minZoom = device.minZoom;
+  const maxZoom = device.maxZoom;
+  const hasUltraWideLens = device.physicalDevices.some(
+    (physicalDevice) => physicalDevice.type === 'ultra-wide-angle',
+  );
+  const hasWideLens = device.physicalDevices.some(
+    (physicalDevice) => physicalDevice.type === 'wide-angle',
+  );
+
+  if (minZoom < 1) return Math.max(minZoom, Math.min(maxZoom, 1));
+
+  if (hasUltraWideLens && hasWideLens) {
+    const wideLensSwitchZoom = device.zoomLensSwitchFactors.find(
+      (factor) => factor > minZoom + 0.01,
+    );
+    return Math.max(minZoom, Math.min(maxZoom, wideLensSwitchZoom ?? minZoom * 2));
+  }
+
+  return Math.max(minZoom, Math.min(maxZoom, 1));
 }
 
 function isCameraLifecycleCancellation(error: unknown) {
@@ -319,21 +344,22 @@ export default function CameraScreen() {
     resetMetering();
   }, [captureMode, facing, resetMetering]);
 
-  useEffect(() => {
-    cameraReadyRef.current = false;
-    setCameraReady(false);
-    cancelPendingCapture();
-    cancelZoomAnimation();
-    setZoom(1);
-  }, [cameraDevice?.id, cancelPendingCapture, cancelZoomAnimation, facing]);
-
   const hasMediaPermission = mediaPermission?.granted ?? false;
   const preset = PRESETS[presetIndex];
   const isNormalMode = captureMode === 'normal';
-  const neutralZoom = 1;
+  const neutralZoom = getNeutralZoom(cameraDevice);
   const minZoom = cameraDevice?.minZoom ?? neutralZoom;
   const maxZoom = cameraDevice?.maxZoom ?? neutralZoom;
-  const supportsUltraWide = minZoom < neutralZoom - 0.01;
+  const hasUltraWideLens = cameraDevice?.physicalDevices.some(
+    (physicalDevice) => physicalDevice.type === 'ultra-wide-angle',
+  ) ?? false;
+  const supportsUltraWide = hasUltraWideLens || minZoom < neutralZoom - 0.01;
+  const ultraWideZoom = supportsUltraWide ? minZoom : neutralZoom * 0.5;
+  const getQuickZoomTarget = (level: (typeof QUICK_ZOOM_LEVELS)[number]) =>
+    level === 0.5 ? ultraWideZoom : neutralZoom * level;
+  const displayedZoom = supportsUltraWide && Math.abs(zoom - ultraWideZoom) < 0.03
+    ? 0.5
+    : zoom / neutralZoom;
   const supportsExposure = cameraDevice?.supportsExposureBias ?? false;
   const exposureMin = supportsExposure
     ? Math.max(EXPOSURE_MIN, cameraDevice?.minExposureBias ?? EXPOSURE_MIN)
@@ -372,6 +398,14 @@ export default function CameraScreen() {
   );
 
   useEffect(() => {
+    cameraReadyRef.current = false;
+    setCameraReady(false);
+    cancelPendingCapture();
+    cancelZoomAnimation();
+    setZoom(neutralZoom);
+  }, [cameraDevice?.id, cancelPendingCapture, cancelZoomAnimation, facing, neutralZoom]);
+
+  useEffect(() => {
     setExposureCompensation((current) => Math.max(exposureMin, Math.min(exposureMax, current)));
   }, [exposureMax, exposureMin]);
 
@@ -407,7 +441,7 @@ export default function CameraScreen() {
   };
 
   const selectQuickZoom = (level: (typeof QUICK_ZOOM_LEVELS)[number]) => {
-    const targetZoom = neutralZoom * level;
+    const targetZoom = getQuickZoomTarget(level);
     if (targetZoom < minZoom - 0.01 || targetZoom > maxZoom + 0.01) return;
     animateZoomTo(targetZoom);
     Haptics.selectionAsync();
@@ -930,12 +964,13 @@ export default function CameraScreen() {
           <View style={[styles.zoomCluster, { bottom: insets.bottom + 112 }]}>
             <View style={styles.zoomReadout}>
               <Text style={styles.zoomReadoutText}>
-                {(zoom / neutralZoom).toFixed(1)}× relative zoom
+                {displayedZoom.toFixed(1)}×
               </Text>
             </View>
-            <View style={styles.zoomControls}>
+            <View style={styles.zoomRuler}>
+              <View pointerEvents="none" style={styles.zoomRulerLine} />
               {QUICK_ZOOM_LEVELS.map((level) => {
-                const targetZoom = neutralZoom * level;
+                const targetZoom = getQuickZoomTarget(level);
                 const unavailable = (level === 0.5 && !supportsUltraWide)
                   || targetZoom < minZoom - 0.01
                   || targetZoom > maxZoom + 0.01;
@@ -951,16 +986,21 @@ export default function CameraScreen() {
                     disabled={unavailable}
                     onPress={() => selectQuickZoom(level)}
                     style={({ pressed }) => [
-                      styles.zoomButton,
-                      active && styles.zoomButtonActive,
-                      pressed && !unavailable && styles.zoomButtonPressed,
-                      unavailable && styles.zoomButtonDisabled,
+                      styles.zoomRulerStop,
+                      pressed && !unavailable && styles.zoomRulerStopPressed,
+                      unavailable && styles.zoomRulerStopDisabled,
                     ]}>
+                    <View
+                      style={[
+                        styles.zoomRulerTick,
+                        active && styles.zoomRulerTickActive,
+                      ]}
+                    />
                     <Text
                       style={[
-                        styles.zoomText,
-                        active && styles.zoomTextActive,
-                        unavailable && styles.zoomTextDisabled,
+                        styles.zoomRulerLabel,
+                        active && styles.zoomRulerLabelActive,
+                        unavailable && styles.zoomRulerLabelDisabled,
                       ]}>
                       {level}×
                     </Text>
@@ -968,7 +1008,6 @@ export default function CameraScreen() {
                 );
               })}
             </View>
-            <Text style={styles.pinchHint}>Pinch anywhere to zoom</Text>
           </View>
         )}
 
@@ -1329,59 +1368,80 @@ const styles = StyleSheet.create({
     position: 'absolute',
     alignSelf: 'center',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
   },
   zoomReadout: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+    minWidth: 44,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
     borderRadius: 999,
-    backgroundColor: 'rgba(20,20,20,0.65)',
+    alignItems: 'center',
+    backgroundColor: 'rgba(20,20,20,0.72)',
   },
   zoomReadoutText: {
     color: 'white',
+    fontSize: 11,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  zoomRuler: {
+    position: 'relative',
+    flexDirection: 'row',
+    gap: 8,
+    height: 48,
+    paddingHorizontal: 4,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(20,20,20,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  zoomRulerLine: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    top: 17,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.32)',
+  },
+  zoomRulerStop: {
+    width: 44,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 8,
+  },
+  zoomRulerStopPressed: {
+    opacity: 0.65,
+  },
+  zoomRulerStopDisabled: {
+    opacity: 0.28,
+  },
+  zoomRulerTick: {
+    width: 1,
+    height: 9,
+    marginBottom: 4,
+    backgroundColor: 'rgba(255,255,255,0.65)',
+  },
+  zoomRulerTickActive: {
+    width: 2,
+    height: 15,
+    marginBottom: 2,
+    borderRadius: 1,
+    backgroundColor: 'white',
+  },
+  zoomRulerLabel: {
+    color: 'rgba(255,255,255,0.68)',
     fontSize: 10,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
-  zoomControls: {
-    flexDirection: 'row',
-    gap: 8,
-    padding: 5,
-    borderRadius: 999,
-    backgroundColor: 'rgba(20,20,20,0.65)',
-  },
-  zoomButton: {
-    minWidth: 48,
-    height: 48,
-    paddingHorizontal: 7,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  zoomButtonActive: {
-    backgroundColor: 'white',
-  },
-  zoomButtonPressed: {
-    opacity: 0.72,
-  },
-  zoomText: {
+  zoomRulerLabelActive: {
     color: 'white',
-    fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  zoomTextActive: {
-    color: '#111',
-  },
-  zoomButtonDisabled: {
-    opacity: 0.38,
-  },
-  zoomTextDisabled: {
-    color: 'rgba(255,255,255,0.7)',
-  },
-  pinchHint: {
-    color: 'rgba(255,255,255,0.65)',
-    fontSize: 9,
-    fontWeight: '600',
+  zoomRulerLabelDisabled: {
+    color: 'rgba(255,255,255,0.5)',
   },
   captureControls: {
     position: 'absolute',
