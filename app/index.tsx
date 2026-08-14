@@ -18,6 +18,7 @@ import {
   type FlashMode,
   type MeteringMode,
   useCameraDevice,
+  useCameraDevices,
   useCameraPermission,
   usePhotoOutput,
 } from 'react-native-vision-camera';
@@ -156,6 +157,28 @@ function getNeutralZoom(device: CameraDevice | undefined) {
   return Math.max(minZoom, Math.min(maxZoom, 1));
 }
 
+function hasZoomLens(device: CameraDevice | undefined, type: 'ultra-wide-angle' | 'wide-angle') {
+  if (!device) return false;
+  return device.type === type
+    || device.physicalDevices.some((physicalDevice) => physicalDevice.type === type);
+}
+
+function getPrimaryBackDevice(
+  preferredDevice: CameraDevice | undefined,
+  devices: CameraDevice[],
+) {
+  if (hasZoomLens(preferredDevice, 'wide-angle')) return preferredDevice;
+
+  const backDevices = devices.filter((device) => device.position === 'back');
+  const virtualWideDevice = backDevices
+    .filter((device) => device.isVirtualDevice && hasZoomLens(device, 'wide-angle'))
+    .sort((first, second) => second.physicalDevices.length - first.physicalDevices.length)[0];
+
+  return virtualWideDevice
+    ?? backDevices.find((device) => device.type === 'wide-angle')
+    ?? preferredDevice;
+}
+
 function isCameraLifecycleCancellation(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes('OperationCanceledException')
@@ -177,7 +200,28 @@ export default function CameraScreen() {
   });
   const cameraRef = useRef<CameraRef>(null);
   const [facing, setFacing] = useState<CameraFacing>('back');
-  const cameraDevice = useCameraDevice(facing, facing === 'back' ? BACK_CAMERA_FILTER : undefined);
+  const preferredBackDevice = useCameraDevice('back', BACK_CAMERA_FILTER);
+  const frontDevice = useCameraDevice('front');
+  const cameraDevices = useCameraDevices();
+  const [selectedBackDeviceId, setSelectedBackDeviceId] = useState<string>();
+  const primaryBackDevice = useMemo(
+    () => getPrimaryBackDevice(preferredBackDevice, cameraDevices),
+    [cameraDevices, preferredBackDevice],
+  );
+  const dedicatedUltraWideDevice = useMemo(
+    () => cameraDevices.find((device) => (
+      device.position === 'back'
+      && device.type === 'ultra-wide-angle'
+      && device.id !== primaryBackDevice?.id
+    )),
+    [cameraDevices, primaryBackDevice?.id],
+  );
+  const selectedBackDevice = selectedBackDeviceId
+    ? cameraDevices.find((device) => device.id === selectedBackDeviceId)
+    : undefined;
+  const cameraDevice = facing === 'back'
+    ? selectedBackDevice ?? primaryBackDevice
+    : frontDevice;
   const photoOutput = usePhotoOutput({
     containerFormat: 'jpeg',
     quality: 1,
@@ -207,6 +251,7 @@ export default function CameraScreen() {
   const [meteringLocked, setMeteringLocked] = useState(false);
   const meteringResetRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const zoomAnimationRef = useRef<number | undefined>(undefined);
+  const pendingZoomTargetRef = useRef<{ deviceId: string; zoom: number } | undefined>(undefined);
   const countdownTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const countdownResolveRef = useRef<(() => void) | undefined>(undefined);
   const countdownActiveRef = useRef(false);
@@ -350,14 +395,37 @@ export default function CameraScreen() {
   const neutralZoom = getNeutralZoom(cameraDevice);
   const minZoom = cameraDevice?.minZoom ?? neutralZoom;
   const maxZoom = cameraDevice?.maxZoom ?? neutralZoom;
-  const hasUltraWideLens = cameraDevice?.physicalDevices.some(
-    (physicalDevice) => physicalDevice.type === 'ultra-wide-angle',
-  ) ?? false;
-  const supportsUltraWide = hasUltraWideLens || minZoom < neutralZoom - 0.01;
-  const ultraWideZoom = supportsUltraWide ? minZoom : neutralZoom * 0.5;
-  const getQuickZoomTarget = (level: (typeof QUICK_ZOOM_LEVELS)[number]) =>
-    level === 0.5 ? ultraWideZoom : neutralZoom * level;
-  const displayedZoom = supportsUltraWide && Math.abs(zoom - ultraWideZoom) < 0.03
+  const primaryBackHasIntegratedUltraWide = hasZoomLens(primaryBackDevice, 'ultra-wide-angle');
+  const supportsUltraWide = facing === 'back'
+    && (primaryBackHasIntegratedUltraWide || dedicatedUltraWideDevice !== undefined);
+  const usingDedicatedUltraWide = facing === 'back'
+    && cameraDevice?.id === dedicatedUltraWideDevice?.id;
+  const ultraWideZoom = usingDedicatedUltraWide
+    ? neutralZoom
+    : primaryBackHasIntegratedUltraWide
+      ? minZoom
+      : neutralZoom * 0.5;
+  const getQuickZoomOption = (level: (typeof QUICK_ZOOM_LEVELS)[number]) => {
+    const device = facing === 'back'
+      ? level === 0.5 && !primaryBackHasIntegratedUltraWide
+        ? dedicatedUltraWideDevice
+        : primaryBackDevice
+      : cameraDevice;
+    const deviceNeutralZoom = getNeutralZoom(device);
+    const targetZoom = level === 0.5
+      ? device?.id === dedicatedUltraWideDevice?.id
+        ? deviceNeutralZoom
+        : device?.minZoom ?? deviceNeutralZoom * 0.5
+      : deviceNeutralZoom * level;
+    const available = device !== undefined
+      && (level !== 0.5 || supportsUltraWide)
+      && targetZoom >= device.minZoom - 0.01
+      && targetZoom <= device.maxZoom + 0.01;
+
+    return { available, device, targetZoom };
+  };
+  const displayedZoom = usingDedicatedUltraWide
+    || (supportsUltraWide && Math.abs(zoom - ultraWideZoom) < 0.03)
     ? 0.5
     : zoom / neutralZoom;
   const supportsExposure = cameraDevice?.supportsExposureBias ?? false;
@@ -402,8 +470,13 @@ export default function CameraScreen() {
     setCameraReady(false);
     cancelPendingCapture();
     cancelZoomAnimation();
-    setZoom(neutralZoom);
-  }, [cameraDevice?.id, cancelPendingCapture, cancelZoomAnimation, facing, neutralZoom]);
+    const pendingZoom = pendingZoomTargetRef.current;
+    pendingZoomTargetRef.current = undefined;
+    const nextZoom = pendingZoom?.deviceId === cameraDevice?.id
+      ? pendingZoom.zoom
+      : neutralZoom;
+    setZoom(Math.max(minZoom, Math.min(maxZoom, nextZoom)));
+  }, [cameraDevice?.id, cancelPendingCapture, cancelZoomAnimation, facing, maxZoom, minZoom, neutralZoom]);
 
   useEffect(() => {
     setExposureCompensation((current) => Math.max(exposureMin, Math.min(exposureMax, current)));
@@ -441,9 +514,22 @@ export default function CameraScreen() {
   };
 
   const selectQuickZoom = (level: (typeof QUICK_ZOOM_LEVELS)[number]) => {
-    const targetZoom = getQuickZoomTarget(level);
-    if (targetZoom < minZoom - 0.01 || targetZoom > maxZoom + 0.01) return;
-    animateZoomTo(targetZoom);
+    const option = getQuickZoomOption(level);
+    if (!option.available || !option.device) return;
+
+    if (facing === 'back' && option.device.id !== cameraDevice?.id) {
+      pendingZoomTargetRef.current = {
+        deviceId: option.device.id,
+        zoom: option.targetZoom,
+      };
+      setSelectedBackDeviceId(
+        option.device.id === primaryBackDevice?.id ? undefined : option.device.id,
+      );
+      cancelZoomAnimation();
+      setZoom(option.targetZoom);
+    } else {
+      animateZoomTo(option.targetZoom);
+    }
     Haptics.selectionAsync();
   };
 
@@ -970,11 +1056,10 @@ export default function CameraScreen() {
             <View style={styles.zoomRuler}>
               <View pointerEvents="none" style={styles.zoomRulerLine} />
               {QUICK_ZOOM_LEVELS.map((level) => {
-                const targetZoom = getQuickZoomTarget(level);
-                const unavailable = (level === 0.5 && !supportsUltraWide)
-                  || targetZoom < minZoom - 0.01
-                  || targetZoom > maxZoom + 0.01;
-                const active = Math.abs(zoom - targetZoom) < 0.03;
+                const option = getQuickZoomOption(level);
+                const unavailable = !option.available;
+                const active = option.device?.id === cameraDevice?.id
+                  && Math.abs(zoom - option.targetZoom) < 0.03;
 
                 return (
                   <Pressable
