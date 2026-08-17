@@ -516,7 +516,7 @@ export default function CameraScreen() {
     cancelZoomAnimation();
     const pendingZoom = pendingZoomTargetRef.current;
     pendingZoomTargetRef.current = undefined;
-    const nextZoom = pendingZoom?.deviceId === cameraDevice?.id
+    const nextZoom = pendingZoom && pendingZoom.deviceId === cameraDevice?.id
       ? pendingZoom.zoom
       : neutralZoom;
     setZoom(Math.max(minZoom, Math.min(maxZoom, nextZoom)));
