@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import {
   Camera,
+  type CapturePhotoSettings,
   type CameraDevice,
   type CameraRef,
   type Constraint,
@@ -22,6 +23,7 @@ import {
   useCameraPermission,
   usePhotoOutput,
 } from 'react-native-vision-camera';
+import { loadImage } from 'react-native-nitro-image';
 import { Image } from 'expo-image';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
@@ -179,6 +181,65 @@ function getCenteredCrop(
   };
 }
 
+async function cropPhotoForAspectRatio(
+  sourceFilePath: string,
+  ratio: CameraRatio,
+  fullScreenRatio: number,
+) {
+  const sourceUri = `file://${sourceFilePath}`;
+  if (ratio === '4:3') return sourceUri;
+
+  const normalizedImage = await loadImage({ filePath: sourceFilePath });
+  try {
+    const crop = getCenteredCrop(
+      normalizedImage.width,
+      normalizedImage.height,
+      ratio,
+      fullScreenRatio,
+    );
+    if (!crop) return sourceUri;
+
+    const croppedImage = normalizedImage.crop(
+      crop.originX,
+      crop.originY,
+      crop.originX + crop.width,
+      crop.originY + crop.height,
+    );
+    try {
+      return `file://${await croppedImage.saveToTemporaryFileAsync('jpg', 92)}`;
+    } finally {
+      croppedImage.dispose();
+    }
+  } finally {
+    normalizedImage.dispose();
+  }
+}
+
+async function savePhotoToAlbum(localUri: string): Promise<LatestPhoto> {
+  const album = await MediaLibrary.getAlbumAsync(ALBUM_NAME);
+  if (album) {
+    const asset = await MediaLibrary.createAssetAsync(localUri, album);
+    return { key: asset.id, uri: asset.uri };
+  }
+
+  const createdAlbum = await MediaLibrary.createAlbumAsync(
+    ALBUM_NAME,
+    undefined,
+    false,
+    localUri,
+  );
+  const page = await MediaLibrary.getAssetsAsync({
+    album: createdAlbum,
+    first: 1,
+    mediaType: MediaLibrary.MediaType.photo,
+    sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+  });
+  const asset = page.assets[0];
+  return asset
+    ? { key: asset.id, uri: asset.uri }
+    : { key: `${Date.now()}-${localUri}`, uri: localUri };
+}
+
 function getNeutralZoom(device: CameraDevice | undefined) {
   if (!device) return 1;
 
@@ -297,8 +358,8 @@ export default function CameraScreen() {
     : frontDevice;
   const photoOutput = usePhotoOutput({
     containerFormat: 'jpeg',
-    quality: 1,
-    qualityPrioritization: 'quality',
+    quality: 0.92,
+    qualityPrioritization: cameraDevice?.supportsSpeedQualityPrioritization ? 'speed' : 'balanced',
   });
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -329,6 +390,8 @@ export default function CameraScreen() {
   const countdownResolveRef = useRef<(() => void) | undefined>(undefined);
   const countdownActiveRef = useRef(false);
   const captureSessionRef = useRef(0);
+  const latestCaptureRef = useRef(0);
+  const photoSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const appActiveRef = useRef(AppState.currentState === 'active');
   const screenFocusedRef = useRef(true);
   const cameraReadyRef = useRef(false);
@@ -336,6 +399,37 @@ export default function CameraScreen() {
   const exposureDragStart = useSharedValue(0);
   const rulerZoomValue = useSharedValue(1);
   const rulerDragStartZoom = useSharedValue(1);
+
+  const enqueuePhotoSave = useCallback((
+    sourceFilePath: string,
+    ratio: CameraRatio,
+    fullScreenRatio: number,
+    captureId: number,
+  ) => {
+    photoSaveQueueRef.current = photoSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const processedUri = await cropPhotoForAspectRatio(
+          sourceFilePath,
+          ratio,
+          fullScreenRatio,
+        );
+        const savedPhoto = await savePhotoToAlbum(processedUri);
+        if (latestCaptureRef.current === captureId) {
+          setLatestPhoto(savedPhoto);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn('Could not save captured photo:', error);
+        if (
+          latestCaptureRef.current === captureId
+          && appActiveRef.current
+          && screenFocusedRef.current
+        ) {
+          Alert.alert('Photo not saved', 'The photo was captured but could not be saved to the gallery.');
+        }
+      });
+  }, []);
 
   const cancelPendingCapture = useCallback((withHapticFeedback = false) => {
     const wasCountingDown = countdownActiveRef.current;
@@ -579,6 +673,16 @@ export default function CameraScreen() {
     aspectRatio,
     isLandscapeCapture,
   );
+
+  useEffect(() => {
+    const supportedFlashModes: FlashMode[] = cameraDevice?.hasFlash ? FLASH_MODES : ['off'];
+    const settings: CapturePhotoSettings[] = supportedFlashModes.flatMap((flashMode) => [
+      { flashMode, enableShutterSound: false, enableVirtualDeviceFusion: false },
+      { flashMode, enableShutterSound: true, enableVirtualDeviceFusion: false },
+    ]);
+    void photoOutput.prepareSettings(settings).catch(() => undefined);
+  }, [cameraDevice?.hasFlash, photoOutput]);
+
   const zoomRulerWidth = Math.max(220, Math.min(width - 24, 420));
   const zoomRulerTicks = useMemo(
     () => createZoomRulerTicks(rulerMinZoom, rulerMaxZoom),
@@ -919,61 +1023,23 @@ export default function CameraScreen() {
       countdownActiveRef.current = false;
       setCountdown(undefined);
 
-      const photo = await photoOutput.capturePhoto(
+      const photoFile = await photoOutput.capturePhotoToFile(
         {
           flashMode: cameraDevice?.hasFlash ? flash : 'off',
           enableShutterSound: shutterSoundEnabled,
+          enableVirtualDeviceFusion: false,
         },
         {},
       );
-      let savedPhotoUri: string;
-      try {
-        const normalizedImage = await photo.toImageAsync();
-        try {
-          const crop = getCenteredCrop(
-            normalizedImage.width,
-            normalizedImage.height,
-            aspectRatio,
-            width / height,
-          );
-          if (crop) {
-            const croppedImage = normalizedImage.crop(
-              crop.originX,
-              crop.originY,
-              crop.originX + crop.width,
-              crop.originY + crop.height,
-            );
-            try {
-              savedPhotoUri = `file://${await croppedImage.saveToTemporaryFileAsync('jpg', 100)}`;
-            } finally {
-              croppedImage.dispose();
-            }
-          } else {
-            savedPhotoUri = `file://${await normalizedImage.saveToTemporaryFileAsync('jpg', 100)}`;
-          }
-        } finally {
-          normalizedImage.dispose();
-        }
-      } finally {
-        photo.dispose();
-      }
-      if (
-        captureSessionRef.current !== captureSession
-        || !appActiveRef.current
-        || !screenFocusedRef.current
-      ) return;
-
-      const album = await MediaLibrary.getAlbumAsync(ALBUM_NAME);
-      if (!album) {
-        await MediaLibrary.createAlbumAsync(ALBUM_NAME, undefined, false, savedPhotoUri);
-      } else {
-        await MediaLibrary.createAssetAsync(savedPhotoUri, album);
-      }
+      const sourcePhotoUri = `file://${photoFile.filePath}`;
+      latestCaptureRef.current = captureSession;
       setLatestPhoto({
-        key: `${Date.now()}-${savedPhotoUri}`,
-        uri: savedPhotoUri,
+        key: `${captureSession}-${sourcePhotoUri}`,
+        uri: sourcePhotoUri,
       });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCapturing(false);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      enqueuePhotoSave(photoFile.filePath, aspectRatio, width / height, captureSession);
     } catch (error) {
       if (captureSessionRef.current === captureSession) {
         Alert.alert('Capture failed', String(error));
