@@ -1108,16 +1108,11 @@ export default function CameraScreen() {
                   if (event.nativeEvent.actionName === 'decrement') changeExposure(-1);
                 }}
                 style={styles.exposureControl}>
-                <Ionicons name="sunny-outline" size={17} color="white" />
                 <View style={styles.exposureTrack}>
                   <View style={styles.exposureTrackLine} />
                   <View style={styles.exposureTrackZero} />
                   <View style={[styles.exposureThumb, { top: exposureThumbTop - 6 }]} />
                 </View>
-                <Text style={styles.exposureValue}>
-                  {exposureCompensation > 0 ? '+' : ''}
-                  {exposureCompensation.toFixed(1)}
-                </Text>
               </View>
             </GestureDetector>
             <Pressable
@@ -1857,15 +1852,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 84,
     top: -8,
-    width: 42,
-    height: 144,
+    width: 44,
+    height: 96,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderRadius: 21,
-    backgroundColor: 'rgba(16,16,16,0.72)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
   },
   exposureTrack: {
     width: 18,
@@ -1876,7 +1866,7 @@ const styles = StyleSheet.create({
     width: 2,
     height: '100%',
     borderRadius: 1,
-    backgroundColor: 'rgba(255,255,255,0.55)',
+    backgroundColor: 'rgba(255,255,255,0.82)',
   },
   exposureTrackZero: {
     position: 'absolute',
@@ -1895,12 +1885,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD84D',
     borderWidth: 1,
     borderColor: 'white',
-  },
-  exposureValue: {
-    color: 'white',
-    fontSize: 13,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
   },
   meteringLock: {
     position: 'absolute',
