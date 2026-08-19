@@ -45,10 +45,10 @@ const ALBUM_NAME = 'IntelliCam';
 type CaptureMode = 'normal' | 'preset';
 type TimerSeconds = 0 | 3 | 10;
 type CameraFacing = 'front' | 'back';
-type CameraRatio = '4:3' | '1:1' | '16:9';
+type CameraRatio = '4:3' | '1:1' | '16:9' | 'Full';
 
 const FLASH_MODES: FlashMode[] = ['off', 'auto', 'on'];
-const ASPECT_RATIOS: CameraRatio[] = ['4:3', '1:1', '16:9'];
+const ASPECT_RATIOS: CameraRatio[] = ['4:3', '1:1', '16:9', 'Full'];
 const TIMER_OPTIONS: TimerSeconds[] = [0, 3, 10];
 const METERING_RESET_MS = 5000;
 const EXPOSURE_MIN = -2;
@@ -105,7 +105,20 @@ function createZoomRulerTicks(minimum: number, maximum: number) {
   );
 }
 
-function getRatioValue(ratio: CameraRatio, landscape: boolean) {
+function getRatioValue(
+  ratio: CameraRatio,
+  landscape: boolean,
+  fullScreenRatio?: number,
+) {
+  if (ratio === 'Full') {
+    const safeRatio = fullScreenRatio && Number.isFinite(fullScreenRatio) && fullScreenRatio > 0
+      ? fullScreenRatio
+      : 9 / 16;
+    const longSide = Math.max(safeRatio, 1 / safeRatio);
+    const shortSide = Math.min(safeRatio, 1 / safeRatio);
+    return landscape ? longSide : shortSide;
+  }
+
   const [first, second] = ratio.split(':').map(Number);
   const longSide = Math.max(first, second);
   const shortSide = Math.min(first, second);
@@ -118,7 +131,7 @@ function getPreviewFrame(
   ratio: CameraRatio,
   landscape: boolean,
 ) {
-  const targetRatio = getRatioValue(ratio, landscape);
+  const targetRatio = getRatioValue(ratio, landscape, containerWidth / containerHeight);
   let frameWidth = containerWidth;
   let frameHeight = frameWidth / targetRatio;
 
@@ -139,9 +152,10 @@ function getCenteredCrop(
   sourceWidth: number,
   sourceHeight: number,
   ratio: CameraRatio,
+  fullScreenRatio?: number,
 ) {
   const landscape = sourceWidth >= sourceHeight;
-  const targetRatio = getRatioValue(ratio, landscape);
+  const targetRatio = getRatioValue(ratio, landscape, fullScreenRatio);
   const sourceRatio = sourceWidth / sourceHeight;
 
   if (Math.abs(sourceRatio - targetRatio) < 0.001) return undefined;
@@ -916,7 +930,12 @@ export default function CameraScreen() {
       try {
         const normalizedImage = await photo.toImageAsync();
         try {
-          const crop = getCenteredCrop(normalizedImage.width, normalizedImage.height, aspectRatio);
+          const crop = getCenteredCrop(
+            normalizedImage.width,
+            normalizedImage.height,
+            aspectRatio,
+            width / height,
+          );
           if (crop) {
             const croppedImage = normalizedImage.crop(
               crop.originX,
@@ -1412,9 +1431,11 @@ export default function CameraScreen() {
                 {ASPECT_RATIOS.map((ratio) => (
                   <Pressable
                     key={ratio}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: aspectRatio === ratio }}
                     onPress={() => {
                       setAspectRatio(ratio);
-                      Haptics.selectionAsync();
+                      void Haptics.selectionAsync();
                     }}
                     style={[styles.segment, aspectRatio === ratio && styles.segmentActive]}>
                     <Text style={[styles.segmentText, aspectRatio === ratio && styles.segmentTextActive]}>
@@ -1949,7 +1970,9 @@ const styles = StyleSheet.create({
   segment: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 7,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 4,
     borderRadius: 8,
   },
   segmentActive: {
