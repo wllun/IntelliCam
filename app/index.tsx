@@ -356,10 +356,15 @@ export default function CameraScreen() {
   const cameraDevice = facing === 'back'
     ? selectedBackDevice ?? primaryBackDevice
     : frontDevice;
+  const [hdrEnabled, setHdrEnabled] = useState(false);
+  const [hdrApplied, setHdrApplied] = useState(false);
+  const supportsNativeHdr = cameraDevice?.supportsPhotoHDR ?? false;
   const photoOutput = usePhotoOutput({
     containerFormat: 'jpeg',
-    quality: 0.92,
-    qualityPrioritization: cameraDevice?.supportsSpeedQualityPrioritization ? 'speed' : 'balanced',
+    quality: hdrEnabled ? 1 : 0.92,
+    qualityPrioritization: hdrEnabled
+      ? 'quality'
+      : cameraDevice?.supportsSpeedQualityPrioritization ? 'speed' : 'balanced',
   });
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -377,8 +382,6 @@ export default function CameraScreen() {
   const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
   const [shutterSoundEnabled, setShutterSoundEnabled] = useState(false);
-  const [hdrEnabled, setHdrEnabled] = useState(false);
-  const [hdrApplied, setHdrApplied] = useState(false);
   const [countdown, setCountdown] = useState<number>();
   const [focusPoint, setFocusPoint] = useState<FocusPoint>();
   const [exposureCompensation, setExposureCompensation] = useState(0);
@@ -640,7 +643,6 @@ export default function CameraScreen() {
     deviceExposureMin,
     deviceExposureMax,
   );
-  const supportsHdr = cameraDevice?.supportsPhotoHDR ?? false;
   const meteringModes = useMemo<MeteringMode[]>(() => {
     if (!cameraDevice) return [];
     const modes: MeteringMode[] = [];
@@ -663,9 +665,9 @@ export default function CameraScreen() {
   }, [cameraDevice, meteringModes]);
   const cameraOutputs = useMemo(() => [photoOutput], [photoOutput]);
   const cameraConstraints = useMemo<Constraint[]>(() => [
-    { photoHDR: hdrEnabled && supportsHdr },
+    { photoHDR: hdrEnabled && supportsNativeHdr },
     { resolutionBias: photoOutput },
-  ], [hdrEnabled, photoOutput, supportsHdr]);
+  ], [hdrEnabled, photoOutput, supportsNativeHdr]);
   const isLandscapeCapture = width > height;
   const previewFrame = getPreviewFrame(
     width,
@@ -677,11 +679,11 @@ export default function CameraScreen() {
   useEffect(() => {
     const supportedFlashModes: FlashMode[] = cameraDevice?.hasFlash ? FLASH_MODES : ['off'];
     const settings: CapturePhotoSettings[] = supportedFlashModes.flatMap((flashMode) => [
-      { flashMode, enableShutterSound: false, enableVirtualDeviceFusion: false },
-      { flashMode, enableShutterSound: true, enableVirtualDeviceFusion: false },
+      { flashMode, enableShutterSound: false, enableVirtualDeviceFusion: hdrEnabled },
+      { flashMode, enableShutterSound: true, enableVirtualDeviceFusion: hdrEnabled },
     ]);
     void photoOutput.prepareSettings(settings).catch(() => undefined);
-  }, [cameraDevice?.hasFlash, photoOutput]);
+  }, [cameraDevice?.hasFlash, hdrEnabled, photoOutput]);
 
   const zoomRulerWidth = Math.max(220, Math.min(width - 24, 420));
   const zoomRulerTicks = useMemo(
@@ -731,13 +733,6 @@ export default function CameraScreen() {
       }
     });
   }, [appActive, cameraReady, nativeExposureBias, screenFocused, supportsExposure]);
-
-  useEffect(() => {
-    if (!supportsHdr) {
-      setHdrEnabled(false);
-      setHdrApplied(false);
-    }
-  }, [supportsHdr]);
 
   const changePreset = (direction: 1 | -1) => {
     setPresetIndex((i) => (i + direction + PRESETS.length) % PRESETS.length);
@@ -1027,7 +1022,7 @@ export default function CameraScreen() {
         {
           flashMode: cameraDevice?.hasFlash ? flash : 'off',
           enableShutterSound: shutterSoundEnabled,
-          enableVirtualDeviceFusion: false,
+          enableVirtualDeviceFusion: hdrEnabled,
         },
         {},
       );
@@ -1071,7 +1066,10 @@ export default function CameraScreen() {
               orientationSource="device"
               resizeMode="cover"
               onSessionConfigSelected={(config) => {
-                setHdrApplied(config.isPhotoHDREnabled);
+                setHdrApplied(
+                  hdrEnabled
+                  && (supportsNativeHdr ? config.isPhotoHDREnabled : true),
+                );
               }}
               onConfigured={() => {
                 cameraReadyRef.current = false;
@@ -1459,9 +1457,11 @@ export default function CameraScreen() {
 
               <Pressable
                 accessibilityLabel="HDR"
+                accessibilityHint={supportsNativeHdr
+                  ? 'Uses the camera native HDR photo format'
+                  : 'Uses enhanced quality processing and available camera fusion'}
                 accessibilityRole="switch"
-                accessibilityState={{ checked: hdrEnabled, disabled: !supportsHdr }}
-                disabled={!supportsHdr}
+                accessibilityState={{ checked: hdrEnabled, busy: hdrEnabled && !hdrApplied }}
                 onPress={() => {
                   cameraReadyRef.current = false;
                   setCameraReady(false);
@@ -1472,8 +1472,7 @@ export default function CameraScreen() {
                 style={({ pressed }) => [
                   styles.iconSettingButton,
                   hdrEnabled && styles.iconSettingButtonActive,
-                  !supportsHdr && styles.iconSettingButtonDisabled,
-                  pressed && supportsHdr && styles.iconSettingButtonPressed,
+                  pressed && styles.iconSettingButtonPressed,
                 ]}>
                 <Ionicons
                   name={hdrEnabled ? 'contrast' : 'contrast-outline'}
@@ -1995,9 +1994,6 @@ const styles = StyleSheet.create({
   },
   iconSettingButtonPressed: {
     opacity: 0.68,
-  },
-  iconSettingButtonDisabled: {
-    opacity: 0.35,
   },
   settingRow: {
     gap: 8,
