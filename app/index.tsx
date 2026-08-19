@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -429,7 +430,11 @@ export default function CameraScreen() {
 
   useEffect(() => {
     resetMetering();
-  }, [captureMode, facing, resetMetering]);
+  }, [cameraDevice?.id, captureMode, facing, resetMetering]);
+
+  useEffect(() => {
+    if (!appActive || !screenFocused) resetMetering();
+  }, [appActive, resetMetering, screenFocused]);
 
   const hasMediaPermission = mediaPermission?.granted ?? false;
   const preset = PRESETS[presetIndex];
@@ -507,12 +512,16 @@ export default function CameraScreen() {
   }, [cameraDevice]);
   const lockModes = useMemo<MeteringMode[]>(() => {
     if (!cameraDevice) return [];
+    // The Android controller supports locked AF/AE/AWB metering even though
+    // the current device capability flags report all locking as unsupported.
+    if (Platform.OS === 'android') return meteringModes;
+
     const modes: MeteringMode[] = [];
     if (cameraDevice.supportsExposureMetering && cameraDevice.supportsExposureLocking) modes.push('AE');
     if (cameraDevice.supportsFocusMetering && cameraDevice.supportsFocusLocking) modes.push('AF');
     if (cameraDevice.supportsWhiteBalanceMetering && cameraDevice.supportsWhiteBalanceLocking) modes.push('AWB');
     return modes;
-  }, [cameraDevice]);
+  }, [cameraDevice, meteringModes]);
   const cameraOutputs = useMemo(() => [photoOutput], [photoOutput]);
   const cameraConstraints = useMemo<Constraint[]>(() => [
     { photoHDR: hdrEnabled && supportsHdr },
@@ -775,6 +784,8 @@ export default function CameraScreen() {
       }
       void Haptics.selectionAsync();
     } catch (error) {
+      setMeteringLocked(false);
+      scheduleMeteringReset();
       Alert.alert('Metering lock failed', String(error));
     }
   };
