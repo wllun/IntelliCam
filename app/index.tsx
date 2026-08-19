@@ -27,7 +27,7 @@ import { loadImage } from 'react-native-nitro-image';
 import { Image } from 'expo-image';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
-import { Ionicons } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   FadeIn,
@@ -1428,8 +1428,8 @@ export default function CameraScreen() {
                   gridLines && styles.iconSettingButtonActive,
                   pressed && styles.iconSettingButtonPressed,
                 ]}>
-                <Ionicons
-                  name={gridLines ? 'grid' : 'grid-outline'}
+                <Feather
+                  name="hash"
                   size={24}
                   color={gridLines ? '#FFD400' : 'white'}
                 />
