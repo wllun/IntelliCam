@@ -14,7 +14,6 @@ import {
   type CameraDevice,
   type CameraRef,
   type Constraint,
-  type DeviceFilter,
   type FlashMode,
   type MeteringMode,
   useCameraDevice,
@@ -68,10 +67,6 @@ const ZOOM_RULER_TICKS = Array.from(
   { length: Math.round((ZOOM_RULER_RENDER_MAX - ZOOM_RULER_RENDER_MIN) / ZOOM_RULER_TICK_STEP) + 1 },
   (_, index) => Number((ZOOM_RULER_RENDER_MIN + index * ZOOM_RULER_TICK_STEP).toFixed(2)),
 );
-const BACK_CAMERA_FILTER = {
-  physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'],
-} satisfies DeviceFilter;
-
 interface FocusPoint {
   screenX: number;
   screenY: number;
@@ -162,11 +157,15 @@ function getNeutralZoom(device: CameraDevice | undefined) {
 
   if (minZoom < 1) return Math.max(minZoom, Math.min(maxZoom, 1));
 
+  const wideLensSwitchZoom = device.zoomLensSwitchFactors.find(
+    (factor) => factor > minZoom + 0.01,
+  );
+  if (wideLensSwitchZoom !== undefined) {
+    return Math.max(minZoom, Math.min(maxZoom, wideLensSwitchZoom));
+  }
+
   if (hasUltraWideLens && hasWideLens) {
-    const wideLensSwitchZoom = device.zoomLensSwitchFactors.find(
-      (factor) => factor > minZoom + 0.01,
-    );
-    return Math.max(minZoom, Math.min(maxZoom, wideLensSwitchZoom ?? minZoom * 2));
+    return Math.max(minZoom, Math.min(maxZoom, minZoom * 2));
   }
 
   return Math.max(minZoom, Math.min(maxZoom, 1));
@@ -179,9 +178,11 @@ function hasZoomLens(device: CameraDevice | undefined, type: 'ultra-wide-angle' 
 }
 
 function getPrimaryBackDevice(
+  defaultDevice: CameraDevice | undefined,
   preferredDevice: CameraDevice | undefined,
   devices: CameraDevice[],
 ) {
+  if (defaultDevice?.position === 'back') return defaultDevice;
   if (hasZoomLens(preferredDevice, 'wide-angle')) return preferredDevice;
 
   const backDevices = devices.filter((device) => device.position === 'back');
@@ -192,6 +193,28 @@ function getPrimaryBackDevice(
   return virtualWideDevice
     ?? backDevices.find((device) => device.type === 'wide-angle')
     ?? preferredDevice;
+}
+
+function getDedicatedUltraWideDevice(
+  primaryDevice: CameraDevice | undefined,
+  devices: CameraDevice[],
+) {
+  const backDevices = devices.filter(
+    (device) => device.position === 'back' && device.id !== primaryDevice?.id,
+  );
+  const explicitlyUltraWide = backDevices.find((device) => device.type === 'ultra-wide-angle');
+  if (explicitlyUltraWide) return explicitlyUltraWide;
+
+  const primaryFocalLength = primaryDevice?.focalLength;
+  if (primaryFocalLength === undefined || primaryFocalLength <= 0) return undefined;
+
+  return backDevices
+    .filter((device) => (
+      device.focalLength !== undefined
+      && device.focalLength > 0
+      && device.focalLength < primaryFocalLength * 0.8
+    ))
+    .sort((first, second) => (first.focalLength ?? 0) - (second.focalLength ?? 0))[0];
 }
 
 function isCameraLifecycleCancellation(error: unknown) {
@@ -215,21 +238,20 @@ export default function CameraScreen() {
   });
   const cameraRef = useRef<CameraRef>(null);
   const [facing, setFacing] = useState<CameraFacing>('back');
-  const preferredBackDevice = useCameraDevice('back', BACK_CAMERA_FILTER);
+  const defaultBackDevice = useCameraDevice('back');
+  const preferredBackDevice = useCameraDevice('back', {
+    physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'],
+  });
   const frontDevice = useCameraDevice('front');
   const cameraDevices = useCameraDevices();
   const [selectedBackDeviceId, setSelectedBackDeviceId] = useState<string>();
   const primaryBackDevice = useMemo(
-    () => getPrimaryBackDevice(preferredBackDevice, cameraDevices),
-    [cameraDevices, preferredBackDevice],
+    () => getPrimaryBackDevice(defaultBackDevice, preferredBackDevice, cameraDevices),
+    [cameraDevices, defaultBackDevice, preferredBackDevice],
   );
   const dedicatedUltraWideDevice = useMemo(
-    () => cameraDevices.find((device) => (
-      device.position === 'back'
-      && device.type === 'ultra-wide-angle'
-      && device.id !== primaryBackDevice?.id
-    )),
-    [cameraDevices, primaryBackDevice?.id],
+    () => getDedicatedUltraWideDevice(primaryBackDevice, cameraDevices),
+    [cameraDevices, primaryBackDevice],
   );
   const selectedBackDevice = selectedBackDeviceId
     ? cameraDevices.find((device) => device.id === selectedBackDeviceId)
@@ -412,7 +434,12 @@ export default function CameraScreen() {
   const neutralZoom = getNeutralZoom(cameraDevice);
   const minZoom = cameraDevice?.minZoom ?? neutralZoom;
   const maxZoom = cameraDevice?.maxZoom ?? neutralZoom;
-  const primaryBackHasIntegratedUltraWide = hasZoomLens(primaryBackDevice, 'ultra-wide-angle');
+  const primaryBackNeutralZoom = getNeutralZoom(primaryBackDevice);
+  const primaryBackHasIntegratedUltraWide = hasZoomLens(primaryBackDevice, 'ultra-wide-angle')
+    || Boolean(
+      primaryBackDevice
+      && primaryBackNeutralZoom > primaryBackDevice.minZoom + 0.01,
+    );
   const supportsUltraWide = facing === 'back'
     && (primaryBackHasIntegratedUltraWide || dedicatedUltraWideDevice !== undefined);
   const usingDedicatedUltraWide = facing === 'back'
