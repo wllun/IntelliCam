@@ -53,9 +53,9 @@ const TIMER_OPTIONS: TimerSeconds[] = [0, 3, 10];
 const METERING_RESET_MS = 5000;
 const EXPOSURE_MIN = -2;
 const EXPOSURE_MAX = 2;
-const EXPOSURE_STEP = 0.3;
-const EXPOSURE_DRAG_PIXELS_PER_EV = 42;
-const EXPOSURE_TRACK_HEIGHT = 42;
+const EXPOSURE_STEP = 0.2;
+const EXPOSURE_TRACK_HEIGHT = 72;
+const EXPOSURE_DRAG_PIXELS_PER_EV = EXPOSURE_TRACK_HEIGHT / (EXPOSURE_MAX - EXPOSURE_MIN);
 const ZOOM_TRANSITION_MS = 180;
 const ZOOM_RULER_MIN = 0.5;
 const ZOOM_RULER_MAX = 10;
@@ -76,6 +76,24 @@ interface LatestPhoto {
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function getNativeExposureBias(
+  displayValue: number,
+  displayMinimum: number,
+  displayMaximum: number,
+  deviceMinimum: number,
+  deviceMaximum: number,
+) {
+  if (Platform.OS !== 'android') return displayValue;
+
+  if (displayValue < 0 && displayMinimum < 0) {
+    return Math.round((displayValue / displayMinimum) * deviceMinimum);
+  }
+  if (displayValue > 0 && displayMaximum > 0) {
+    return Math.round((displayValue / displayMaximum) * deviceMaximum);
+  }
+  return 0;
 }
 
 function createZoomRulerTicks(minimum: number, maximum: number) {
@@ -495,12 +513,25 @@ export default function CameraScreen() {
         + (1 - ZOOM_RULER_MIN) * ((zoom - minZoom) / (neutralZoom - minZoom))
       : zoom / neutralZoom;
   const supportsExposure = cameraDevice?.supportsExposureBias ?? false;
+  const deviceExposureMin = cameraDevice?.minExposureBias ?? 0;
+  const deviceExposureMax = cameraDevice?.maxExposureBias ?? 0;
   const exposureMin = supportsExposure
-    ? Math.max(EXPOSURE_MIN, cameraDevice?.minExposureBias ?? EXPOSURE_MIN)
+    ? Platform.OS === 'android'
+      ? deviceExposureMin < 0 ? EXPOSURE_MIN : 0
+      : Math.max(EXPOSURE_MIN, deviceExposureMin)
     : 0;
   const exposureMax = supportsExposure
-    ? Math.min(EXPOSURE_MAX, cameraDevice?.maxExposureBias ?? EXPOSURE_MAX)
+    ? Platform.OS === 'android'
+      ? deviceExposureMax > 0 ? EXPOSURE_MAX : 0
+      : Math.min(EXPOSURE_MAX, deviceExposureMax)
     : 0;
+  const nativeExposureBias = getNativeExposureBias(
+    exposureCompensation,
+    exposureMin,
+    exposureMax,
+    deviceExposureMin,
+    deviceExposureMax,
+  );
   const supportsHdr = cameraDevice?.supportsPhotoHDR ?? false;
   const meteringModes = useMemo<MeteringMode[]>(() => {
     if (!cameraDevice) return [];
@@ -575,13 +606,13 @@ export default function CameraScreen() {
     const controller = cameraRef.current?.controller;
     if (!controller) return;
 
-    void controller.setExposureBias(exposureCompensation).catch((error: unknown) => {
+    void controller.setExposureBias(nativeExposureBias).catch((error: unknown) => {
       // CameraX cancels pending controls when the camera is stopping or reconfiguring.
       if (!isCameraLifecycleCancellation(error)) {
         console.warn('Could not update camera exposure:', error);
       }
     });
-  }, [appActive, cameraReady, exposureCompensation, screenFocused, supportsExposure]);
+  }, [appActive, cameraReady, nativeExposureBias, screenFocused, supportsExposure]);
 
   useEffect(() => {
     if (!supportsHdr) {
@@ -1061,7 +1092,8 @@ export default function CameraScreen() {
                 <Ionicons name="sunny-outline" size={17} color="white" />
                 <View style={styles.exposureTrack}>
                   <View style={styles.exposureTrackLine} />
-                  <View style={[styles.exposureThumb, { top: exposureThumbTop - 5 }]} />
+                  <View style={styles.exposureTrackZero} />
+                  <View style={[styles.exposureThumb, { top: exposureThumbTop - 6 }]} />
                 </View>
                 <Text style={styles.exposureValue}>
                   {exposureCompensation > 0 ? '+' : ''}
@@ -1818,7 +1850,7 @@ const styles = StyleSheet.create({
     left: 84,
     top: -8,
     width: 42,
-    height: 112,
+    height: 144,
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 8,
@@ -1838,18 +1870,27 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: 'rgba(255,255,255,0.55)',
   },
+  exposureTrackZero: {
+    position: 'absolute',
+    top: '50%',
+    width: 10,
+    height: 2,
+    marginTop: -1,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,0.86)',
+  },
   exposureThumb: {
     position: 'absolute',
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     backgroundColor: '#FFD84D',
     borderWidth: 1,
     borderColor: 'white',
   },
   exposureValue: {
     color: 'white',
-    fontSize: 10,
+    fontSize: 13,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
