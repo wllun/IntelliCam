@@ -43,13 +43,13 @@ import { CaptureModeCarousel } from '@/components/capture-mode-carousel';
 
 const ALBUM_NAME = 'IntelliCam';
 type CaptureMode = 'normal' | 'preset';
-type TimerSeconds = 0 | 3 | 10;
+type TimerSeconds = 0 | 3 | 5 | 10 | 30;
 type CameraFacing = 'front' | 'back';
 type CameraRatio = '4:3' | '1:1' | '16:9' | 'Full';
 
 const FLASH_MODES: FlashMode[] = ['off', 'auto', 'on'];
 const ASPECT_RATIOS: CameraRatio[] = ['4:3', '1:1', '16:9', 'Full'];
-const TIMER_OPTIONS: TimerSeconds[] = [0, 3, 10];
+const TIMER_OPTIONS: TimerSeconds[] = [0, 3, 5, 10, 30];
 const METERING_RESET_MS = 5000;
 const EXPOSURE_MIN = -2;
 const EXPOSURE_MAX = 2;
@@ -1455,9 +1455,11 @@ export default function CameraScreen() {
                 {TIMER_OPTIONS.map((seconds) => (
                   <Pressable
                     key={seconds}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: timerSeconds === seconds }}
                     onPress={() => {
                       setTimerSeconds(seconds);
-                      Haptics.selectionAsync();
+                      void Haptics.selectionAsync();
                     }}
                     style={[styles.segment, timerSeconds === seconds && styles.segmentActive]}>
                     <Text style={[styles.segmentText, timerSeconds === seconds && styles.segmentTextActive]}>
