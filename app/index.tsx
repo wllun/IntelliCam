@@ -58,15 +58,9 @@ const EXPOSURE_TRACK_HEIGHT = 42;
 const ZOOM_TRANSITION_MS = 180;
 const ZOOM_RULER_MIN = 0.5;
 const ZOOM_RULER_MAX = 10;
-const ZOOM_RULER_RENDER_MIN = ZOOM_RULER_MIN - 1.5;
-const ZOOM_RULER_RENDER_MAX = ZOOM_RULER_MAX + 1.5;
 const ZOOM_RULER_TICK_STEP = 0.05;
 const ZOOM_RULER_TICK_SPACING = 6.5;
 const ZOOM_RULER_PIXELS_PER_ZOOM = ZOOM_RULER_TICK_SPACING / ZOOM_RULER_TICK_STEP;
-const ZOOM_RULER_TICKS = Array.from(
-  { length: Math.round((ZOOM_RULER_RENDER_MAX - ZOOM_RULER_RENDER_MIN) / ZOOM_RULER_TICK_STEP) + 1 },
-  (_, index) => Number((ZOOM_RULER_RENDER_MIN + index * ZOOM_RULER_TICK_STEP).toFixed(2)),
-);
 interface FocusPoint {
   screenX: number;
   screenY: number;
@@ -81,6 +75,15 @@ interface LatestPhoto {
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function createZoomRulerTicks(minimum: number, maximum: number) {
+  const firstTick = Math.ceil(minimum / ZOOM_RULER_TICK_STEP - 0.001);
+  const lastTick = Math.floor(maximum / ZOOM_RULER_TICK_STEP + 0.001);
+  return Array.from(
+    { length: Math.max(0, lastTick - firstTick + 1) },
+    (_, index) => Number(((firstTick + index) * ZOOM_RULER_TICK_STEP).toFixed(2)),
+  );
 }
 
 function getRatioValue(ratio: CameraRatio, landscape: boolean) {
@@ -523,14 +526,18 @@ export default function CameraScreen() {
     isLandscapeCapture,
   );
   const zoomRulerWidth = Math.max(220, Math.min(width - 24, 420));
+  const zoomRulerTicks = useMemo(
+    () => createZoomRulerTicks(rulerMinZoom, rulerMaxZoom),
+    [rulerMaxZoom, rulerMinZoom],
+  );
   const rulerTicksAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{
       translateX: zoomRulerWidth / 2
         - ZOOM_RULER_TICK_SPACING / 2
-        - ((rulerZoomValue.value - ZOOM_RULER_RENDER_MIN) / ZOOM_RULER_TICK_STEP)
+        - ((rulerZoomValue.value - rulerMinZoom) / ZOOM_RULER_TICK_STEP)
           * ZOOM_RULER_TICK_SPACING,
     }],
-  }), [zoomRulerWidth]);
+  }), [rulerMinZoom, zoomRulerWidth]);
 
   useEffect(() => {
     rulerZoomValue.value = clamp(displayedZoom, rulerMinZoom, rulerMaxZoom);
@@ -1183,15 +1190,22 @@ export default function CameraScreen() {
                 <Animated.View
                   pointerEvents="none"
                   style={[styles.zoomRulerTicks, rulerTicksAnimatedStyle]}>
-                  {ZOOM_RULER_TICKS.map((tick, index) => {
-                    const major = index % 10 === 0;
-                    const medium = !major && index % 5 === 0;
+                  {zoomRulerTicks.map((tick) => {
+                    const wholeZoom = Math.abs(tick - Math.round(tick)) < 0.001;
+                    const minimumLabel = Math.abs(tick - rulerMinZoom) < 0.001;
+                    const medium = !wholeZoom
+                      && Math.abs(tick * 2 - Math.round(tick * 2)) < 0.001;
                     return (
                       <View key={tick} style={styles.zoomRulerTickSlot}>
+                        {(wholeZoom || minimumLabel) && (
+                          <Text style={styles.zoomRulerLabel}>
+                            {Number.isInteger(tick) ? tick.toFixed(0) : tick.toFixed(1)}×
+                          </Text>
+                        )}
                         <View style={[
                           styles.zoomRulerTick,
                           medium && styles.zoomRulerTickMedium,
-                          major && styles.zoomRulerTickMajor,
+                          wholeZoom && styles.zoomRulerTickMajor,
                         ]} />
                       </View>
                     );
@@ -1578,7 +1592,7 @@ const styles = StyleSheet.create({
   },
   zoomRuler: {
     position: 'relative',
-    height: 52,
+    height: 68,
     borderRadius: 14,
     overflow: 'hidden',
     backgroundColor: 'rgba(20,20,20,0.58)',
@@ -1588,16 +1602,26 @@ const styles = StyleSheet.create({
   zoomRulerTicks: {
     position: 'absolute',
     left: 0,
-    top: 11,
-    height: 30,
+    top: 7,
+    height: 54,
     flexDirection: 'row',
     alignItems: 'flex-end',
   },
   zoomRulerTickSlot: {
     width: ZOOM_RULER_TICK_SPACING,
-    height: 30,
+    height: 54,
     alignItems: 'center',
     justifyContent: 'flex-end',
+  },
+  zoomRulerLabel: {
+    position: 'absolute',
+    top: 0,
+    width: 52,
+    color: 'rgba(255,255,255,0.96)',
+    fontSize: 17,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
   },
   zoomRulerTick: {
     width: 1,
@@ -1616,8 +1640,8 @@ const styles = StyleSheet.create({
   },
   zoomRulerIndicator: {
     position: 'absolute',
-    top: 7,
-    bottom: 7,
+    top: 29,
+    bottom: 6,
     left: '50%',
     width: 3,
     marginLeft: -1.5,
