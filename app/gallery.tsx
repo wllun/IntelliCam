@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   FlatList,
   Platform,
   Pressable,
@@ -15,8 +16,7 @@ import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Stack, useFocusEffect } from 'expo-router';
 
 import MediaTrash from '@/modules/media-trash';
 
@@ -26,9 +26,9 @@ const GRID_GAP = 2;
 
 export default function GalleryScreen() {
   const { width } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [selectedAsset, setSelectedAsset] = useState<MediaLibrary.Asset | null>(null);
+  const [photoMenuVisible, setPhotoMenuVisible] = useState(false);
   const [endCursor, setEndCursor] = useState<string>();
   const [hasNextPage, setHasNextPage] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -87,6 +87,21 @@ export default function GalleryScreen() {
     return () => subscription.remove();
   }, [loadAlbum]);
 
+  useEffect(() => {
+    if (!selectedAsset) return;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (photoMenuVisible) {
+        setPhotoMenuVisible(false);
+      } else {
+        setSelectedAsset(null);
+      }
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [photoMenuVisible, selectedAsset]);
+
   const loadMore = async () => {
     if (!hasNextPage || !endCursor || loadingMore) return;
     setLoadingMore(true);
@@ -133,6 +148,7 @@ export default function GalleryScreen() {
 
       if (!moved) return;
       setAssets((current) => current.filter((item) => item.id !== asset.id));
+      setPhotoMenuVisible(false);
       setSelectedAsset((current) => current?.id === asset.id ? null : current);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (deleteError) {
@@ -148,6 +164,7 @@ export default function GalleryScreen() {
   const confirmMoveToRecycleBin = () => {
     const asset = selectedAsset;
     if (!asset || deletingAssetId) return;
+    setPhotoMenuVisible(false);
     const destination = Platform.OS === 'ios' ? 'Recently Deleted' : 'Recycle Bin';
     Alert.alert(
       `Move to ${destination}?`,
@@ -163,6 +180,11 @@ export default function GalleryScreen() {
     );
   };
 
+  const closeSelectedPhoto = () => {
+    setPhotoMenuVisible(false);
+    setSelectedAsset(null);
+  };
+
   if (loading && assets.length === 0) {
     return (
       <View style={styles.centered}>
@@ -174,6 +196,46 @@ export default function GalleryScreen() {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen
+        options={{
+          headerBackVisible: selectedAsset ? false : true,
+          headerLeft: selectedAsset
+            ? () => (
+                <Pressable
+                  accessibilityLabel="Back to gallery"
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={closeSelectedPhoto}
+                  style={({ pressed }) => [
+                    styles.headerIconButton,
+                    pressed && styles.headerIconButtonPressed,
+                  ]}>
+                  <Ionicons name="chevron-back" size={28} color="white" />
+                </Pressable>
+              )
+            : undefined,
+          headerRight: selectedAsset
+            ? () => (
+                <Pressable
+                  accessibilityLabel="Photo options"
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    expanded: photoMenuVisible,
+                    disabled: Boolean(deletingAssetId),
+                  }}
+                  disabled={Boolean(deletingAssetId)}
+                  hitSlop={8}
+                  onPress={() => setPhotoMenuVisible((visible) => !visible)}
+                  style={({ pressed }) => [
+                    styles.headerIconButton,
+                    pressed && styles.headerIconButtonPressed,
+                  ]}>
+                  <Ionicons name="ellipsis-horizontal" size={24} color="white" />
+                </Pressable>
+              )
+            : undefined,
+        }}
+      />
       <FlatList
         data={assets}
         numColumns={3}
@@ -186,7 +248,10 @@ export default function GalleryScreen() {
           <Pressable
             accessibilityLabel={`View ${item.filename}`}
             accessibilityRole="imagebutton"
-            onPress={() => setSelectedAsset(item)}
+            onPress={() => {
+              setPhotoMenuVisible(false);
+              setSelectedAsset(item);
+            }}
             style={{ width: itemSize, height: itemSize, marginRight: GRID_GAP, marginBottom: GRID_GAP }}>
             <Image
               source={{ uri: item.uri }}
@@ -219,40 +284,39 @@ export default function GalleryScreen() {
       {selectedAsset && (
         <View style={styles.preview}>
           <Image source={{ uri: selectedAsset.uri }} style={StyleSheet.absoluteFill} contentFit="contain" />
-          <Pressable
-            accessibilityHint="Moves this photo out of IntelliCam so it can be restored from the device gallery for a limited time"
-            accessibilityLabel={Platform.OS === 'ios' ? 'Move photo to Recently Deleted' : 'Move photo to Recycle Bin'}
-            accessibilityRole="button"
-            accessibilityState={{
-              busy: deletingAssetId === selectedAsset.id,
-              disabled: Boolean(deletingAssetId),
-            }}
-            disabled={Boolean(deletingAssetId)}
-            onPress={confirmMoveToRecycleBin}
-            style={({ pressed }) => [
-              styles.trashButton,
-              { top: insets.top + 14 },
-              pressed && !deletingAssetId && styles.trashButtonPressed,
-            ]}>
-            {deletingAssetId === selectedAsset.id ? (
-              <ActivityIndicator color="#ffb4ab" />
-            ) : (
-              <Ionicons name="trash-outline" size={23} color="#ffb4ab" />
-            )}
-          </Pressable>
-          <Pressable
-            accessibilityLabel="Close photo"
-            accessibilityRole="button"
-            onPress={() => setSelectedAsset(null)}
-            style={[styles.closeButton, { top: insets.top + 14 }]}>
-            <Ionicons name="close" size={28} color="white" />
-          </Pressable>
-          <View style={[styles.photoInfo, { bottom: insets.bottom + 18 }]}>
-            <Text selectable numberOfLines={1} style={styles.filename}>{selectedAsset.filename}</Text>
-            <Text style={styles.secondaryText}>
-              {selectedAsset.width} × {selectedAsset.height}
-            </Text>
-          </View>
+          {photoMenuVisible && (
+            <>
+              <Pressable
+                accessibilityLabel="Dismiss photo options"
+                accessibilityRole="button"
+                onPress={() => setPhotoMenuVisible(false)}
+                style={StyleSheet.absoluteFill}
+              />
+              <View accessibilityViewIsModal style={styles.photoMenu}>
+                <Pressable
+                  accessibilityHint="Moves this photo to the device recycle bin after confirmation"
+                  accessibilityLabel="Delete photo"
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    busy: deletingAssetId === selectedAsset.id,
+                    disabled: Boolean(deletingAssetId),
+                  }}
+                  disabled={Boolean(deletingAssetId)}
+                  onPress={confirmMoveToRecycleBin}
+                  style={({ pressed }) => [
+                    styles.photoMenuItem,
+                    pressed && !deletingAssetId && styles.photoMenuItemPressed,
+                  ]}>
+                  {deletingAssetId === selectedAsset.id ? (
+                    <ActivityIndicator color="#ff6b6b" />
+                  ) : (
+                    <Ionicons name="trash-outline" size={21} color="#ff6b6b" />
+                  )}
+                  <Text style={styles.photoMenuDeleteText}>Delete</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
         </View>
       )}
     </View>
@@ -304,44 +368,42 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'black',
   },
-  closeButton: {
-    position: 'absolute',
-    right: 18,
+  headerIconButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(20,20,20,0.72)',
   },
-  trashButton: {
+  headerIconButtonPressed: {
+    opacity: 0.62,
+  },
+  photoMenu: {
     position: 'absolute',
-    left: 18,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(86,22,22,0.82)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,180,171,0.4)',
-  },
-  trashButtonPressed: {
-    opacity: 0.72,
-  },
-  photoInfo: {
-    position: 'absolute',
-    left: 18,
-    right: 18,
-    alignItems: 'center',
-    gap: 4,
-    padding: 12,
+    top: 8,
+    right: 12,
+    minWidth: 168,
+    padding: 6,
     borderRadius: 14,
-    backgroundColor: 'rgba(20,20,20,0.72)',
+    borderCurve: 'continuous',
+    backgroundColor: '#242424',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
-  filename: {
-    color: 'white',
-    fontSize: 14,
+  photoMenuItem: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderCurve: 'continuous',
+  },
+  photoMenuItemPressed: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  photoMenuDeleteText: {
+    color: '#ff6b6b',
+    fontSize: 16,
     fontWeight: '600',
   },
 });
