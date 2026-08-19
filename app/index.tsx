@@ -1336,22 +1336,72 @@ export default function CameraScreen() {
             exiting={FadeOut.duration(120)}
             style={[styles.settingsSheet, { top: insets.top + 68 }]}>
             <Text style={styles.sheetTitle}>Camera settings</Text>
-            <Pressable
-              accessibilityRole="switch"
-              accessibilityState={{ checked: gridLines }}
-              onPress={() => setGridLines((enabled) => !enabled)}
-              style={styles.toggleRow}>
-              <View style={styles.settingIcon}>
-                <Ionicons name="grid-outline" size={20} color="white" />
-              </View>
-              <View style={styles.settingCopy}>
-                <Text style={styles.settingTitle}>Gridlines</Text>
-                <Text style={styles.settingsDescription}>Rule-of-thirds composition guide</Text>
-              </View>
-              <View style={[styles.switchTrack, gridLines && styles.switchTrackActive]}>
-                <View style={[styles.switchThumb, gridLines && styles.switchThumbActive]} />
-              </View>
-            </Pressable>
+            <View style={styles.iconSettingsRow}>
+              <Pressable
+                accessibilityLabel="Gridlines"
+                accessibilityRole="switch"
+                accessibilityState={{ checked: gridLines }}
+                onPress={() => {
+                  setGridLines((enabled) => !enabled);
+                  void Haptics.selectionAsync();
+                }}
+                style={({ pressed }) => [
+                  styles.iconSettingButton,
+                  gridLines && styles.iconSettingButtonActive,
+                  pressed && styles.iconSettingButtonPressed,
+                ]}>
+                <Ionicons
+                  name={gridLines ? 'grid' : 'grid-outline'}
+                  size={24}
+                  color={gridLines ? '#FFD400' : 'white'}
+                />
+              </Pressable>
+
+              <Pressable
+                accessibilityLabel="Shutter sound"
+                accessibilityRole="switch"
+                accessibilityState={{ checked: shutterSoundEnabled }}
+                onPress={() => {
+                  setShutterSoundEnabled((enabled) => !enabled);
+                  void Haptics.selectionAsync();
+                }}
+                style={({ pressed }) => [
+                  styles.iconSettingButton,
+                  shutterSoundEnabled && styles.iconSettingButtonActive,
+                  pressed && styles.iconSettingButtonPressed,
+                ]}>
+                <Ionicons
+                  name={shutterSoundEnabled ? 'volume-high' : 'volume-mute-outline'}
+                  size={25}
+                  color={shutterSoundEnabled ? '#FFD400' : 'white'}
+                />
+              </Pressable>
+
+              <Pressable
+                accessibilityLabel="HDR"
+                accessibilityRole="switch"
+                accessibilityState={{ checked: hdrEnabled, disabled: !supportsHdr }}
+                disabled={!supportsHdr}
+                onPress={() => {
+                  cameraReadyRef.current = false;
+                  setCameraReady(false);
+                  setHdrApplied(false);
+                  setHdrEnabled((enabled) => !enabled);
+                  void Haptics.selectionAsync();
+                }}
+                style={({ pressed }) => [
+                  styles.iconSettingButton,
+                  hdrEnabled && styles.iconSettingButtonActive,
+                  !supportsHdr && styles.iconSettingButtonDisabled,
+                  pressed && supportsHdr && styles.iconSettingButtonPressed,
+                ]}>
+                <Ionicons
+                  name={hdrEnabled ? 'contrast' : 'contrast-outline'}
+                  size={24}
+                  color={hdrEnabled ? '#FFD400' : 'white'}
+                />
+              </Pressable>
+            </View>
 
             <View style={styles.settingRow}>
               <View style={styles.settingHeading}>
@@ -1397,71 +1447,6 @@ export default function CameraScreen() {
               </View>
             </View>
 
-            <Pressable
-              accessibilityRole="switch"
-              accessibilityState={{ checked: shutterSoundEnabled }}
-              onPress={() => {
-                setShutterSoundEnabled((enabled) => !enabled);
-                Haptics.selectionAsync();
-              }}
-              style={styles.toggleRow}>
-              <View style={styles.settingIcon}>
-                <Ionicons name="volume-high-outline" size={20} color="white" />
-              </View>
-              <View style={styles.settingCopy}>
-                <Text style={styles.settingTitle}>Shutter sound</Text>
-                <Text style={styles.settingsDescription}>Play a sound when taking a photo</Text>
-              </View>
-              <View
-                style={[
-                  styles.switchTrack,
-                  shutterSoundEnabled && styles.switchTrackActive,
-                ]}>
-                <View
-                  style={[
-                    styles.switchThumb,
-                    shutterSoundEnabled && styles.switchThumbActive,
-                  ]}
-                />
-              </View>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="switch"
-              accessibilityState={{ checked: hdrApplied, disabled: !supportsHdr }}
-              disabled={!supportsHdr}
-              onPress={() => {
-                cameraReadyRef.current = false;
-                setCameraReady(false);
-                setHdrApplied(false);
-                setHdrEnabled((enabled) => !enabled);
-                void Haptics.selectionAsync();
-              }}
-              style={[styles.toggleRow, !supportsHdr && styles.toggleRowDisabled]}>
-              <View style={styles.settingIcon}>
-                <Ionicons name="contrast-outline" size={20} color="white" />
-              </View>
-              <View style={styles.settingCopy}>
-                <View style={styles.hdrTitleRow}>
-                  <Text style={styles.settingTitle}>HDR</Text>
-                  {supportsHdr && (
-                    <Text style={styles.plannedBadge}>{hdrApplied ? 'ACTIVE' : 'SUPPORTED'}</Text>
-                  )}
-                </View>
-                <Text style={styles.settingsDescription}>
-                  {supportsHdr
-                    ? hdrEnabled
-                      ? hdrApplied
-                        ? 'Multi-frame HDR capture is active'
-                        : 'Configuring multi-frame HDR capture'
-                      : 'Preserve detail in highlights and shadows'
-                    : 'Not supported by this camera'}
-                </Text>
-              </View>
-              <View style={[styles.switchTrack, hdrApplied && styles.switchTrackActive]}>
-                <View style={[styles.switchThumb, hdrApplied && styles.switchThumbActive]} />
-              </View>
-            </Pressable>
           </Animated.View>
         )}
       </View>
@@ -1916,10 +1901,30 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
   },
-  settingsDescription: {
-    color: '#aaa',
-    fontSize: 12,
-    lineHeight: 16,
+  iconSettingsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  iconSettingButton: {
+    flex: 1,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    borderCurve: 'continuous',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.07)',
+  },
+  iconSettingButtonActive: {
+    borderColor: 'rgba(255,212,0,0.72)',
+    backgroundColor: 'rgba(255,212,0,0.16)',
+  },
+  iconSettingButtonPressed: {
+    opacity: 0.68,
+  },
+  iconSettingButtonDisabled: {
+    opacity: 0.35,
   },
   settingRow: {
     gap: 8,
@@ -1934,63 +1939,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
-  },
-  toggleRow: {
-    minHeight: 58,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-  },
-  toggleRowDisabled: {
-    opacity: 0.5,
-  },
-  settingIcon: {
-    width: 38,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.09)',
-  },
-  settingCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  settingTitle: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  switchTrack: {
-    width: 46,
-    height: 28,
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-    borderRadius: 14,
-    backgroundColor: '#444947',
-  },
-  switchTrackActive: {
-    backgroundColor: '#85B7EB',
-  },
-  switchThumb: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'white',
-  },
-  switchThumbActive: {
-    alignSelf: 'flex-end',
-  },
-  hdrTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-  },
-  plannedBadge: {
-    color: '#FAC775',
-    fontSize: 8,
-    fontWeight: '800',
-    letterSpacing: 0.7,
   },
   segmented: {
     flexDirection: 'row',
