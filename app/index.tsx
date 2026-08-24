@@ -70,6 +70,7 @@ const ZOOM_RULER_MAX = 10;
 const ZOOM_RULER_TICK_STEP = 0.05;
 const ZOOM_RULER_TICK_SPACING = 6.5;
 const ZOOM_RULER_PIXELS_PER_ZOOM = ZOOM_RULER_TICK_SPACING / ZOOM_RULER_TICK_STEP;
+const ZOOM_RULER_LABEL_WIDTH = 52;
 const ZOOM_EASING = Easing.bezier(0.23, 1, 0.32, 1);
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
 interface FocusPoint {
@@ -705,9 +706,23 @@ export default function CameraScreen() {
     () => createZoomRulerTicks(rulerMinZoom, rulerMaxZoom),
     [rulerMaxZoom, rulerMinZoom],
   );
+  const zoomRulerLabels = useMemo(
+    () => zoomRulerTicks.flatMap((tick, index) => {
+      const wholeZoom = Math.abs(tick - Math.round(tick)) < 0.001;
+      const minimumLabel = Math.abs(tick - rulerMinZoom) < 0.001;
+      if (!wholeZoom && !minimumLabel) return [];
+      return [{
+        index,
+        label: Number.isInteger(tick) ? tick.toFixed(0) : tick.toFixed(1),
+        tick,
+      }];
+    }),
+    [rulerMinZoom, zoomRulerTicks],
+  );
   const rulerTicksAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{
       translateX: zoomRulerWidth / 2
+        - ZOOM_RULER_LABEL_WIDTH / 2
         - ZOOM_RULER_TICK_SPACING / 2
         - ((rulerZoomValue.get() - rulerMinZoom) / ZOOM_RULER_TICK_STEP)
           * ZOOM_RULER_TICK_SPACING,
@@ -810,6 +825,11 @@ export default function CameraScreen() {
 
   const finishRulerZoom = (nextDisplayZoom: number) => {
     applyRulerZoom(nextDisplayZoom);
+    void Haptics.selectionAsync();
+  };
+
+  const selectRulerZoom = (nextDisplayZoom: number) => {
+    applyRulerZoom(nextDisplayZoom, true);
     void Haptics.selectionAsync();
   };
 
@@ -1347,60 +1367,77 @@ export default function CameraScreen() {
 
         {isNormalMode && (
           <View style={[styles.zoomCluster, { bottom: insets.bottom + 112 }]}>
-            <View style={styles.zoomReadout}>
+            <View
+              accessible
+              accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+              accessibilityHint="Swipe the ruler, pinch the preview, or tap a numbered zoom mark"
+              accessibilityLabel="Camera zoom"
+              accessibilityRole="adjustable"
+              accessibilityState={{ disabled: rulerMaxZoom <= rulerMinZoom }}
+              accessibilityValue={{
+                min: Math.round(rulerMinZoom * 10),
+                max: Math.round(rulerMaxZoom * 10),
+                now: Math.round(displayedZoom * 10),
+                text: `${displayedZoom.toFixed(1)} times`,
+              }}
+              onAccessibilityAction={({ nativeEvent }) => {
+                if (nativeEvent.actionName !== 'increment' && nativeEvent.actionName !== 'decrement') return;
+                const direction = nativeEvent.actionName === 'increment' ? 1 : -1;
+                selectRulerZoom(displayedZoom + direction * 0.1);
+              }}
+              style={styles.zoomReadout}>
               <AnimatedTextInput
+                accessible={false}
                 animatedProps={zoomReadoutAnimatedProps}
                 defaultValue={`${displayedZoom.toFixed(1)}×`}
                 editable={false}
+                focusable={false}
                 pointerEvents="none"
                 style={styles.zoomReadoutText}
                 underlineColorAndroid="transparent"
               />
             </View>
             <GestureDetector gesture={zoomRulerPan}>
-              <View
-                accessible
-                accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-                accessibilityHint="Swipe left or right to change camera zoom"
-                accessibilityLabel="Camera zoom"
-                accessibilityRole="adjustable"
-                accessibilityState={{ disabled: rulerMaxZoom <= rulerMinZoom }}
-                accessibilityValue={{
-                  min: Math.round(rulerMinZoom * 10),
-                  max: Math.round(rulerMaxZoom * 10),
-                  now: Math.round(displayedZoom * 10),
-                  text: `${displayedZoom.toFixed(1)} times`,
-                }}
-                onAccessibilityAction={({ nativeEvent }) => {
-                  if (nativeEvent.actionName !== 'increment' && nativeEvent.actionName !== 'decrement') return;
-                  const direction = nativeEvent.actionName === 'increment' ? 1 : -1;
-                  applyRulerZoom(displayedZoom + direction * 0.1, true);
-                  void Haptics.selectionAsync();
-                }}
-                style={[styles.zoomRuler, { width: zoomRulerWidth }]}>
+              <View style={[styles.zoomRuler, { width: zoomRulerWidth }]}>
                 <Animated.View
-                  pointerEvents="none"
-                  style={[styles.zoomRulerTicks, rulerTicksAnimatedStyle]}>
-                  {zoomRulerTicks.map((tick) => {
-                    const wholeZoom = Math.abs(tick - Math.round(tick)) < 0.001;
-                    const minimumLabel = Math.abs(tick - rulerMinZoom) < 0.001;
-                    const medium = !wholeZoom
-                      && Math.abs(tick * 2 - Math.round(tick * 2)) < 0.001;
-                    return (
-                      <View key={tick} style={styles.zoomRulerTickSlot}>
-                        {(wholeZoom || minimumLabel) && (
-                          <Text style={styles.zoomRulerLabel}>
-                            {Number.isInteger(tick) ? tick.toFixed(0) : tick.toFixed(1)}×
-                          </Text>
-                        )}
-                        <View style={[
-                          styles.zoomRulerTick,
-                          medium && styles.zoomRulerTickMedium,
-                          wholeZoom && styles.zoomRulerTickMajor,
-                        ]} />
-                      </View>
-                    );
-                  })}
+                  pointerEvents="box-none"
+                  style={[
+                    styles.zoomRulerTicks,
+                    { width: zoomRulerTicks.length * ZOOM_RULER_TICK_SPACING + ZOOM_RULER_LABEL_WIDTH },
+                    rulerTicksAnimatedStyle,
+                  ]}>
+                  <View pointerEvents="none" style={styles.zoomRulerTickTrack}>
+                    {zoomRulerTicks.map((tick) => {
+                      const wholeZoom = Math.abs(tick - Math.round(tick)) < 0.001;
+                      const medium = !wholeZoom
+                        && Math.abs(tick * 2 - Math.round(tick * 2)) < 0.001;
+                      return (
+                        <View key={tick} style={styles.zoomRulerTickSlot}>
+                          <View style={[
+                            styles.zoomRulerTick,
+                            medium && styles.zoomRulerTickMedium,
+                            wholeZoom && styles.zoomRulerTickMajor,
+                          ]} />
+                        </View>
+                      );
+                    })}
+                  </View>
+                  {zoomRulerLabels.map(({ index, label, tick }) => (
+                    <Pressable
+                      key={`label-${tick}`}
+                      accessibilityHint={`Sets camera zoom to ${label} times`}
+                      accessibilityLabel={`${label} times zoom`}
+                      accessibilityRole="button"
+                      onPress={() => selectRulerZoom(tick)}
+                      pressRetentionOffset={8}
+                      style={({ pressed }) => [
+                        styles.zoomRulerLabelButton,
+                        { left: index * ZOOM_RULER_TICK_SPACING + ZOOM_RULER_TICK_SPACING / 2 },
+                        pressed && styles.zoomRulerLabelButtonPressed,
+                      ]}>
+                      <Text style={styles.zoomRulerLabel}>{label}×</Text>
+                    </Pressable>
+                  ))}
                 </Animated.View>
                 <View pointerEvents="none" style={styles.zoomRulerIndicator} />
               </View>
@@ -1788,6 +1825,12 @@ const styles = StyleSheet.create({
     left: 0,
     top: 7,
     height: 54,
+  },
+  zoomRulerTickTrack: {
+    position: 'absolute',
+    left: ZOOM_RULER_LABEL_WIDTH / 2,
+    top: 0,
+    height: 54,
     flexDirection: 'row',
     alignItems: 'flex-end',
   },
@@ -1798,14 +1841,25 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   zoomRulerLabel: {
-    position: 'absolute',
-    top: 0,
-    width: 52,
     color: 'rgba(255,255,255,0.96)',
     fontSize: 17,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
     textAlign: 'center',
+  },
+  zoomRulerLabelButton: {
+    position: 'absolute',
+    top: -4,
+    width: ZOOM_RULER_LABEL_WIDTH,
+    height: 48,
+    zIndex: 2,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 4,
+  },
+  zoomRulerLabelButtonPressed: {
+    opacity: 0.55,
+    transform: [{ scale: 0.97 }],
   },
   zoomRulerTick: {
     width: 1,
