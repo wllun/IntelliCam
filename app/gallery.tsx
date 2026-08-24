@@ -16,6 +16,7 @@ import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { Stack, useFocusEffect } from 'expo-router';
 
 import MediaTrash from '@/modules/media-trash';
@@ -26,6 +27,7 @@ const GRID_GAP = 2;
 
 export default function GalleryScreen() {
   const { width } = useWindowDimensions();
+  const headerHeight = useHeaderHeight();
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [selectedAsset, setSelectedAsset] = useState<MediaLibrary.Asset | null>(null);
   const [photoMenuVisible, setPhotoMenuVisible] = useState(false);
@@ -199,6 +201,11 @@ export default function GalleryScreen() {
       <Stack.Screen
         options={{
           headerBackVisible: selectedAsset ? false : true,
+          headerShadowVisible: false,
+          headerStyle: {
+            backgroundColor: selectedAsset ? 'transparent' : '#080808',
+          },
+          headerTransparent: Boolean(selectedAsset),
           headerLeft: selectedAsset
             ? () => (
                 <Pressable
@@ -292,7 +299,10 @@ export default function GalleryScreen() {
                 onPress={() => setPhotoMenuVisible(false)}
                 style={StyleSheet.absoluteFill}
               />
-              <View accessibilityViewIsModal style={styles.photoMenu}>
+              <View
+                accessibilityViewIsModal
+                style={[styles.photoMenu, { top: headerHeight + 8 }]}
+              >
                 <Pressable
                   accessibilityHint="Moves this photo to the device recycle bin after confirmation"
                   accessibilityLabel="Delete photo"
@@ -379,7 +389,6 @@ const styles = StyleSheet.create({
   },
   photoMenu: {
     position: 'absolute',
-    top: 8,
     right: 12,
     minWidth: 168,
     padding: 6,
