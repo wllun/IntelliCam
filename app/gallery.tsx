@@ -4,6 +4,8 @@ import {
   Alert,
   BackHandler,
   FlatList,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Platform,
   Pressable,
   RefreshControl,
@@ -39,6 +41,9 @@ export default function GalleryScreen() {
   const [deletingAssetId, setDeletingAssetId] = useState<string>();
   const [error, setError] = useState<string>();
   const itemSize = (width - GRID_GAP * 2) / 3;
+  const selectedAssetIndex = selectedAsset
+    ? Math.max(0, assets.findIndex((asset) => asset.id === selectedAsset.id))
+    : 0;
 
   const loadAlbum = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -187,6 +192,15 @@ export default function GalleryScreen() {
     setSelectedAsset(null);
   };
 
+  const handlePreviewSwipeEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
+    const nextAsset = assets[nextIndex];
+
+    if (nextAsset && nextAsset.id !== selectedAsset?.id) {
+      setSelectedAsset(nextAsset);
+    }
+  };
+
   if (loading && assets.length === 0) {
     return (
       <View style={styles.centered}>
@@ -290,7 +304,37 @@ export default function GalleryScreen() {
 
       {selectedAsset && (
         <View style={styles.preview}>
-          <Image source={{ uri: selectedAsset.uri }} style={StyleSheet.absoluteFill} contentFit="contain" />
+          <FlatList
+            key={`photo-preview-${width}`}
+            data={assets}
+            horizontal
+            pagingEnabled
+            disableIntervalMomentum
+            initialScrollIndex={selectedAssetIndex}
+            initialNumToRender={3}
+            maxToRenderPerBatch={3}
+            windowSize={3}
+            keyExtractor={(asset) => asset.id}
+            getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.5}
+            onMomentumScrollEnd={handlePreviewSwipeEnd}
+            onScrollBeginDrag={() => setPhotoMenuVisible(false)}
+            showsHorizontalScrollIndicator={false}
+            style={StyleSheet.absoluteFill}
+            renderItem={({ item, index }) => (
+              <View style={{ width, height: '100%' }}>
+                <Image
+                  accessibilityLabel={`Photo ${index + 1} of ${assets.length}`}
+                  accessible
+                  source={{ uri: item.uri }}
+                  style={StyleSheet.absoluteFill}
+                  contentFit="contain"
+                  recyclingKey={item.id}
+                />
+              </View>
+            )}
+          />
           {photoMenuVisible && (
             <>
               <Pressable
