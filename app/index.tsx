@@ -6,6 +6,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
   type GestureResponderEvent,
@@ -30,13 +31,18 @@ import * as Haptics from 'expo-haptics';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  cancelAnimation,
+  Easing,
   FadeIn,
   FadeOut,
   runOnJS,
+  useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
+  withTiming,
   ZoomIn,
 } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 
@@ -64,6 +70,8 @@ const ZOOM_RULER_MAX = 10;
 const ZOOM_RULER_TICK_STEP = 0.05;
 const ZOOM_RULER_TICK_SPACING = 6.5;
 const ZOOM_RULER_PIXELS_PER_ZOOM = ZOOM_RULER_TICK_SPACING / ZOOM_RULER_TICK_STEP;
+const ZOOM_EASING = Easing.bezier(0.23, 1, 0.32, 1);
+const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
 interface FocusPoint {
   screenX: number;
   screenY: number;
@@ -78,6 +86,41 @@ interface LatestPhoto {
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function getActiveCameraZoom(
+  displayZoom: number,
+  displayMinimum: number,
+  displayMaximum: number,
+  cameraMinimum: number,
+  cameraMaximum: number,
+  cameraNeutral: number,
+  usingDedicatedUltraWide: boolean,
+  hasIntegratedUltraWide: boolean,
+) {
+  'worklet';
+  const clampedDisplayZoom = Math.max(displayMinimum, Math.min(displayMaximum, displayZoom));
+  let targetZoom: number;
+
+  if (usingDedicatedUltraWide) {
+    targetZoom = cameraNeutral
+      * (Math.min(1, clampedDisplayZoom) / ZOOM_RULER_MIN);
+  } else if (clampedDisplayZoom < 1) {
+    if (hasIntegratedUltraWide && cameraNeutral > cameraMinimum) {
+      const progressToWide = (clampedDisplayZoom - ZOOM_RULER_MIN)
+        / (1 - ZOOM_RULER_MIN);
+      targetZoom = cameraMinimum
+        + (cameraNeutral - cameraMinimum) * progressToWide;
+    } else {
+      // A dedicated ultrawide requires a camera-session change. Keep the
+      // current lens stable while dragging, then switch once on release.
+      targetZoom = cameraNeutral;
+    }
+  } else {
+    targetZoom = cameraNeutral * clampedDisplayZoom;
+  }
+
+  return Math.max(cameraMinimum, Math.min(cameraMaximum, targetZoom));
 }
 
 function getNativeExposureBias(
@@ -377,7 +420,7 @@ export default function CameraScreen() {
   const [modeMenuVisible, setModeMenuVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [flash, setFlash] = useState<FlashMode>('off');
-  const [zoom, setZoom] = useState(1);
+  const [displayedZoom, setDisplayedZoom] = useState(1);
   const [gridLines, setGridLines] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
@@ -387,8 +430,11 @@ export default function CameraScreen() {
   const [exposureCompensation, setExposureCompensation] = useState(0);
   const [meteringLocked, setMeteringLocked] = useState(false);
   const meteringResetRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const zoomAnimationRef = useRef<number | undefined>(undefined);
-  const pendingZoomTargetRef = useRef<{ deviceId: string; zoom: number } | undefined>(undefined);
+  const pendingZoomTargetRef = useRef<{
+    deviceId: string;
+    displayZoom: number;
+    zoom: number;
+  } | undefined>(undefined);
   const countdownTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const countdownResolveRef = useRef<(() => void) | undefined>(undefined);
   const countdownActiveRef = useRef(false);
@@ -398,6 +444,7 @@ export default function CameraScreen() {
   const appActiveRef = useRef(AppState.currentState === 'active');
   const screenFocusedRef = useRef(true);
   const cameraReadyRef = useRef(false);
+  const cameraZoom = useSharedValue(1);
   const pinchStartZoom = useSharedValue(0);
   const exposureDragStart = useSharedValue(0);
   const rulerZoomValue = useSharedValue(1);
@@ -526,36 +573,10 @@ export default function CameraScreen() {
 
   useEffect(() => cancelMeteringReset, [cancelMeteringReset]);
 
-  const cancelZoomAnimation = useCallback(() => {
-    if (zoomAnimationRef.current !== undefined) {
-      cancelAnimationFrame(zoomAnimationRef.current);
-      zoomAnimationRef.current = undefined;
-    }
-  }, []);
-
-  const animateZoomTo = useCallback((target: number) => {
-    cancelZoomAnimation();
-    const cameraMinZoom = cameraDevice?.minZoom ?? 1;
-    const cameraMaxZoom = cameraDevice?.maxZoom ?? cameraMinZoom;
-    const clampedTarget = Math.max(cameraMinZoom, Math.min(cameraMaxZoom, target));
-    const startedAt = Date.now();
-    const startZoom = zoom;
-
-    const step = () => {
-      const progress = Math.min(1, (Date.now() - startedAt) / ZOOM_TRANSITION_MS);
-      const easedProgress = 1 - Math.pow(1 - progress, 3);
-      setZoom(startZoom + (clampedTarget - startZoom) * easedProgress);
-      if (progress < 1) {
-        zoomAnimationRef.current = requestAnimationFrame(step);
-      } else {
-        zoomAnimationRef.current = undefined;
-      }
-    };
-
-    zoomAnimationRef.current = requestAnimationFrame(step);
-  }, [cameraDevice, cancelZoomAnimation, zoom]);
-
-  useEffect(() => cancelZoomAnimation, [cancelZoomAnimation]);
+  const cancelZoomAnimations = useCallback(() => {
+    cancelAnimation(cameraZoom);
+    cancelAnimation(rulerZoomValue);
+  }, [cameraZoom, rulerZoomValue]);
 
   useEffect(() => {
     resetMetering();
@@ -617,12 +638,6 @@ export default function CameraScreen() {
       targetZoom: device ? clamp(targetZoom, device.minZoom, device.maxZoom) : targetZoom,
     };
   };
-  const displayedZoom = usingDedicatedUltraWide
-    ? clamp(ZOOM_RULER_MIN * (zoom / neutralZoom), ZOOM_RULER_MIN, 1)
-    : primaryBackHasIntegratedUltraWide && neutralZoom > minZoom && zoom < neutralZoom
-      ? ZOOM_RULER_MIN
-        + (1 - ZOOM_RULER_MIN) * ((zoom - minZoom) / (neutralZoom - minZoom))
-      : zoom / neutralZoom;
   const supportsExposure = cameraDevice?.supportsExposureBias ?? false;
   const deviceExposureMin = cameraDevice?.minExposureBias ?? 0;
   const deviceExposureMax = cameraDevice?.maxExposureBias ?? 0;
@@ -694,27 +709,45 @@ export default function CameraScreen() {
     transform: [{
       translateX: zoomRulerWidth / 2
         - ZOOM_RULER_TICK_SPACING / 2
-        - ((rulerZoomValue.value - rulerMinZoom) / ZOOM_RULER_TICK_STEP)
+        - ((rulerZoomValue.get() - rulerMinZoom) / ZOOM_RULER_TICK_STEP)
           * ZOOM_RULER_TICK_SPACING,
     }],
   }), [rulerMinZoom, zoomRulerWidth]);
 
-  useEffect(() => {
-    rulerZoomValue.value = clamp(displayedZoom, rulerMinZoom, rulerMaxZoom);
-  }, [displayedZoom, rulerMaxZoom, rulerMinZoom, rulerZoomValue]);
+  const zoomReadoutAnimatedProps = useAnimatedProps(() => {
+    const label = `${rulerZoomValue.get().toFixed(1)}×`;
+    return { text: label, defaultValue: label };
+  });
 
   useEffect(() => {
     cameraReadyRef.current = false;
     setCameraReady(false);
     cancelPendingCapture();
-    cancelZoomAnimation();
+    cancelZoomAnimations();
     const pendingZoom = pendingZoomTargetRef.current;
     pendingZoomTargetRef.current = undefined;
     const nextZoom = pendingZoom && pendingZoom.deviceId === cameraDevice?.id
       ? pendingZoom.zoom
       : neutralZoom;
-    setZoom(Math.max(minZoom, Math.min(maxZoom, nextZoom)));
-  }, [cameraDevice?.id, cancelPendingCapture, cancelZoomAnimation, facing, maxZoom, minZoom, neutralZoom]);
+    const nextDisplayZoom = pendingZoom && pendingZoom.deviceId === cameraDevice?.id
+      ? pendingZoom.displayZoom
+      : 1;
+    cameraZoom.set(Math.max(minZoom, Math.min(maxZoom, nextZoom)));
+    rulerZoomValue.set(clamp(nextDisplayZoom, rulerMinZoom, rulerMaxZoom));
+    setDisplayedZoom(clamp(nextDisplayZoom, rulerMinZoom, rulerMaxZoom));
+  }, [
+    cameraDevice?.id,
+    cameraZoom,
+    cancelPendingCapture,
+    cancelZoomAnimations,
+    facing,
+    maxZoom,
+    minZoom,
+    neutralZoom,
+    rulerMaxZoom,
+    rulerMinZoom,
+    rulerZoomValue,
+  ]);
 
   useEffect(() => {
     setExposureCompensation((current) => Math.max(exposureMin, Math.min(exposureMax, current)));
@@ -744,27 +777,39 @@ export default function CameraScreen() {
     const option = getRulerZoomOption(nextDisplayZoom);
     if (!option.device) return;
 
-    rulerZoomValue.value = option.displayZoom;
+    setDisplayedZoom(option.displayZoom);
 
     if (facing === 'back' && option.device.id !== cameraDevice?.id) {
+      cancelZoomAnimations();
       pendingZoomTargetRef.current = {
         deviceId: option.device.id,
+        displayZoom: option.displayZoom,
         zoom: option.targetZoom,
       };
+      cameraZoom.set(option.targetZoom);
+      rulerZoomValue.set(option.displayZoom);
       setSelectedBackDeviceId(
         option.device.id === primaryBackDevice?.id ? undefined : option.device.id,
       );
-      cancelZoomAnimation();
-      setZoom(option.targetZoom);
     } else if (animated) {
-      animateZoomTo(option.targetZoom);
+      cancelZoomAnimations();
+      cameraZoom.set(withTiming(option.targetZoom, {
+        duration: ZOOM_TRANSITION_MS,
+        easing: ZOOM_EASING,
+      }));
+      rulerZoomValue.set(withTiming(option.displayZoom, {
+        duration: ZOOM_TRANSITION_MS,
+        easing: ZOOM_EASING,
+      }));
     } else {
-      cancelZoomAnimation();
-      setZoom(option.targetZoom);
+      cancelZoomAnimations();
+      cameraZoom.set(option.targetZoom);
+      rulerZoomValue.set(option.displayZoom);
     }
   };
 
-  const finishRulerZoom = () => {
+  const finishRulerZoom = (nextDisplayZoom: number) => {
+    applyRulerZoom(nextDisplayZoom);
     void Haptics.selectionAsync();
   };
 
@@ -780,19 +825,29 @@ export default function CameraScreen() {
   const pinch = Gesture.Pinch()
     .enabled(isNormalMode)
     .onBegin(() => {
-      pinchStartZoom.value = rulerZoomValue.value;
-      runOnJS(cancelZoomAnimation)();
+      pinchStartZoom.set(rulerZoomValue.get());
+      cancelAnimation(cameraZoom);
+      cancelAnimation(rulerZoomValue);
     })
     .onUpdate((event) => {
       const nextZoom = Math.max(
         rulerMinZoom,
-        Math.min(rulerMaxZoom, pinchStartZoom.value * event.scale),
+        Math.min(rulerMaxZoom, pinchStartZoom.get() * event.scale),
       );
-      rulerZoomValue.value = nextZoom;
-      runOnJS(applyRulerZoom)(nextZoom);
+      rulerZoomValue.set(nextZoom);
+      cameraZoom.set(getActiveCameraZoom(
+        nextZoom,
+        rulerMinZoom,
+        rulerMaxZoom,
+        minZoom,
+        maxZoom,
+        neutralZoom,
+        usingDedicatedUltraWide,
+        primaryBackHasIntegratedUltraWide,
+      ));
     })
     .onEnd(() => {
-      runOnJS(finishRulerZoom)();
+      scheduleOnRN(finishRulerZoom, rulerZoomValue.get());
     });
 
   const zoomRulerPan = Gesture.Pan()
@@ -800,22 +855,32 @@ export default function CameraScreen() {
     .activeOffsetX([-4, 4])
     .failOffsetY([-16, 16])
     .onBegin(() => {
-      rulerDragStartZoom.value = rulerZoomValue.value;
-      runOnJS(cancelZoomAnimation)();
+      rulerDragStartZoom.set(rulerZoomValue.get());
+      cancelAnimation(cameraZoom);
+      cancelAnimation(rulerZoomValue);
     })
     .onUpdate((event) => {
       const nextZoom = Math.max(
         rulerMinZoom,
         Math.min(
           rulerMaxZoom,
-          rulerDragStartZoom.value - event.translationX / ZOOM_RULER_PIXELS_PER_ZOOM,
+          rulerDragStartZoom.get() - event.translationX / ZOOM_RULER_PIXELS_PER_ZOOM,
         ),
       );
-      rulerZoomValue.value = nextZoom;
-      runOnJS(applyRulerZoom)(nextZoom);
+      rulerZoomValue.set(nextZoom);
+      cameraZoom.set(getActiveCameraZoom(
+        nextZoom,
+        rulerMinZoom,
+        rulerMaxZoom,
+        minZoom,
+        maxZoom,
+        neutralZoom,
+        usingDedicatedUltraWide,
+        primaryBackHasIntegratedUltraWide,
+      ));
     })
     .onEnd(() => {
-      runOnJS(finishRulerZoom)();
+      scheduleOnRN(finishRulerZoom, rulerZoomValue.get());
     });
 
   const cameraGesture = Gesture.Simultaneous(swipe, pinch);
@@ -1061,7 +1126,7 @@ export default function CameraScreen() {
               outputs={cameraOutputs}
               constraints={cameraConstraints}
               isActive={appActive && screenFocused}
-              zoom={zoom}
+              zoom={cameraZoom}
               mirrorMode="auto"
               orientationSource="device"
               resizeMode="cover"
@@ -1283,9 +1348,14 @@ export default function CameraScreen() {
         {isNormalMode && (
           <View style={[styles.zoomCluster, { bottom: insets.bottom + 112 }]}>
             <View style={styles.zoomReadout}>
-              <Text style={styles.zoomReadoutText}>
-                {displayedZoom.toFixed(1)}×
-              </Text>
+              <AnimatedTextInput
+                animatedProps={zoomReadoutAnimatedProps}
+                defaultValue={`${displayedZoom.toFixed(1)}×`}
+                editable={false}
+                pointerEvents="none"
+                style={styles.zoomReadoutText}
+                underlineColorAndroid="transparent"
+              />
             </View>
             <GestureDetector gesture={zoomRulerPan}>
               <View
@@ -1305,7 +1375,7 @@ export default function CameraScreen() {
                   if (nativeEvent.actionName !== 'increment' && nativeEvent.actionName !== 'decrement') return;
                   const direction = nativeEvent.actionName === 'increment' ? 1 : -1;
                   applyRulerZoom(displayedZoom + direction * 0.1, true);
-                  finishRulerZoom();
+                  void Haptics.selectionAsync();
                 }}
                 style={[styles.zoomRuler, { width: zoomRulerWidth }]}>
                 <Animated.View
@@ -1696,10 +1766,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(20,20,20,0.82)',
   },
   zoomReadoutText: {
+    width: 44,
+    padding: 0,
     color: '#FFD400',
     fontSize: 16,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
+    textAlign: 'center',
   },
   zoomRuler: {
     position: 'relative',
