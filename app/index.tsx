@@ -1581,11 +1581,13 @@ export default function CameraScreen() {
                   hdrEnabled && styles.iconSettingButtonActive,
                   pressed && styles.iconSettingButtonPressed,
                 ]}>
-                <Ionicons
-                  name={hdrEnabled ? 'contrast' : 'contrast-outline'}
-                  size={24}
-                  color={hdrEnabled ? '#FFD400' : 'white'}
-                />
+                <View style={[styles.hdrBadge, hdrEnabled && styles.hdrBadgeActive]}>
+                  <Text
+                    allowFontScaling={false}
+                    style={[styles.hdrBadgeText, hdrEnabled && styles.hdrBadgeTextActive]}>
+                    HDR
+                  </Text>
+                </View>
               </Pressable>
             </View>
 
@@ -2121,6 +2123,29 @@ const styles = StyleSheet.create({
   },
   iconSettingButtonPressed: {
     opacity: 0.68,
+  },
+  hdrBadge: {
+    width: 36,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'white',
+    borderRadius: 5,
+    borderCurve: 'continuous',
+  },
+  hdrBadgeActive: {
+    borderColor: '#FFD400',
+  },
+  hdrBadgeText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    lineHeight: 13,
+  },
+  hdrBadgeTextActive: {
+    color: '#FFD400',
   },
   settingRow: {
     gap: 8,
