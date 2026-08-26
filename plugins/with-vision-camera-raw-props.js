@@ -11,14 +11,23 @@ const FEATURE_FLAG_OVERRIDE = `    ReactNativeFeatureFlags.dangerouslyForceOverr
     )`;
 
 function addVisionCameraRawPropsSupport(contents) {
-  if (!contents.includes('useRawPropsJsiValue(): Boolean = true')) {
+  if (!contents.includes('import com.facebook.react.internal.featureflags.ReactNativeFeatureFlags')) {
     contents = contents.replace(
       'import com.facebook.react.defaults.DefaultReactNativeHost',
       `import com.facebook.react.defaults.DefaultReactNativeHost\n${FEATURE_FLAG_IMPORTS}`,
     );
+  }
+
+  const loadReactNativeCall = '    loadReactNative(this)';
+  if (contents.includes('useRawPropsJsiValue(): Boolean = true')) {
     contents = contents.replace(
-      '    loadReactNative(this)',
-      `    loadReactNative(this)\n${FEATURE_FLAG_OVERRIDE}`,
+      `${loadReactNativeCall}\n${FEATURE_FLAG_OVERRIDE}`,
+      `${FEATURE_FLAG_OVERRIDE}\n${loadReactNativeCall}`,
+    );
+  } else {
+    contents = contents.replace(
+      loadReactNativeCall,
+      `${FEATURE_FLAG_OVERRIDE}\n${loadReactNativeCall}`,
     );
   }
 
