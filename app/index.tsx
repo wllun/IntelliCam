@@ -422,6 +422,7 @@ export default function CameraScreen() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [flash, setFlash] = useState<FlashMode>('off');
   const [displayedZoom, setDisplayedZoom] = useState(1);
+  const [cameraZoomProp, setCameraZoomProp] = useState(1);
   const [gridLines, setGridLines] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
@@ -445,6 +446,8 @@ export default function CameraScreen() {
   const appActiveRef = useRef(AppState.currentState === 'active');
   const screenFocusedRef = useRef(true);
   const cameraReadyRef = useRef(false);
+  const queuedCameraZoomRef = useRef<number | undefined>(undefined);
+  const cameraZoomUpdateRunningRef = useRef(false);
   const cameraZoom = useSharedValue(1);
   const pinchStartZoom = useSharedValue(0);
   const exposureDragStart = useSharedValue(0);
@@ -578,6 +581,36 @@ export default function CameraScreen() {
     cancelAnimation(cameraZoom);
     cancelAnimation(rulerZoomValue);
   }, [cameraZoom, rulerZoomValue]);
+
+  const cancelNativeZoomAnimation = useCallback(() => {
+    void cameraRef.current?.cancelZoomAnimation().catch(() => undefined);
+  }, []);
+
+  const updateCameraZoom = useCallback((nextZoom: number) => {
+    queuedCameraZoomRef.current = nextZoom;
+    if (cameraZoomUpdateRunningRef.current) return;
+
+    cameraZoomUpdateRunningRef.current = true;
+    const flushLatestZoom = async () => {
+      while (queuedCameraZoomRef.current !== undefined) {
+        const zoom = queuedCameraZoomRef.current;
+        queuedCameraZoomRef.current = undefined;
+        const controller = cameraRef.current?.controller;
+        if (!controller) continue;
+
+        try {
+          await controller.setZoom(zoom);
+        } catch (error) {
+          if (!isCameraLifecycleCancellation(error)) {
+            console.warn('Could not update camera zoom:', error);
+          }
+        }
+      }
+      cameraZoomUpdateRunningRef.current = false;
+    };
+
+    void flushLatestZoom();
+  }, []);
 
   useEffect(() => {
     resetMetering();
@@ -747,6 +780,8 @@ export default function CameraScreen() {
     const nextDisplayZoom = pendingZoom && pendingZoom.deviceId === cameraDevice?.id
       ? pendingZoom.displayZoom
       : 1;
+    queuedCameraZoomRef.current = undefined;
+    setCameraZoomProp(Math.max(minZoom, Math.min(maxZoom, nextZoom)));
     cameraZoom.set(Math.max(minZoom, Math.min(maxZoom, nextZoom)));
     rulerZoomValue.set(clamp(nextDisplayZoom, rulerMinZoom, rulerMaxZoom));
     setDisplayedZoom(clamp(nextDisplayZoom, rulerMinZoom, rulerMaxZoom));
@@ -801,6 +836,7 @@ export default function CameraScreen() {
         displayZoom: option.displayZoom,
         zoom: option.targetZoom,
       };
+      setCameraZoomProp(option.targetZoom);
       cameraZoom.set(option.targetZoom);
       rulerZoomValue.set(option.displayZoom);
       setSelectedBackDeviceId(
@@ -808,6 +844,12 @@ export default function CameraScreen() {
       );
     } else if (animated) {
       cancelZoomAnimations();
+      cancelNativeZoomAnimation();
+      void cameraRef.current?.startZoomAnimation(option.targetZoom, 4).catch((error) => {
+        if (!isCameraLifecycleCancellation(error)) {
+          console.warn('Could not animate camera zoom:', error);
+        }
+      });
       cameraZoom.set(withTiming(option.targetZoom, {
         duration: ZOOM_TRANSITION_MS,
         easing: ZOOM_EASING,
@@ -818,8 +860,10 @@ export default function CameraScreen() {
       }));
     } else {
       cancelZoomAnimations();
+      cancelNativeZoomAnimation();
       cameraZoom.set(option.targetZoom);
       rulerZoomValue.set(option.displayZoom);
+      updateCameraZoom(option.targetZoom);
     }
   };
 
@@ -848,6 +892,7 @@ export default function CameraScreen() {
       pinchStartZoom.set(rulerZoomValue.get());
       cancelAnimation(cameraZoom);
       cancelAnimation(rulerZoomValue);
+      scheduleOnRN(cancelNativeZoomAnimation);
     })
     .onUpdate((event) => {
       const nextZoom = Math.max(
@@ -855,7 +900,7 @@ export default function CameraScreen() {
         Math.min(rulerMaxZoom, pinchStartZoom.get() * event.scale),
       );
       rulerZoomValue.set(nextZoom);
-      cameraZoom.set(getActiveCameraZoom(
+      const nextCameraZoom = getActiveCameraZoom(
         nextZoom,
         rulerMinZoom,
         rulerMaxZoom,
@@ -864,7 +909,9 @@ export default function CameraScreen() {
         neutralZoom,
         usingDedicatedUltraWide,
         primaryBackHasIntegratedUltraWide,
-      ));
+      );
+      cameraZoom.set(nextCameraZoom);
+      scheduleOnRN(updateCameraZoom, nextCameraZoom);
     })
     .onEnd(() => {
       scheduleOnRN(finishRulerZoom, rulerZoomValue.get());
@@ -878,6 +925,7 @@ export default function CameraScreen() {
       rulerDragStartZoom.set(rulerZoomValue.get());
       cancelAnimation(cameraZoom);
       cancelAnimation(rulerZoomValue);
+      scheduleOnRN(cancelNativeZoomAnimation);
     })
     .onUpdate((event) => {
       const nextZoom = Math.max(
@@ -888,7 +936,7 @@ export default function CameraScreen() {
         ),
       );
       rulerZoomValue.set(nextZoom);
-      cameraZoom.set(getActiveCameraZoom(
+      const nextCameraZoom = getActiveCameraZoom(
         nextZoom,
         rulerMinZoom,
         rulerMaxZoom,
@@ -897,7 +945,9 @@ export default function CameraScreen() {
         neutralZoom,
         usingDedicatedUltraWide,
         primaryBackHasIntegratedUltraWide,
-      ));
+      );
+      cameraZoom.set(nextCameraZoom);
+      scheduleOnRN(updateCameraZoom, nextCameraZoom);
     })
     .onEnd(() => {
       scheduleOnRN(finishRulerZoom, rulerZoomValue.get());
@@ -1146,7 +1196,7 @@ export default function CameraScreen() {
               outputs={cameraOutputs}
               constraints={cameraConstraints}
               isActive={appActive && screenFocused}
-              zoom={cameraZoom}
+              zoom={cameraZoomProp}
               mirrorMode="auto"
               orientationSource="device"
               resizeMode="cover"
@@ -1496,14 +1546,18 @@ export default function CameraScreen() {
 
           <Pressable
             accessibilityLabel="Change capture mode"
-            accessibilityHint="Choose Normal or Smart Preset mode"
+            accessibilityHint="Opens the swipeable capture mode selector"
             accessibilityRole="button"
             onPress={() => {
               setSettingsVisible(false);
-              setModeMenuVisible((visible) => !visible);
+              setModeMenuVisible(true);
             }}
             style={styles.secondaryControl}>
-            <Ionicons name="options-outline" size={25} color="white" />
+            <Ionicons
+              name={isNormalMode ? 'camera-outline' : preset.icon}
+              size={25}
+              color="white"
+            />
             <Text style={styles.controlLabel}>{isNormalMode ? 'Normal' : preset.name.replace(' photography', '')}</Text>
           </Pressable>
         </View>

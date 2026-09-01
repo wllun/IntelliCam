@@ -21,13 +21,13 @@ function addVisionCameraRawPropsSupport(contents) {
   const loadReactNativeCall = '    loadReactNative(this)';
   if (contents.includes('useRawPropsJsiValue(): Boolean = true')) {
     contents = contents.replace(
-      `${loadReactNativeCall}\n${FEATURE_FLAG_OVERRIDE}`,
       `${FEATURE_FLAG_OVERRIDE}\n${loadReactNativeCall}`,
+      `${loadReactNativeCall}\n${FEATURE_FLAG_OVERRIDE}`,
     );
   } else {
     contents = contents.replace(
       loadReactNativeCall,
-      `${FEATURE_FLAG_OVERRIDE}\n${loadReactNativeCall}`,
+      `${loadReactNativeCall}\n${FEATURE_FLAG_OVERRIDE}`,
     );
   }
 

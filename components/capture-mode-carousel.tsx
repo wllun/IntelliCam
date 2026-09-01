@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState, type ComponentProps } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  FlatList,
   Modal,
   Pressable,
   StyleSheet,
@@ -9,29 +8,31 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
-  FadeIn,
-  FadeOut,
+  cancelAnimation,
+  Easing,
+  Extrapolation,
   interpolate,
   interpolateColor,
-  useAnimatedScrollHandler,
+  ReduceMotion,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
+  withSpring,
+  withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PRESETS } from '@/constants/presets';
-
-export interface CaptureModeOption {
-  id: string;
-  name: string;
-  description: string;
-  icon: ComponentProps<typeof Ionicons>['name'];
-  tint: string;
-  tip: string;
-}
+import {
+  CAPTURE_MODES,
+  NORMAL_CAPTURE_MODE,
+  type CaptureModeOption,
+} from '@/constants/capture-modes';
 
 interface CaptureModeCarouselProps {
   selectedId: string;
@@ -40,137 +41,141 @@ interface CaptureModeCarouselProps {
   onClose: () => void;
 }
 
-const NORMAL_MODE: CaptureModeOption = {
-  id: 'normal',
-  name: 'Normal',
-  description: 'Automatic everyday photo',
-  icon: 'camera-outline',
-  tint: '#85B7EB',
-  tip: 'Flash, zoom and photo size controls',
-};
-
-const MIN_CARD_WIDTH = 208;
-const MAX_CARD_WIDTH = 236;
-const CARD_GAP = 14;
-
-const MODES: CaptureModeOption[] = [
-  NORMAL_MODE,
-  ...PRESETS.map((preset) => ({
-    id: preset.id,
-    name: preset.name.replace(' photography', ''),
-    description:
-      preset.id === 'star'
-        ? 'Night sky guidance'
-        : preset.id === 'light-trail'
-          ? 'Moving-light guidance'
-          : preset.id === 'waterfall'
-            ? 'Smooth motion guidance'
-            : preset.id === 'portrait'
-              ? 'People and face guidance'
-              : 'Detailed subject guidance',
-    icon: preset.icon,
-    tint: preset.tint,
-    tip: preset.tip,
-  })),
-];
-
 interface ModeCardProps {
-  artworkHeight: number;
   cardHeight: number;
   cardWidth: number;
   index: number;
-  itemWidth: number;
   mode: CaptureModeOption;
-  onPress: () => void;
-  scrollX: SharedValue<number>;
+  position: SharedValue<number>;
   selected: boolean;
-  showDescription: boolean;
+  sideOffset: number;
+  onPress: () => void;
+  reducedMotion: boolean;
+}
+
+const LAST_MODE_INDEX = CAPTURE_MODES.length - 1;
+const SHEET_SPRING = {
+  duration: 300,
+  dampingRatio: 0.82,
+  reduceMotion: ReduceMotion.System,
+} as const;
+const CARD_SPRING = {
+  duration: 400,
+  dampingRatio: 0.8,
+  reduceMotion: ReduceMotion.System,
+} as const;
+const EASE_OUT = Easing.bezier(0.22, 1, 0.36, 1);
+
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value));
 }
 
 function ModeCard({
-  artworkHeight,
   cardHeight,
   cardWidth,
   index,
-  itemWidth,
   mode,
-  onPress,
-  scrollX,
+  position,
   selected,
-  showDescription,
+  sideOffset,
+  onPress,
+  reducedMotion,
 }: ModeCardProps) {
   const animatedStyle = useAnimatedStyle(() => {
-    const center = index * itemWidth;
-    const distance = scrollX.value - center;
+    const distance = index - position.get();
+    const absoluteDistance = Math.abs(distance);
+    const secondOffset = sideOffset * 1.72;
+    const translateX = interpolate(
+      distance,
+      [-2, -1, 0, 1, 2],
+      [-secondOffset, -sideOffset, 0, sideOffset, secondOffset],
+      Extrapolation.CLAMP,
+    );
 
     return {
-      opacity: interpolate(distance, [-itemWidth, 0, itemWidth], [0.48, 1, 0.48], 'clamp'),
-      transform: [
-        { perspective: 900 },
-        { translateY: interpolate(Math.abs(distance), [0, itemWidth], [0, 30], 'clamp') },
-        { scale: interpolate(Math.abs(distance), [0, itemWidth], [1, 0.78], 'clamp') },
-        {
-          rotateY: `${interpolate(
-            distance,
-            [-itemWidth, 0, itemWidth],
-            [-12, 0, 12],
-            'clamp',
-          )}deg`,
-        },
-      ],
+      zIndex: Math.round(100 - Math.min(absoluteDistance, CAPTURE_MODES.length) * 10),
+      opacity: interpolate(
+        absoluteDistance,
+        [0, 1, 2],
+        reducedMotion ? [1, 0.52, 0] : [1, 0.6, 0],
+        Extrapolation.CLAMP,
+      ),
       borderColor: interpolateColor(
-        Math.min(Math.abs(distance) / itemWidth, 1),
+        Math.min(absoluteDistance, 1),
         [0, 1],
         [mode.tint, 'rgba(255,255,255,0.14)'],
       ),
+      transform: [
+        { perspective: 900 },
+        { translateX },
+        {
+          translateY: reducedMotion
+            ? 0
+            : interpolate(absoluteDistance, [0, 1, 2], [0, 24, 40], Extrapolation.CLAMP),
+        },
+        {
+          scale: interpolate(
+            absoluteDistance,
+            [0, 1, 2],
+            reducedMotion ? [1, 0.94, 0.9] : [1, 0.8, 0.68],
+            Extrapolation.CLAMP,
+          ),
+        },
+        {
+          rotateY: `${
+            reducedMotion
+              ? 0
+              : interpolate(
+                  distance,
+                  [-2, -1, 0, 1, 2],
+                  [34, 28, 0, -28, -34],
+                  Extrapolation.CLAMP,
+                )
+          }deg`,
+        },
+      ],
     };
-  });
+  }, [index, mode.tint, reducedMotion, sideOffset]);
 
   return (
-    <Pressable
-      accessibilityHint={selected ? 'Currently selected' : 'Double tap to center this mode'}
-      accessibilityLabel={`${mode.name}. ${mode.description}`}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={({ pressed }) => pressed && styles.modeCardPressed}>
-      <Animated.View
-        style={[
-          styles.card,
-          { width: cardWidth, height: cardHeight },
-          animatedStyle,
-        ]}>
-        <View
-          style={[
-            styles.cardArtwork,
-            { height: artworkHeight, backgroundColor: `${mode.tint}20` },
-          ]}>
-          <View style={[styles.artOrbLarge, { backgroundColor: `${mode.tint}24` }]} />
-          <View style={[styles.artOrbSmall, { backgroundColor: `${mode.tint}38` }]} />
-          <View style={[styles.artRay, { backgroundColor: `${mode.tint}24` }]} />
-          <Ionicons
-            name={mode.icon}
-            size={showDescription ? 88 : 58}
-            color={mode.tint}
-            style={styles.heroIcon}
-          />
-          <View style={styles.artHorizon} />
-        </View>
+    <Animated.View
+      style={[
+        styles.card,
+        { height: cardHeight, width: cardWidth },
+        animatedStyle,
+      ]}>
+      <Pressable
+        accessibilityHint={selected ? 'Currently centered' : 'Double tap to center this mode'}
+        accessibilityLabel={`${mode.name}. ${mode.description}`}
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        onPress={onPress}
+        style={({ pressed }) => [styles.cardPressable, pressed && styles.cardPressed]}>
+        <Image
+          accessibilityIgnoresInvertColors
+          contentFit="cover"
+          source={mode.artwork}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.cardShadeSoft} />
+        <View style={styles.cardShadeStrong} />
         <View style={styles.cardCopy}>
           <View
             style={[
               styles.cardIcon,
-              { backgroundColor: `${mode.tint}E8`, borderColor: `${mode.tint}F2` },
+              { backgroundColor: `${mode.tint}E8`, borderColor: `${mode.tint}F4` },
             ]}>
-            <Ionicons name={mode.icon} size={23} color="#08110E" />
+            <Ionicons name={mode.icon} size={21} color="#07110D" />
           </View>
-          <Text numberOfLines={1} style={styles.cardTitle}>{mode.name}</Text>
-          {showDescription && (
-            <Text numberOfLines={2} style={styles.cardDescription}>{mode.description}</Text>
-          )}
+          <Text numberOfLines={1} style={styles.cardTitle}>
+            {mode.name}
+          </Text>
+          <Text numberOfLines={2} style={styles.cardDescription}>
+            {mode.description}
+          </Text>
         </View>
-      </Animated.View>
-    </Pressable>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -182,245 +187,344 @@ export function CaptureModeCarousel({
 }: CaptureModeCarouselProps) {
   const { height, width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const listRef = useRef<FlatList<CaptureModeOption>>(null);
-  const initialIndex = Math.max(0, MODES.findIndex((mode) => mode.id === selectedId));
-  const [activeIndex, setActiveIndex] = useState(initialIndex);
-  const cardWidth = Math.min(MAX_CARD_WIDTH, Math.max(MIN_CARD_WIDTH, width * 0.58));
-  const itemWidth = cardWidth + CARD_GAP;
-  const isShortScreen = height < 600;
-  const isCompactScreen = height < 720;
-  const cardHeight = isShortScreen ? 150 : isCompactScreen ? 236 : 312;
-  const artworkHeight = isShortScreen ? 90 : isCompactScreen ? 148 : 210;
-  const sidePadding = Math.max(0, (width - cardWidth) / 2);
-  const scrollX = useSharedValue(initialIndex * itemWidth);
-  const activeMode = MODES[activeIndex] ?? NORMAL_MODE;
+  const reducedMotion = useReducedMotion();
+  const selectedIndex = Math.max(
+    0,
+    CAPTURE_MODES.findIndex((mode) => mode.id === selectedId),
+  );
+  const [draftIndex, setDraftIndex] = useState(selectedIndex);
+  const [modalMounted, setModalMounted] = useState(visible);
+  const modalMountedRef = useRef(visible);
+  const settledIndexRef = useRef(selectedIndex);
+  const position = useSharedValue(selectedIndex);
+  const gestureStart = useSharedValue(selectedIndex);
+  const scrimOpacity = useSharedValue(0);
+  const sheetOffset = useSharedValue(reducedMotion ? 0 : 54);
+
+  const isShortScreen = height < 700;
+  const sheetHeight = Math.min(
+    height - Math.max(insets.top + 12, 32),
+    height * (isShortScreen ? 0.9 : 0.82),
+  );
+  const cardHeight = clamp(
+    sheetHeight - (isShortScreen ? 245 : 310),
+    202,
+    360,
+  );
+  const cardWidth = clamp(cardHeight * 0.625, 164, 230);
+  const sideOffset = Math.min(cardWidth * 0.59, width * 0.29);
+  const dragStep = Math.max(118, sideOffset);
+  const activeMode = CAPTURE_MODES[draftIndex] ?? NORMAL_CAPTURE_MODE;
+
+  const finishHiding = useCallback(() => {
+    modalMountedRef.current = false;
+    setModalMounted(false);
+  }, []);
+
+  const announceSettledMode = useCallback((index: number) => {
+    if (settledIndexRef.current === index) return;
+    settledIndexRef.current = index;
+    void Haptics.selectionAsync();
+  }, []);
+
+  const setGestureDraft = useCallback((index: number) => {
+    setDraftIndex(index);
+  }, []);
 
   useEffect(() => {
     if (!visible) return;
-    const index = Math.max(0, MODES.findIndex((mode) => mode.id === selectedId));
-    setActiveIndex(index);
-    scrollX.value = index * itemWidth;
-    requestAnimationFrame(() => listRef.current?.scrollToIndex({ index, animated: false }));
-  }, [itemWidth, scrollX, selectedId, visible]);
+    const index = Math.max(
+      0,
+      CAPTURE_MODES.findIndex((mode) => mode.id === selectedId),
+    );
+    cancelAnimation(position);
+    position.set(index);
+    gestureStart.set(index);
+    settledIndexRef.current = index;
+    setDraftIndex(index);
+  }, [gestureStart, position, selectedId, visible]);
 
-  const scrollHandler = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      scrollX.value = event.contentOffset.x;
+  useEffect(() => {
+    cancelAnimation(scrimOpacity);
+    cancelAnimation(sheetOffset);
+
+    if (visible) {
+      modalMountedRef.current = true;
+      setModalMounted(true);
+      scrimOpacity.set(0);
+      sheetOffset.set(reducedMotion ? 0 : 54);
+
+      const frame = requestAnimationFrame(() => {
+        scrimOpacity.set(withTiming(1, { duration: 180, easing: EASE_OUT }));
+        sheetOffset.set(
+          reducedMotion
+            ? withTiming(0, { duration: 120, easing: EASE_OUT })
+            : withSpring(0, SHEET_SPRING),
+        );
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+
+    if (!modalMountedRef.current) return;
+    scrimOpacity.set(withTiming(0, { duration: 110, easing: EASE_OUT }));
+    sheetOffset.set(
+      withTiming(
+        reducedMotion ? 0 : 34,
+        { duration: reducedMotion ? 100 : 140, easing: EASE_OUT },
+        (finished) => {
+          if (finished) scheduleOnRN(finishHiding);
+        },
+      ),
+    );
+  }, [finishHiding, reducedMotion, scrimOpacity, sheetOffset, visible]);
+
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: scrimOpacity.get(),
+  }));
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: sheetOffset.get() }],
+  }));
+
+  const moveToIndex = useCallback(
+    (index: number) => {
+      const nextIndex = clamp(index, 0, LAST_MODE_INDEX);
+      if (nextIndex === draftIndex && Math.abs(position.get() - nextIndex) < 0.001) return;
+
+      cancelAnimation(position);
+      setDraftIndex(nextIndex);
+      position.set(
+        reducedMotion
+          ? withTiming(nextIndex, { duration: 160, easing: EASE_OUT }, (finished) => {
+              if (finished) scheduleOnRN(announceSettledMode, nextIndex);
+            })
+          : withSpring(nextIndex, CARD_SPRING, (finished) => {
+              if (finished) scheduleOnRN(announceSettledMode, nextIndex);
+            }),
+      );
     },
-  });
+    [announceSettledMode, draftIndex, position, reducedMotion],
+  );
 
-  const snapToIndex = (index: number) => {
-    if (index === activeIndex) return;
-    setActiveIndex(index);
-    void Haptics.selectionAsync();
-  };
-
-  const moveToIndex = (index: number) => {
-    const nextIndex = Math.max(0, Math.min(MODES.length - 1, index));
-    listRef.current?.scrollToIndex({ index: nextIndex, animated: true });
-    snapToIndex(nextIndex);
-  };
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-10, 10])
+        .failOffsetY([-14, 14])
+        .onStart(() => {
+          cancelAnimation(position);
+          gestureStart.set(position.get());
+        })
+        .onUpdate((event) => {
+          const rawPosition = gestureStart.get() - event.translationX / dragStep;
+          const resistedPosition =
+            rawPosition < 0
+              ? rawPosition * 0.18
+              : rawPosition > LAST_MODE_INDEX
+                ? LAST_MODE_INDEX + (rawPosition - LAST_MODE_INDEX) * 0.18
+                : rawPosition;
+          position.set(resistedPosition);
+        })
+        .onEnd((event) => {
+          const projectedPosition = position.get() - (event.velocityX / dragStep) * 0.18;
+          const nextIndex = Math.round(clamp(projectedPosition, 0, LAST_MODE_INDEX));
+          const velocity = -event.velocityX / dragStep;
+          scheduleOnRN(setGestureDraft, nextIndex);
+          position.set(
+            reducedMotion
+              ? withTiming(nextIndex, { duration: 160, easing: EASE_OUT }, (finished) => {
+                  if (finished) scheduleOnRN(announceSettledMode, nextIndex);
+                })
+              : withSpring(nextIndex, { ...CARD_SPRING, velocity }, (finished) => {
+                  if (finished) scheduleOnRN(announceSettledMode, nextIndex);
+                }),
+          );
+        }),
+    [
+      announceSettledMode,
+      dragStep,
+      gestureStart,
+      position,
+      reducedMotion,
+      setGestureDraft,
+    ],
+  );
 
   return (
     <Modal
+      accessibilityViewIsModal
       animationType="none"
       onRequestClose={onClose}
       statusBarTranslucent
       transparent
-      visible={visible}>
-      <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(140)} style={styles.backdrop}>
-        <Pressable accessibilityLabel="Close mode selection" style={StyleSheet.absoluteFill} onPress={onClose} />
+      visible={modalMounted}>
+      <View style={styles.modalRoot}>
+        <Animated.View style={[styles.backdrop, backdropStyle]}>
+          <Pressable
+            accessibilityLabel="Close mode selection"
+            onPress={onClose}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+
         <Animated.View
-          entering={FadeIn.delay(60).duration(220)}
           style={[
             styles.sheet,
-            isShortScreen && styles.sheetShort,
-            { paddingBottom: Math.max(insets.bottom, isShortScreen ? 8 : 18) },
+            {
+              height: sheetHeight,
+              paddingBottom: Math.max(insets.bottom, isShortScreen ? 8 : 18),
+            },
+            sheetAnimatedStyle,
           ]}>
           <View style={styles.handle} />
-          <View style={styles.header}>
+          <View style={[styles.header, isShortScreen && styles.headerShort]}>
             <Text style={styles.title}>Choose capture mode</Text>
             <Pressable
               accessibilityLabel="Close"
               accessibilityRole="button"
+              hitSlop={6}
               onPress={onClose}
               style={({ pressed }) => [styles.closeButton, pressed && styles.closeButtonPressed]}>
               <Ionicons name="close" size={24} color="white" />
             </Pressable>
           </View>
 
-          <Animated.FlatList
-            accessibilityActions={[{ name: 'decrement' }, { name: 'increment' }]}
-            accessibilityHint="Swipe horizontally or use accessibility increment and decrement actions"
-            accessibilityLabel={`Capture mode swiper. ${activeMode.name} selected`}
-            accessibilityRole="adjustable"
-            ref={listRef}
-            data={MODES}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            bounces={false}
-            decelerationRate="fast"
-            disableIntervalMomentum
-            snapToInterval={itemWidth}
-            snapToAlignment="start"
-            style={{ flexGrow: 0, height: cardHeight + 34 }}
-            contentContainerStyle={{ paddingHorizontal: sidePadding, gap: CARD_GAP }}
-            getItemLayout={(_, index) => ({
-              index,
-              length: itemWidth,
-              offset: itemWidth * index,
-            })}
-            initialScrollIndex={initialIndex}
-            keyExtractor={(mode) => mode.id}
-            onAccessibilityAction={(event) => {
-              if (event.nativeEvent.actionName === 'increment') moveToIndex(activeIndex + 1);
-              if (event.nativeEvent.actionName === 'decrement') moveToIndex(activeIndex - 1);
-            }}
-            onScroll={scrollHandler}
-            scrollEventThrottle={16}
-            onMomentumScrollEnd={(event) => {
-              const index = Math.max(
-                0,
-                Math.min(MODES.length - 1, Math.round(event.nativeEvent.contentOffset.x / itemWidth)),
-              );
-              snapToIndex(index);
-            }}
-            renderItem={({ item, index }) => (
-              <ModeCard
-                artworkHeight={artworkHeight}
-                cardHeight={cardHeight}
-                cardWidth={cardWidth}
-                index={index}
-                itemWidth={itemWidth}
-                mode={item}
-                scrollX={scrollX}
-                selected={index === activeIndex}
-                showDescription={!isShortScreen}
-                onPress={() => moveToIndex(index)}
-              />
-            )}
-          />
+          <GestureDetector gesture={panGesture}>
+            <Animated.View
+              accessibilityActions={[{ name: 'decrement' }, { name: 'increment' }]}
+              accessibilityHint="Swipe horizontally, or use increment and decrement actions"
+              accessibilityLabel={`Capture mode swiper. ${activeMode.name} selected`}
+              accessibilityRole="adjustable"
+              onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === 'increment') moveToIndex(draftIndex + 1);
+                if (event.nativeEvent.actionName === 'decrement') moveToIndex(draftIndex - 1);
+              }}
+              style={[styles.stage, { height: cardHeight + 16 }]}>
+              {CAPTURE_MODES.map((mode, index) => (
+                <ModeCard
+                  key={mode.id}
+                  cardHeight={cardHeight}
+                  cardWidth={cardWidth}
+                  index={index}
+                  mode={mode}
+                  onPress={() => moveToIndex(index)}
+                  position={position}
+                  reducedMotion={reducedMotion}
+                  selected={index === draftIndex}
+                  sideOffset={sideOffset}
+                />
+              ))}
+            </Animated.View>
+          </GestureDetector>
 
-          <View style={styles.details}>
+          <View style={[styles.details, isShortScreen && styles.detailsShort]}>
             <View style={styles.modeHeading}>
               <Ionicons name={activeMode.icon} size={20} color={activeMode.tint} />
               <Text style={styles.activeName}>{activeMode.name}</Text>
             </View>
             {!isShortScreen && (
-              <Text style={styles.activeDescription}>{activeMode.description}</Text>
+              <Text numberOfLines={1} style={styles.activeDescription}>
+                {activeMode.description}
+              </Text>
             )}
-            <Text style={styles.activeTip}>{activeMode.tip}</Text>
+            <Text numberOfLines={1} style={styles.activeTip}>
+              {activeMode.tip}
+            </Text>
           </View>
 
-          <View style={styles.paginationRow}>
-            <Pressable
-              accessibilityLabel="Previous capture mode"
-              accessibilityRole="button"
-              accessibilityState={{ disabled: activeIndex === 0 }}
-              disabled={activeIndex === 0}
-              onPress={() => moveToIndex(activeIndex - 1)}
-              style={({ pressed }) => [
-                styles.paginationButton,
-                activeIndex === 0 && styles.paginationButtonDisabled,
-                pressed && styles.paginationButtonPressed,
-              ]}>
-              <Ionicons name="chevron-back" size={20} color="white" />
-            </Pressable>
-            <View
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              style={styles.dots}>
-              {MODES.map((mode, index) => (
-                <View
-                  key={mode.id}
-                  style={[
-                    styles.dot,
-                    index === activeIndex && { width: 18, backgroundColor: activeMode.tint },
-                  ]}
-                />
-              ))}
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.dots}>
+            {CAPTURE_MODES.map((mode, index) => (
+              <View
+                key={mode.id}
+                style={[
+                  styles.dot,
+                  index === draftIndex && {
+                    width: 19,
+                    backgroundColor: activeMode.tint,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+
+          {!isShortScreen && (
+            <View style={styles.swipeHint}>
+              <Ionicons name="swap-horizontal-outline" size={16} color="#96A09B" />
+              <Text style={styles.swipeHintText}>Swipe to explore modes</Text>
             </View>
-            <Pressable
-              accessibilityLabel="Next capture mode"
-              accessibilityRole="button"
-              accessibilityState={{ disabled: activeIndex === MODES.length - 1 }}
-              disabled={activeIndex === MODES.length - 1}
-              onPress={() => moveToIndex(activeIndex + 1)}
-              style={({ pressed }) => [
-                styles.paginationButton,
-                activeIndex === MODES.length - 1 && styles.paginationButtonDisabled,
-                pressed && styles.paginationButtonPressed,
-              ]}>
-              <Ionicons name="chevron-forward" size={20} color="white" />
-            </Pressable>
-          </View>
-
-          {!isShortScreen && <Text style={styles.swipeHint}>Swipe to explore modes</Text>}
+          )}
 
           <Pressable
-            accessibilityRole="button"
             accessibilityLabel={`Apply ${activeMode.name} mode`}
+            accessibilityRole="button"
             onPress={() => onApply(activeMode.id)}
             style={({ pressed }) => [
               styles.applyButton,
               isShortScreen && styles.applyButtonShort,
-              { backgroundColor: activeMode.tint, opacity: pressed ? 0.82 : 1 },
+              pressed && styles.applyButtonPressed,
             ]}>
-            <Text style={styles.applyText}>Apply mode</Text>
-            <Ionicons name="arrow-forward" size={20} color="#08110E" />
+            <Text style={styles.applyText}>Apply {activeMode.name} mode</Text>
+            <Ionicons name="arrow-forward" size={20} color="#07110D" />
           </Pressable>
         </Animated.View>
-      </Animated.View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  modalRoot: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.68)',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.72)',
   },
   sheet: {
-    maxHeight: '92%',
-    gap: 12,
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
+    gap: 8,
     paddingTop: 10,
-    backgroundColor: '#121313',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    backgroundColor: '#111313',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: 'rgba(255,255,255,0.13)',
+    borderColor: 'rgba(255,255,255,0.14)',
     overflow: 'hidden',
-  },
-  sheetShort: {
-    maxHeight: '98%',
-    gap: 6,
   },
   handle: {
     width: 42,
     height: 5,
     alignSelf: 'center',
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.24)',
+    backgroundColor: 'rgba(255,255,255,0.25)',
   },
   header: {
-    minHeight: 48,
+    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 64,
+    paddingHorizontal: 66,
+  },
+  headerShort: {
+    minHeight: 44,
   },
   title: {
     color: 'white',
     fontSize: 20,
     fontWeight: '700',
-    letterSpacing: -0.4,
+    letterSpacing: -0.45,
     textAlign: 'center',
   },
   closeButton: {
     position: 'absolute',
-    right: 16,
+    right: 14,
     width: 44,
     height: 44,
     alignItems: 'center',
@@ -429,93 +533,90 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   closeButtonPressed: {
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.17)',
   },
-  modeCardPressed: {
-    opacity: 0.88,
+  stage: {
+    marginHorizontal: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   card: {
+    position: 'absolute',
     borderRadius: 24,
-    borderWidth: 1.5,
-    backgroundColor: '#1A1C1C',
+    borderWidth: 2,
+    backgroundColor: '#191B1A',
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.38,
+    shadowRadius: 20,
+    elevation: 14,
   },
-  cardArtwork: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+  cardPressable: {
+    flex: 1,
   },
-  artOrbLarge: {
+  cardPressed: {
+    opacity: 0.86,
+  },
+  cardShadeSoft: {
     position: 'absolute',
-    width: 210,
-    height: 210,
-    borderRadius: 105,
-    right: -60,
-    top: -70,
+    left: 0,
+    right: 0,
+    bottom: 82,
+    height: 88,
+    backgroundColor: 'rgba(3,7,6,0.24)',
   },
-  artOrbSmall: {
+  cardShadeStrong: {
     position: 'absolute',
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    left: -28,
-    bottom: -18,
-  },
-  heroIcon: {
-    opacity: 0.9,
-  },
-  artRay: {
-    position: 'absolute',
-    top: -30,
-    width: 58,
-    height: 280,
-    transform: [{ rotate: '32deg' }],
-  },
-  artHorizon: {
-    position: 'absolute',
-    left: -20,
-    right: -20,
-    bottom: -36,
-    height: 80,
-    borderRadius: 50,
-    backgroundColor: 'rgba(0,0,0,0.38)',
-    transform: [{ rotate: '-5deg' }],
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 108,
+    backgroundColor: 'rgba(3,7,6,0.72)',
   },
   cardCopy: {
-    flex: 1,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    minHeight: 128,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 18,
+    justifyContent: 'flex-end',
+    paddingHorizontal: 14,
+    paddingBottom: 16,
   },
   cardIcon: {
-    position: 'absolute',
-    top: -25,
-    width: 50,
-    height: 50,
+    width: 42,
+    height: 42,
+    marginBottom: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 25,
+    borderRadius: 21,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
   },
   cardTitle: {
     color: 'white',
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: '800',
+    letterSpacing: -0.3,
     textAlign: 'center',
   },
   cardDescription: {
     marginTop: 3,
-    color: '#BBC3BF',
+    color: '#D2D8D5',
     fontSize: 12,
-    lineHeight: 17,
+    lineHeight: 16,
     textAlign: 'center',
   },
   details: {
-    alignItems: 'center',
-    gap: 3,
     minHeight: 58,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
     paddingHorizontal: 24,
+  },
+  detailsShort: {
+    minHeight: 38,
   },
   modeHeading: {
     flexDirection: 'row',
@@ -528,40 +629,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   activeDescription: {
-    color: '#B4BCB8',
+    color: '#BDC5C1',
     fontSize: 13,
   },
   activeTip: {
-    color: '#9AA49F',
+    color: '#929D97',
     fontSize: 12,
     textAlign: 'center',
   },
-  paginationRow: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  paginationButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-  },
-  paginationButtonDisabled: {
-    opacity: 0.28,
-  },
-  paginationButtonPressed: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
   dots: {
+    minHeight: 24,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 7,
   },
   dot: {
     width: 6,
@@ -570,9 +651,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#414744',
   },
   swipeHint: {
-    color: '#89938E',
+    minHeight: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  swipeHintText: {
+    color: '#96A09B',
     fontSize: 11,
-    textAlign: 'center',
   },
   applyButton: {
     minHeight: 56,
@@ -582,12 +669,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 9,
     borderRadius: 17,
+    backgroundColor: '#E5FFF4',
   },
   applyButtonShort: {
     minHeight: 48,
   },
+  applyButtonPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.985 }],
+  },
   applyText: {
-    color: '#08110E',
+    color: '#07110D',
     fontSize: 16,
     fontWeight: '800',
   },
