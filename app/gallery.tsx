@@ -18,8 +18,8 @@ import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import * as MediaLibrary from 'expo-media-library';
 import { Ionicons } from '@expo/vector-icons';
-import { useHeaderHeight } from '@react-navigation/elements';
 import { Stack, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import MediaTrash from '@/modules/media-trash';
 
@@ -29,7 +29,7 @@ const GRID_GAP = 2;
 
 export default function GalleryScreen() {
   const { width } = useWindowDimensions();
-  const headerHeight = useHeaderHeight();
+  const insets = useSafeAreaInsets();
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [selectedAsset, setSelectedAsset] = useState<MediaLibrary.Asset | null>(null);
   const [photoMenuVisible, setPhotoMenuVisible] = useState(false);
@@ -214,47 +214,12 @@ export default function GalleryScreen() {
     <View style={styles.container}>
       <Stack.Screen
         options={{
-          headerBackVisible: selectedAsset ? false : true,
+          headerShown: !selectedAsset,
+          headerBackVisible: true,
           headerShadowVisible: false,
           headerStyle: {
-            backgroundColor: selectedAsset ? 'transparent' : '#080808',
+            backgroundColor: '#080808',
           },
-          headerTransparent: Boolean(selectedAsset),
-          headerLeft: selectedAsset
-            ? () => (
-                <Pressable
-                  accessibilityLabel="Back to gallery"
-                  accessibilityRole="button"
-                  hitSlop={8}
-                  onPress={closeSelectedPhoto}
-                  style={({ pressed }) => [
-                    styles.headerIconButton,
-                    pressed && styles.headerIconButtonPressed,
-                  ]}>
-                  <Ionicons name="chevron-back" size={28} color="white" />
-                </Pressable>
-              )
-            : undefined,
-          headerRight: selectedAsset
-            ? () => (
-                <Pressable
-                  accessibilityLabel="Photo options"
-                  accessibilityRole="button"
-                  accessibilityState={{
-                    expanded: photoMenuVisible,
-                    disabled: Boolean(deletingAssetId),
-                  }}
-                  disabled={Boolean(deletingAssetId)}
-                  hitSlop={8}
-                  onPress={() => setPhotoMenuVisible((visible) => !visible)}
-                  style={({ pressed }) => [
-                    styles.headerIconButton,
-                    pressed && styles.headerIconButtonPressed,
-                  ]}>
-                  <Ionicons name="ellipsis-horizontal" size={24} color="white" />
-                </Pressable>
-              )
-            : undefined,
         }}
       />
       <FlatList
@@ -345,7 +310,7 @@ export default function GalleryScreen() {
               />
               <View
                 accessibilityViewIsModal
-                style={[styles.photoMenu, { top: headerHeight + 8 }]}
+                style={[styles.photoMenu, { top: insets.top + 56 }]}
               >
                 <Pressable
                   accessibilityHint="Moves this photo to the device recycle bin after confirmation"
@@ -371,6 +336,38 @@ export default function GalleryScreen() {
               </View>
             </>
           )}
+          <View
+            pointerEvents="box-none"
+            style={[styles.previewToolbar, { top: insets.top }]}
+          >
+            <Pressable
+              accessibilityLabel="Back to gallery"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={closeSelectedPhoto}
+              style={({ pressed }) => [
+                styles.previewToolbarButton,
+                pressed && styles.previewToolbarButtonPressed,
+              ]}>
+              <Ionicons name="chevron-back" size={28} color="white" />
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Photo options"
+              accessibilityRole="button"
+              accessibilityState={{
+                expanded: photoMenuVisible,
+                disabled: Boolean(deletingAssetId),
+              }}
+              disabled={Boolean(deletingAssetId)}
+              hitSlop={8}
+              onPress={() => setPhotoMenuVisible((visible) => !visible)}
+              style={({ pressed }) => [
+                styles.previewToolbarButton,
+                pressed && styles.previewToolbarButtonPressed,
+              ]}>
+              <Ionicons name="ellipsis-horizontal" size={24} color="white" />
+            </Pressable>
+          </View>
         </View>
       )}
     </View>
@@ -422,14 +419,26 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'black',
   },
-  headerIconButton: {
-    width: 44,
-    height: 44,
+  previewToolbar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+  },
+  previewToolbarButton: {
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 24,
+    backgroundColor: 'rgba(20,20,20,0.62)',
   },
-  headerIconButtonPressed: {
-    opacity: 0.62,
+  previewToolbarButtonPressed: {
+    backgroundColor: 'rgba(50,50,50,0.82)',
   },
   photoMenu: {
     position: 'absolute',
