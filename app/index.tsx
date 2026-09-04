@@ -68,10 +68,10 @@ const EXPOSURE_DRAG_PIXELS_PER_EV = EXPOSURE_TRACK_HEIGHT / (EXPOSURE_MAX - EXPO
 const ZOOM_TRANSITION_MS = 180;
 const ZOOM_RULER_MIN = 0.5;
 const ZOOM_RULER_MAX = 10;
-const ZOOM_RULER_TICK_STEP = 0.05;
-const ZOOM_RULER_TICK_SPACING = 6.5;
+const ZOOM_RULER_TICK_STEP = 0.1;
+const ZOOM_RULER_TICK_SPACING = 8;
 const ZOOM_RULER_PIXELS_PER_ZOOM = ZOOM_RULER_TICK_SPACING / ZOOM_RULER_TICK_STEP;
-const ZOOM_RULER_LABEL_WIDTH = 52;
+const ZOOM_RULER_LABEL_WIDTH = 48;
 const ZOOM_NATIVE_UPDATE_STEPS = 72;
 const ZOOM_NATIVE_UPDATE_INTERVAL_MS = 32;
 const ZOOM_EASING = Easing.bezier(0.23, 1, 0.32, 1);
@@ -747,7 +747,7 @@ export default function CameraScreen() {
     void photoOutput.prepareSettings(settings).catch(() => undefined);
   }, [cameraDevice?.hasFlash, hdrEnabled, photoOutput]);
 
-  const zoomRulerWidth = Math.max(220, Math.min(width - 24, 420));
+  const zoomRulerWidth = Math.max(232, Math.min(width - 48, 320));
   const zoomRulerTicks = useMemo(
     () => createZoomRulerTicks(rulerMinZoom, rulerMaxZoom),
     [rulerMaxZoom, rulerMinZoom],
@@ -1886,29 +1886,29 @@ const styles = StyleSheet.create({
     position: 'absolute',
     alignSelf: 'center',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   zoomReadout: {
-    minWidth: 58,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
+    minWidth: 54,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     borderRadius: 999,
     alignItems: 'center',
     backgroundColor: 'rgba(20,20,20,0.82)',
   },
   zoomReadoutText: {
-    width: 44,
+    width: 42,
     padding: 0,
     color: '#FFD400',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
     textAlign: 'center',
   },
   zoomRuler: {
     position: 'relative',
-    height: 68,
-    borderRadius: 14,
+    height: 54,
+    borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: 'rgba(20,20,20,0.58)',
     borderWidth: 1,
@@ -1917,39 +1917,39 @@ const styles = StyleSheet.create({
   zoomRulerTicks: {
     position: 'absolute',
     left: 0,
-    top: 7,
-    height: 54,
+    top: 4,
+    height: 46,
   },
   zoomRulerTickTrack: {
     position: 'absolute',
     left: ZOOM_RULER_LABEL_WIDTH / 2,
     top: 0,
-    height: 54,
+    height: 46,
     flexDirection: 'row',
     alignItems: 'flex-end',
   },
   zoomRulerTickSlot: {
     width: ZOOM_RULER_TICK_SPACING,
-    height: 54,
+    height: 46,
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
   zoomRulerLabel: {
     color: 'rgba(255,255,255,0.96)',
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
     textAlign: 'center',
   },
   zoomRulerLabelButton: {
     position: 'absolute',
-    top: -4,
+    top: -2,
     width: ZOOM_RULER_LABEL_WIDTH,
     height: 48,
     zIndex: 2,
     alignItems: 'center',
     justifyContent: 'flex-start',
-    paddingTop: 4,
+    paddingTop: 2,
   },
   zoomRulerLabelButtonPressed: {
     opacity: 0.55,
@@ -1957,23 +1957,23 @@ const styles = StyleSheet.create({
   },
   zoomRulerTick: {
     width: 1,
-    height: 12,
+    height: 9,
     backgroundColor: 'rgba(255,255,255,0.58)',
   },
   zoomRulerTickMedium: {
-    height: 19,
+    height: 14,
     backgroundColor: 'rgba(255,255,255,0.78)',
   },
   zoomRulerTickMajor: {
     width: 2,
-    height: 28,
+    height: 22,
     borderRadius: 1,
     backgroundColor: 'rgba(255,255,255,0.96)',
   },
   zoomRulerIndicator: {
     position: 'absolute',
-    top: 29,
-    bottom: 6,
+    top: 23,
+    bottom: 5,
     left: '50%',
     width: 3,
     marginLeft: -1.5,
