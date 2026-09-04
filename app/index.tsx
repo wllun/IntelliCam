@@ -411,7 +411,12 @@ export default function CameraScreen() {
     quality: hdrEnabled ? 1 : 0.92,
     qualityPrioritization: hdrEnabled
       ? 'quality'
-      : cameraDevice?.supportsSpeedQualityPrioritization ? 'speed' : 'balanced',
+      // CameraX zero-shutter-lag can stall the preview when zoom changes on
+      // Samsung S22/S23 devices running Android 16. "balanced" maps to
+      // CAPTURE_MODE_MINIMIZE_LATENCY and keeps the camera stream alive.
+      : Platform.OS === 'android'
+        ? 'balanced'
+        : cameraDevice?.supportsSpeedQualityPrioritization ? 'speed' : 'balanced',
   });
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
