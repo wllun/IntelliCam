@@ -1,0 +1,16 @@
+{
+  "android": {
+    "latestVersionCode": 1,
+    "minimumVersionCode": 1,
+    "forceUpdateEnabled": false,
+    "updateUrl": "https://github.com/wllun/IntelliCam/releases/latest",
+    "message": "Update IntelliCam to continue using the app."
+  },
+  "ios": {
+    "latestVersionCode": 1,
+    "minimumVersionCode": 1,
+    "forceUpdateEnabled": false,
+    "updateUrl": "https://github.com/wllun/IntelliCam/releases/latest",
+    "message": "Update IntelliCam to continue using the app."
+  }
+}

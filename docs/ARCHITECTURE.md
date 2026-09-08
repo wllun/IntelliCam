@@ -31,6 +31,17 @@ Chosen for cross-platform reach, fast MVP iteration, and a large ecosystem.
 - Animation: React Native Reanimated + Gesture Handler
 - Graphics: React Native SVG
 
+## Application update gate
+
+Android and iOS native builds read `app-update.json` from a public HTTPS URL and
+compare its per-platform minimum with `expo-application`'s immutable native
+build version. A required update replaces the Expo Router stack with a
+non-dismissible update screen. The policy is refreshed on startup and when the
+app returns to the foreground; a recent forced policy is cached in AsyncStorage
+for offline enforcement and expires after 72 hours. Invalid, unavailable, or
+stale policies fail open. Expo Go and web skip the check. See
+[`FORCE_UPDATE.md`](FORCE_UPDATE.md) for release operations.
+
 ## Camera layer
 
 React Native alone can't drive manual ISO/shutter/RAW — that needs native APIs.
