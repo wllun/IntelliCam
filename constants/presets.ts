@@ -65,6 +65,18 @@ export const PRESETS: Preset[] = [
     tip: 'Stand 1–2 m from your subject',
   },
   {
+    id: 'beauty',
+    name: '美顔',
+    icon: 'sparkles-outline',
+    tint: '#F5B8CE',
+    iso: 200,
+    shutter: '1/120',
+    whiteBalance: 5000,
+    focus: 'auto',
+    raw: false,
+    tip: 'Use soft, even light for natural-looking skin',
+  },
+  {
     id: 'product',
     name: 'Product',
     icon: 'cube-outline',

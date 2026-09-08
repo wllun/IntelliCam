@@ -37,6 +37,11 @@ const MODE_PRESENTATION: Record<
     description: 'Keep people crisp with gentle separation',
     artwork: require('../assets/images/capture-modes/portrait.png'),
   },
+  beauty: {
+    name: '美顔',
+    description: 'Flattering portraits with natural-looking skin',
+    artwork: require('../assets/images/capture-modes/portrait.png'),
+  },
   product: {
     name: 'Product',
     description: 'Clean detail with controlled highlights',
