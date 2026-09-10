@@ -202,13 +202,24 @@ export function CaptureModeCarousel({
   const sheetOffset = useSharedValue(reducedMotion ? 0 : 54);
 
   const isShortScreen = height < 700;
-  const sheetHeight = Math.min(
-    height - Math.max(insets.top + 12, 32),
+  const baseBottomPadding = isShortScreen ? 8 : 18;
+  const bottomSafePadding = Math.max(
+    insets.bottom + 12,
+    isShortScreen ? 16 : 24,
+  );
+  const extraBottomPadding = bottomSafePadding - baseBottomPadding;
+  const maximumSheetHeight = height - Math.max(insets.top + 12, 32);
+  const baseSheetHeight = Math.min(
+    maximumSheetHeight,
     height * (isShortScreen ? 0.9 : 0.82),
   );
+  const sheetHeight = Math.min(
+    maximumSheetHeight,
+    baseSheetHeight + extraBottomPadding,
+  );
   const cardHeight = clamp(
-    sheetHeight - (isShortScreen ? 245 : 310),
-    202,
+    sheetHeight - (isShortScreen ? 245 : 310) - extraBottomPadding,
+    isShortScreen ? 176 : 202,
     360,
   );
   const cardWidth = clamp(cardHeight * 0.625, 164, 230);
@@ -354,6 +365,7 @@ export function CaptureModeCarousel({
     <Modal
       accessibilityViewIsModal
       animationType="none"
+      navigationBarTranslucent
       onRequestClose={onClose}
       statusBarTranslucent
       transparent
@@ -372,7 +384,7 @@ export function CaptureModeCarousel({
             styles.sheet,
             {
               height: sheetHeight,
-              paddingBottom: Math.max(insets.bottom, isShortScreen ? 8 : 18),
+              paddingBottom: bottomSafePadding,
             },
             sheetAnimatedStyle,
           ]}>
