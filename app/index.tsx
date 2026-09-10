@@ -1591,11 +1591,21 @@ export default function CameraScreen() {
               setModeMenuVisible(true);
             }}
             style={styles.secondaryControl}>
-            <Ionicons
-              name={isNormalMode ? 'camera-outline' : preset.icon}
-              size={25}
-              color="white"
-            />
+            <View style={styles.modeControlIcon}>
+              <Ionicons
+                name="albums-outline"
+                size={25}
+                color="white"
+                style={styles.modeControlCards}
+              />
+              <Ionicons
+                name="sparkles"
+                size={12}
+                color="#9FE1CB"
+                style={styles.modeControlSparkle}
+              />
+              <View style={styles.modeControlStatus} />
+            </View>
             <Text style={styles.controlLabel}>{isNormalMode ? 'Normal' : preset.name.replace(' photography', '')}</Text>
           </Pressable>
         </View>
@@ -1992,6 +2002,35 @@ const styles = StyleSheet.create({
     width: 64,
     alignItems: 'center',
     gap: 5,
+  },
+  modeControlIcon: {
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 23,
+    borderWidth: 1.5,
+    borderColor: '#9FE1CB',
+    backgroundColor: 'rgba(20,20,20,0.72)',
+  },
+  modeControlCards: {
+    transform: [{ translateX: -2 }, { translateY: 2 }],
+  },
+  modeControlSparkle: {
+    position: 'absolute',
+    top: 7,
+    right: 7,
+  },
+  modeControlStatus: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: '#080808',
+    backgroundColor: '#9FE1CB',
   },
   thumbnailFrame: {
     width: 46,
