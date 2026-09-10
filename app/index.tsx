@@ -36,6 +36,7 @@ import Animated, {
   FadeIn,
   FadeOut,
   runOnJS,
+  useAnimatedReaction,
   useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
@@ -71,6 +72,8 @@ const ZOOM_RULER_TICK_STEP = 0.1;
 const ZOOM_RULER_TICK_SPACING = 8;
 const ZOOM_RULER_PIXELS_PER_ZOOM = ZOOM_RULER_TICK_SPACING / ZOOM_RULER_TICK_STEP;
 const ZOOM_RULER_LABEL_WIDTH = 48;
+const ZOOM_NATIVE_UPDATE_STEPS = 72;
+const ZOOM_NATIVE_UPDATE_INTERVAL_MS = 32;
 const ZOOM_EASING = Easing.bezier(0.23, 1, 0.32, 1);
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
 interface FocusPoint {
@@ -427,6 +430,7 @@ export default function CameraScreen() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [flash, setFlash] = useState<FlashMode>('off');
   const [displayedZoom, setDisplayedZoom] = useState(1);
+  const [cameraZoomProp, setCameraZoomProp] = useState(1);
   const [gridLines, setGridLines] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
@@ -450,7 +454,11 @@ export default function CameraScreen() {
   const appActiveRef = useRef(AppState.currentState === 'active');
   const screenFocusedRef = useRef(true);
   const cameraReadyRef = useRef(false);
+  const queuedCameraZoomRef = useRef<number | undefined>(undefined);
+  const cameraZoomUpdateTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const lastCameraZoomUpdateRef = useRef(0);
   const cameraZoom = useSharedValue(1);
+  const zoomGestureActive = useSharedValue(false);
   const pinchStartZoom = useSharedValue(0);
   const exposureDragStart = useSharedValue(0);
   const rulerZoomValue = useSharedValue(1);
@@ -586,6 +594,39 @@ export default function CameraScreen() {
 
   const cancelNativeZoomAnimation = useCallback(() => {
     void cameraRef.current?.cancelZoomAnimation().catch(() => undefined);
+  }, []);
+
+  const flushCameraZoom = useCallback(() => {
+    cameraZoomUpdateTimerRef.current = undefined;
+    const zoom = queuedCameraZoomRef.current;
+    queuedCameraZoomRef.current = undefined;
+    const controller = cameraRef.current?.controller;
+    if (zoom === undefined || !controller) return;
+
+    lastCameraZoomUpdateRef.current = Date.now();
+    void controller.setZoom(zoom).catch((error: unknown) => {
+      if (!isCameraLifecycleCancellation(error)) {
+        console.warn('Could not update camera zoom:', error);
+      }
+    });
+  }, []);
+
+  const updateCameraZoom = useCallback((nextZoom: number) => {
+    queuedCameraZoomRef.current = nextZoom;
+    if (cameraZoomUpdateTimerRef.current) return;
+
+    const elapsed = Date.now() - lastCameraZoomUpdateRef.current;
+    cameraZoomUpdateTimerRef.current = setTimeout(
+      flushCameraZoom,
+      Math.max(0, ZOOM_NATIVE_UPDATE_INTERVAL_MS - elapsed),
+    );
+  }, [flushCameraZoom]);
+
+  useEffect(() => () => {
+    if (cameraZoomUpdateTimerRef.current) {
+      clearTimeout(cameraZoomUpdateTimerRef.current);
+      cameraZoomUpdateTimerRef.current = undefined;
+    }
   }, []);
 
   useEffect(() => {
@@ -743,6 +784,23 @@ export default function CameraScreen() {
     return { text: label, defaultValue: label };
   });
 
+  useAnimatedReaction(
+    () => {
+      if (!zoomGestureActive.get()) return null;
+      const range = maxZoom - minZoom;
+      if (range <= 0) return minZoom;
+
+      const step = range / ZOOM_NATIVE_UPDATE_STEPS;
+      const bucket = Math.round((cameraZoom.get() - minZoom) / step);
+      return Math.max(minZoom, Math.min(maxZoom, minZoom + bucket * step));
+    },
+    (nextZoom, previousZoom) => {
+      if (nextZoom === null || nextZoom === previousZoom) return;
+      scheduleOnRN(updateCameraZoom, nextZoom);
+    },
+    [maxZoom, minZoom, updateCameraZoom],
+  );
+
   useEffect(() => {
     cameraReadyRef.current = false;
     setCameraReady(false);
@@ -756,6 +814,12 @@ export default function CameraScreen() {
     const nextDisplayZoom = pendingZoom && pendingZoom.deviceId === cameraDevice?.id
       ? pendingZoom.displayZoom
       : 1;
+    if (cameraZoomUpdateTimerRef.current) {
+      clearTimeout(cameraZoomUpdateTimerRef.current);
+      cameraZoomUpdateTimerRef.current = undefined;
+    }
+    queuedCameraZoomRef.current = undefined;
+    setCameraZoomProp(Math.max(minZoom, Math.min(maxZoom, nextZoom)));
     cameraZoom.set(Math.max(minZoom, Math.min(maxZoom, nextZoom)));
     rulerZoomValue.set(clamp(nextDisplayZoom, rulerMinZoom, rulerMaxZoom));
     setDisplayedZoom(clamp(nextDisplayZoom, rulerMinZoom, rulerMaxZoom));
@@ -810,6 +874,7 @@ export default function CameraScreen() {
         displayZoom: option.displayZoom,
         zoom: option.targetZoom,
       };
+      setCameraZoomProp(option.targetZoom);
       cameraZoom.set(option.targetZoom);
       rulerZoomValue.set(option.displayZoom);
       setSelectedBackDeviceId(
@@ -836,6 +901,13 @@ export default function CameraScreen() {
       cancelNativeZoomAnimation();
       cameraZoom.set(option.targetZoom);
       rulerZoomValue.set(option.displayZoom);
+      if (cameraZoomUpdateTimerRef.current) {
+        clearTimeout(cameraZoomUpdateTimerRef.current);
+        cameraZoomUpdateTimerRef.current = undefined;
+      }
+      queuedCameraZoomRef.current = option.targetZoom;
+      flushCameraZoom();
+      setCameraZoomProp(option.targetZoom);
     }
   };
 
@@ -864,6 +936,7 @@ export default function CameraScreen() {
       pinchStartZoom.set(rulerZoomValue.get());
       cancelAnimation(cameraZoom);
       cancelAnimation(rulerZoomValue);
+      zoomGestureActive.set(true);
       scheduleOnRN(cancelNativeZoomAnimation);
     })
     .onUpdate((event) => {
@@ -885,7 +958,11 @@ export default function CameraScreen() {
       cameraZoom.set(nextCameraZoom);
     })
     .onEnd(() => {
+      zoomGestureActive.set(false);
       scheduleOnRN(finishRulerZoom, rulerZoomValue.get());
+    })
+    .onFinalize(() => {
+      zoomGestureActive.set(false);
     });
 
   const zoomRulerPan = Gesture.Pan()
@@ -896,6 +973,7 @@ export default function CameraScreen() {
       rulerDragStartZoom.set(rulerZoomValue.get());
       cancelAnimation(cameraZoom);
       cancelAnimation(rulerZoomValue);
+      zoomGestureActive.set(true);
       scheduleOnRN(cancelNativeZoomAnimation);
     })
     .onUpdate((event) => {
@@ -920,7 +998,11 @@ export default function CameraScreen() {
       cameraZoom.set(nextCameraZoom);
     })
     .onEnd(() => {
+      zoomGestureActive.set(false);
       scheduleOnRN(finishRulerZoom, rulerZoomValue.get());
+    })
+    .onFinalize(() => {
+      zoomGestureActive.set(false);
     });
 
   const cameraGesture = Gesture.Simultaneous(swipe, pinch);
@@ -1166,7 +1248,7 @@ export default function CameraScreen() {
               outputs={cameraOutputs}
               constraints={cameraConstraints}
               isActive={appActive && screenFocused}
-              zoom={cameraZoom}
+              zoom={cameraZoomProp}
               mirrorMode="auto"
               orientationSource="device"
               resizeMode="cover"
