@@ -10,7 +10,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
   Easing,
@@ -370,7 +374,7 @@ export function CaptureModeCarousel({
       statusBarTranslucent
       transparent
       visible={modalMounted}>
-      <View style={styles.modalRoot}>
+      <GestureHandlerRootView style={styles.modalRoot}>
         <Animated.View style={[styles.backdrop, backdropStyle]}>
           <Pressable
             accessibilityLabel="Close mode selection"
@@ -482,7 +486,7 @@ export function CaptureModeCarousel({
             <Ionicons name="arrow-forward" size={20} color="#07110D" />
           </Pressable>
         </Animated.View>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
