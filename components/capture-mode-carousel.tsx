@@ -71,6 +71,7 @@ const CARD_SPRING = {
 const EASE_OUT = Easing.bezier(0.22, 1, 0.36, 1);
 
 function clamp(value: number, minimum: number, maximum: number) {
+  'worklet';
   return Math.min(maximum, Math.max(minimum, value));
 }
 
