@@ -3,13 +3,24 @@
 Status: Proposed  
 Created: 2026-09-11  
 Target: Smart Assistance and AI Premium phases
+Account model: No required IntelliCam login
 
 ## Recommendation
 
 Launch with one paid entitlement, **IntelliCam Pro**, offered through monthly
-and annual billing. Do not introduce separate Plus, Pro, and Premium feature
-tiers at launch. One entitlement is easier for users to understand and simpler
-to operate while IntelliCam's premium feature set is still developing.
+and annual billing. The initial subscription should use anonymous App Store and
+Google Play purchases, with no required IntelliCam account and no subscription
+database maintained by IntelliCam.
+
+Use RevenueCat anonymous customer IDs as the recommended entitlement layer.
+RevenueCat and the app stores keep the transaction records, while IntelliCam
+does not operate its own customer or subscription database. This is not
+literally database-free: it is **free from a database maintained by
+IntelliCam**.
+
+Do not introduce separate Plus, Pro, and Premium feature tiers at launch. One
+entitlement is easier for users to understand and simpler to operate while
+IntelliCam's premium feature set is still developing.
 
 The annual option should be visually highlighted as **Best value**.
 
@@ -27,19 +38,53 @@ MVP functionality must not be moved behind the subscription:
 - Basic editing and non-destructive edit history
 - No advertisements or watermarks
 
-The subscription monetizes the later Smart Assistance, cloud, synchronization,
-and AI Premium capabilities described in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+The first subscription monetizes continuing on-device Smart Assistance and
+premium feature updates described in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+Cloud AI, synchronization, and cross-platform identity are deferred until the
+project intentionally adds backend infrastructure.
+
+## No-login purchase model
+
+The user does not create or sign in to an IntelliCam account. Their Apple
+Account or Google Account is the payment identity used by the system purchase
+sheet.
+
+```text
+User
+  -> Apple App Store or Google Play purchase sheet
+  -> Store creates and renews the subscription
+  -> RevenueCat receives and validates the store transaction
+  -> IntelliCam reads the anonymous intellicam_pro entitlement
+  -> Pro features unlock
+  -> The store pays net proceeds to the developer
+```
+
+IntelliCam must provide **Restore purchases**. A restored purchase belongs to
+the original Apple or Google store account, not to an IntelliCam profile.
+
+Consequences of this model:
+
+- No email, password, social login, or IntelliCam account is required.
+- No customer or subscription database is maintained by IntelliCam.
+- Purchases can be restored after reinstalling through the original store
+  account.
+- A purchase cannot move between iOS and Android without a shared IntelliCam
+  identity.
+- Changing the device's store account may change the available entitlement.
+- Cloud usage quotas and cross-device application data cannot be securely
+  associated with an anonymous person.
 
 ## Proposed plans
 
 | Plan | Launch price | Billing and access |
 | --- | ---: | --- |
 | **IntelliCam Free** | RM0 | Core MVP camera, capture, gallery, and editing features |
-| **IntelliCam Pro Monthly** | **RM12.90/month** | All Pro features and 100 cloud-AI credits per billing month |
-| **IntelliCam Pro Annual** | **RM89.90/year** | All Pro features, 100 cloud-AI credits per billing month, and a 7-day trial |
+| **IntelliCam Pro Monthly** | **RM8.90/month** | All offline Pro features and continuing premium updates |
+| **IntelliCam Pro Annual** | **RM59.90/year** | The same Pro entitlement with a 7-day trial |
 
-The annual plan is equivalent to approximately RM7.49 per month and costs
-about 42% less than paying monthly for one year.
+The annual plan is equivalent to approximately RM4.99 per month and costs
+about 44% less than paying monthly for one year. The lower price reflects that
+the initial Pro plan does not include cloud processing or storage.
 
 Storefronts should use Apple and Google regional pricing rather than applying a
 fixed currency conversion in the app. The displayed price must always come
@@ -52,54 +97,59 @@ An active IntelliCam Pro subscription unlocks:
 - AI scene detection
 - Automatic lighting, subject, and camera-stability analysis
 - Intelligent capture-mode recommendations
-- Natural-language photography assistant
-- AI noise reduction
-- AI HDR, sky enhancement, and colour grading
-- AI editing and style transfer
+- On-device noise reduction and computational processing
+- Advanced on-device editing tools
 - Creation and management of custom presets
-- Synchronization of custom presets, settings, and edit history
-- Cross-device account access
+- New premium capture modes and preset packs released over time
+- Continuing on-device analysis and model improvements
 - Future features explicitly identified as IntelliCam Pro features
 
-Cloud photo backup is not included at launch. The current architecture defines
-cloud photo storage only as a future option, while IntelliCam remains a
-local-first camera application.
+The subscription must deliver recurring value through meaningful updates such
+as new premium modes, presets, editor capabilities, and improved on-device
+models. If IntelliCam cannot commit to continuing value, a one-time Pro unlock
+is more appropriate than a subscription.
 
-## AI credit policy
+Cloud photo backup, cloud AI, and cross-device synchronization are not included
+at launch. The current architecture defines cloud photo storage only as a
+future option, while IntelliCam remains a local-first camera application.
 
-Credits apply only to operations that create cloud-processing costs. On-device
-analysis and features should not consume credits.
+## Deferred cloud capabilities
 
-| Operation | Proposed cost |
-| --- | ---: |
-| Photography-assistant request | 1 credit |
-| Cloud AI photo enhancement | 5 credits |
-| On-device scene detection | Unlimited; no credits |
-| On-device lighting and stability analysis | Unlimited; no credits |
+The following previously proposed capabilities are not part of the anonymous,
+no-self-managed-database launch:
 
-Both monthly and annual subscribers receive **100 credits each billing month**.
-Unused credits do not roll over during the initial launch phase. Before running
-a cloud operation, the app must show its credit cost and the user's remaining
-balance.
+- Cloud AI credits or credit packs
+- A cloud natural-language photography assistant
+- Cloud AI photo enhancement
+- Cloud photo backup
+- Synced presets, settings, and editing history
+- Cross-platform subscription sharing
+- Secure per-person cloud usage limits
 
-If usage data shows a need for additional capacity, add an optional
-**100-credit pack for RM9.90**. Credit packs should not be offered before actual
-cloud-processing costs are measured.
+Cloud AI requires a server proxy because a private AI provider key cannot be
+safely embedded in a mobile application. Usage credits additionally require
+authoritative server-side tracking; a local counter could be reset by
+reinstalling or modifying the app.
 
-Do not advertise unlimited cloud AI while usage has an ongoing variable cost.
+If those capabilities are introduced later, IntelliCam can add an optional
+account or an anonymous managed backend, then reconsider the original
+RM12.90/month and RM89.90/year pricing. That later decision is a separate
+cloud-product proposal.
+
+Do not sell consumable AI credit packs under the anonymous launch model.
 
 ## Trial and purchase rules
 
 - Offer one 7-day trial with the annual plan only.
 - Do not offer a weekly subscription.
-- Do not offer lifetime Pro access because AI and synchronization have ongoing
-  infrastructure costs.
+- Do not offer lifetime Pro access at launch while the recurring-value model is
+  being validated.
 - Explain the renewal price and trial end date before purchase.
 - Allow purchases to be restored on supported devices.
 - Let Apple App Store and Google Play manage billing and cancellation.
 - Verify store purchases before granting the Pro entitlement.
 - Preserve access until the paid billing period ends after cancellation.
-- Provide a clear signed-out and expired-subscription state.
+- Provide clear unavailable, pending, expired, and grace-period states.
 - Never remove access to locally created photos when a subscription expires.
 
 ## Paywall presentation
@@ -138,10 +188,13 @@ free MVP.
 ### Phase 3: IntelliCam Pro launch
 
 - Add App Store and Google Play subscription products.
-- Add accounts, server-side entitlement verification, and subscription status.
+- Integrate RevenueCat using anonymous App User IDs.
+- Configure restore behaviour to transfer purchases to a new anonymous ID so
+  reinstalling users can restore through the same store account.
+- Read one authoritative `intellicam_pro` entitlement in the app.
 - Launch monthly and annual plans.
 - Enable the annual trial.
-- Add AI usage accounting and credit visibility.
+- Keep Pro features on-device and local-first.
 
 ### Phase 4: Optimization
 
@@ -149,37 +202,58 @@ free MVP.
   rates.
 - Compare monthly and annual retention.
 - Test pricing by storefront region without changing existing subscriber terms.
-- Introduce credit packs only if real usage requires them.
+- Decide separately whether cloud features justify adding accounts or managed
+  usage storage.
 
-## Backend and entitlement requirements
+## Entitlement implementation
 
-The existing `subscriptions` and `ai_usage` concepts should be expanded before
-implementation.
+### Recommended: managed anonymous entitlement
 
-Suggested subscription fields:
+Use Apple App Store and Google Play Billing for payment, with RevenueCat as the
+managed subscription and entitlement service:
 
-- `user_id`
-- `provider` (`apple` or `google`)
-- `product_id`
-- `entitlement` (`intellicam_pro`)
-- `status`
-- `original_transaction_id` or purchase token
-- `current_period_start`
-- `current_period_end`
-- `will_renew`
-- `last_verified_at`
+- Configure RevenueCat without a custom App User ID so it creates an anonymous
+  identifier.
+- Create one entitlement named `intellicam_pro`.
+- Attach the monthly and annual store products to that entitlement.
+- Check entitlement status when the app opens and returns to the foreground.
+- Listen for purchase changes while the app is active.
+- Provide purchase, restore, manage-subscription, and retry actions.
+- Cache only enough state for a graceful offline interface; treat the verified
+  store entitlement as the authority.
+- Use the store-provided localized price and billing period on the paywall.
 
-Suggested AI usage fields:
+This approach has no login and no database operated by IntelliCam, but
+RevenueCat remains an external managed service that stores entitlement data.
 
-- `user_id`
-- `feature`
-- `credits_used`
-- `request_id`
-- `created_at`
+### Literal zero-backend alternative
 
-The client must not grant Pro access based only on locally stored state. Store
-transactions should be validated and converted into one authoritative
-`intellicam_pro` entitlement.
+It is technically possible to integrate StoreKit and Google Play Billing
+directly:
+
+- On iOS, inspect verified StoreKit `Transaction.currentEntitlements`.
+- On Android, query active purchases through Google Play Billing and
+  acknowledge completed initial purchases.
+
+This removes RevenueCat, but requires more platform-specific implementation.
+Google recommends secure backend verification for fraud prevention, purchase
+token uniqueness, refunds, and reliable lifecycle processing. The direct
+client-only Android design therefore carries more fraud and entitlement-sync
+risk and is not the recommended commercial launch architecture.
+
+## Store and policy requirements
+
+- Apple requires In-App Purchase when an app unlocks digital features or
+  subscriptions.
+- Google Play-distributed apps generally must use Google Play Billing for paid
+  in-app digital functionality.
+- Subscription terms, price, billing frequency, renewal, and trial details must
+  be clear before purchase.
+- A subscription must provide sustained or recurring value.
+- The subscription should work across the user's devices within the same store
+  ecosystem through purchase restoration.
+- Store fees, taxes, refunds, and payout timing are managed under the
+  developer's Apple and Google agreements.
 
 ## Pricing rationale
 
@@ -207,8 +281,8 @@ Track at minimum:
 - First and subsequent renewal rates
 - Refund and cancellation rates
 - Pro feature adoption
-- AI credits used per subscriber
-- Cloud-processing cost per subscriber
+- Restore-purchase success rate
+- Entitlement-check failure rate
 - Free-to-paid conversion by region and platform
 
 ## Approval decisions
@@ -216,10 +290,14 @@ Track at minimum:
 Before implementation begins, approve or revise:
 
 1. One paid IntelliCam Pro entitlement rather than multiple paid tiers.
-2. RM12.90 monthly and RM89.90 annual launch pricing.
-3. A 7-day annual-plan trial.
-4. 100 cloud-AI credits per billing month.
-5. No weekly, lifetime, or cloud-photo-backup offer at launch.
+2. No required IntelliCam login and no IntelliCam-managed subscription
+   database.
+3. Anonymous RevenueCat entitlement management rather than a client-only
+   billing implementation.
+4. RM8.90 monthly and RM59.90 annual offline-Pro launch pricing.
+5. A 7-day annual-plan trial.
+6. No weekly, cloud-credit, synchronization, or cloud-photo-backup offer at
+   launch.
 
 ## Sources
 
@@ -227,4 +305,11 @@ Before implementation begins, approve or revise:
 - [IntelliCam current project state](PROJECT_STATE.md)
 - [Adobe Lightroom Malaysia plans](https://www.adobe.com/my_ms/products/photoshop-lightroom/plans.html)
 - [RevenueCat State of Subscription Apps 2026 — Utilities](https://www.revenuecat.com/state-of-subscription-apps-2026-utilities)
+- [RevenueCat — Identifying customers and anonymous App User IDs](https://www.revenuecat.com/docs/customers/identifying-customers)
+- [RevenueCat — Restore behaviour](https://www.revenuecat.com/docs/projects/restore-behavior)
+- [Apple App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)
+- [Apple StoreKit current entitlements](https://developer.apple.com/documentation/storekit/transaction/currententitlements)
+- [Google Play Payments policy](https://support.google.com/googleplay/android-developer/answer/9858738?hl=en)
+- [Google Play subscription lifecycle](https://developer.android.com/google/play/billing/lifecycle/subscriptions)
+- [Google Play Billing security guidance](https://developer.android.com/google/play/billing/security)
 
