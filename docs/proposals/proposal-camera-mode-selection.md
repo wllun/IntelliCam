@@ -54,7 +54,7 @@ state.
 It includes:
 
 - Opening the selector from the right-side Mode control.
-- Browsing Normal, Star, Light Trail, Waterfall, Portrait, and Product.
+- Browsing Auto, Star, Light Trail, Waterfall, Portrait, 美顔, and Product.
 - Drafting a selection without immediately changing the active camera mode.
 - Applying or dismissing the draft selection.
 - Updating the camera UI after Apply.
@@ -128,7 +128,7 @@ The user presses **Apply mode**.
 - Update the right-side Mode control to the selected mode name/icon.
 - Show the existing compact mode guidance on the camera screen for smart
   presets.
-- Normal mode returns to the standard automatic camera UI.
+- Auto mode returns to the standard automatic camera UI.
 
 ### 5. Dismiss
 
@@ -159,7 +159,7 @@ Proposed image direction:
 
 | Mode | Artwork direction |
 | --- | --- |
-| Normal | Balanced everyday landscape or street scene with natural exposure |
+| Auto | Balanced everyday landscape or street scene with natural exposure |
 | Star | Milky Way or clear star field over a dark landscape |
 | Light Trail | Vehicle light trails through a city or road |
 | Waterfall | Silky waterfall with visible surrounding detail |
@@ -390,7 +390,7 @@ The redesign is complete only when all of the following are true:
 - One tall center card dominates while angled side cards visibly recede behind
   it.
 - The carousel continuously follows the user's drag and snaps predictably.
-- Normal plus all five smart modes are present in the correct order.
+- Auto plus all six smart modes are present in the correct order.
 - Browsing does not apply a mode.
 - Apply commits exactly the centered mode and closes the selector.
 - Dismissal preserves the previously applied mode.

@@ -37,7 +37,7 @@ scene analysis and device capabilities determine the final capture plan.
 - Fixed professional-camera settings applied indiscriminately to every phone.
 - Claiming RAW, manual exposure, HDR, or focus control when the active backend
   did not apply it.
-- Replacing the device's automatic camera pipeline in Normal mode.
+- Replacing the device's automatic camera pipeline in Auto mode.
 
 ## Core principle
 
@@ -238,7 +238,7 @@ when the backend ignored it.
 
 ## Mode strategies
 
-### Normal
+### Auto
 
 Priority: balanced, immediate, automatic capture.
 
@@ -248,7 +248,7 @@ Priority: balanced, immediate, automatic capture.
 - Prefer one-frame capture with minimal delay.
 - Do not override the device pipeline with preset ISO or shutter values.
 
-Fallback: Normal mode itself is the baseline fallback for every device.
+Fallback: Auto mode itself is the baseline fallback for every device.
 
 ### Star
 
@@ -536,7 +536,7 @@ The adaptive capture foundation is complete when:
 - No capture mode depends exclusively on one fixed settings object.
 - Every plan is clamped to reported device capabilities.
 - The UI never labels an unsupported recommendation as applied.
-- Normal mode continues working on devices without manual controls.
+- Auto mode continues working on devices without manual controls.
 - Every advanced mode has a documented automatic or computational fallback.
 - Capture results store the selected plan and available actual metadata.
 - Rule-resolution tests cover the major lighting and stability scenarios.

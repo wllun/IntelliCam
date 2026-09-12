@@ -49,9 +49,12 @@ import { useFocusEffect, useRouter, type Href } from 'expo-router';
 
 import { PRESETS } from '@/constants/presets';
 import { CaptureModeCarousel } from '@/components/capture-mode-carousel';
+import {
+  AUTO_CAPTURE_MODE,
+  DEFAULT_CAPTURE_MODE_ID,
+} from '@/constants/capture-modes';
 
 const ALBUM_NAME = 'IntelliCam';
-type CaptureMode = 'normal' | 'preset';
 type TimerSeconds = 0 | 3 | 5 | 10 | 30;
 type CameraFacing = 'front' | 'back';
 type CameraRatio = '4:3' | '1:1' | '16:9' | 'Full';
@@ -421,11 +424,10 @@ export default function CameraScreen() {
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [latestPhoto, setLatestPhoto] = useState<LatestPhoto>();
-  const [presetIndex, setPresetIndex] = useState(0);
   const [cardVisible, setCardVisible] = useState(true);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const [screenFocused, setScreenFocused] = useState(true);
-  const [captureMode, setCaptureMode] = useState<CaptureMode>('normal');
+  const [activeCaptureModeId, setActiveCaptureModeId] = useState(DEFAULT_CAPTURE_MODE_ID);
   const [modeMenuVisible, setModeMenuVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [flash, setFlash] = useState<FlashMode>('off');
@@ -631,15 +633,19 @@ export default function CameraScreen() {
 
   useEffect(() => {
     resetMetering();
-  }, [cameraDevice?.id, captureMode, facing, resetMetering]);
+  }, [activeCaptureModeId, cameraDevice?.id, facing, resetMetering]);
 
   useEffect(() => {
     if (!appActive || !screenFocused) resetMetering();
   }, [appActive, resetMetering, screenFocused]);
 
   const hasMediaPermission = mediaPermission?.granted ?? false;
+  const isAutoMode = activeCaptureModeId === AUTO_CAPTURE_MODE.id;
+  const presetIndex = Math.max(
+    0,
+    PRESETS.findIndex((item) => item.id === activeCaptureModeId),
+  );
   const preset = PRESETS[presetIndex];
-  const isNormalMode = captureMode === 'normal';
   const neutralZoom = getNeutralZoom(cameraDevice);
   const minZoom = cameraDevice?.minZoom ?? neutralZoom;
   const maxZoom = cameraDevice?.maxZoom ?? neutralZoom;
@@ -856,7 +862,8 @@ export default function CameraScreen() {
   }, [appActive, cameraReady, nativeExposureBias, screenFocused, supportsExposure]);
 
   const changePreset = (direction: 1 | -1) => {
-    setPresetIndex((i) => (i + direction + PRESETS.length) % PRESETS.length);
+    const nextPresetIndex = (presetIndex + direction + PRESETS.length) % PRESETS.length;
+    setActiveCaptureModeId(PRESETS[nextPresetIndex].id);
     setCardVisible(true);
     Haptics.selectionAsync();
   };
@@ -922,7 +929,7 @@ export default function CameraScreen() {
   };
 
   const swipe = Gesture.Pan()
-    .enabled(!isNormalMode)
+    .enabled(!isAutoMode)
     .activeOffsetX([-30, 30])
     .onEnd((e) => {
       if (Math.abs(e.translationX) > 50) {
@@ -931,7 +938,7 @@ export default function CameraScreen() {
     });
 
   const pinch = Gesture.Pinch()
-    .enabled(isNormalMode)
+    .enabled(isAutoMode)
     .onBegin(() => {
       pinchStartZoom.set(rulerZoomValue.get());
       cancelAnimation(cameraZoom);
@@ -966,7 +973,7 @@ export default function CameraScreen() {
     });
 
   const zoomRulerPan = Gesture.Pan()
-    .enabled(isNormalMode && cameraDevice !== undefined && rulerMaxZoom > rulerMinZoom)
+    .enabled(isAutoMode && cameraDevice !== undefined && rulerMaxZoom > rulerMinZoom)
     .activeOffsetX([-4, 4])
     .failOffsetY([-16, 16])
     .onBegin(() => {
@@ -1013,7 +1020,7 @@ export default function CameraScreen() {
   };
 
   const focusAt = async (event: GestureResponderEvent) => {
-    if (!isNormalMode || settingsVisible || modeMenuVisible) return;
+    if (!isAutoMode || settingsVisible || modeMenuVisible) return;
     const { locationX, locationY } = event.nativeEvent;
     const camera = cameraRef.current;
     if (!camera || meteringModes.length === 0) {
@@ -1122,13 +1129,14 @@ export default function CameraScreen() {
   };
 
   const applyCaptureMode = (modeId: string) => {
-    if (modeId === 'normal') {
-      setCaptureMode('normal');
+    if (modeId === AUTO_CAPTURE_MODE.id) {
+      setActiveCaptureModeId(AUTO_CAPTURE_MODE.id);
       setCardVisible(false);
     } else {
       const nextPresetIndex = PRESETS.findIndex((item) => item.id === modeId);
-      if (nextPresetIndex >= 0) setPresetIndex(nextPresetIndex);
-      setCaptureMode('preset');
+      if (nextPresetIndex >= 0) {
+        setActiveCaptureModeId(PRESETS[nextPresetIndex].id);
+      }
       setCardVisible(true);
     }
     setModeMenuVisible(false);
@@ -1287,7 +1295,7 @@ export default function CameraScreen() {
             />
           )}
 
-          {isNormalMode && (
+          {isAutoMode && (
             <Pressable
               accessibilityLabel="Camera preview"
               accessibilityHint="Tap a subject to focus and meter"
@@ -1322,7 +1330,7 @@ export default function CameraScreen() {
           </Animated.View>
         )}
 
-        {isNormalMode && focusPoint && (
+        {isAutoMode && focusPoint && (
           <Animated.View
             entering={FadeIn.duration(120)}
             exiting={FadeOut.duration(160)}
@@ -1379,7 +1387,7 @@ export default function CameraScreen() {
           </Animated.View>
         )}
 
-        {!isNormalMode && cardVisible && (
+        {!isAutoMode && cardVisible && (
           <Animated.View
             key={preset.id}
             entering={FadeIn.duration(180)}
@@ -1404,7 +1412,7 @@ export default function CameraScreen() {
           </Animated.View>
         )}
 
-        {!isNormalMode && !cardVisible && (
+        {!isAutoMode && !cardVisible && (
           <Pressable
             style={[styles.pill, { top: insets.top + 16 }]}
             onPress={() => setCardVisible(true)}>
@@ -1425,8 +1433,8 @@ export default function CameraScreen() {
           <Ionicons name="ellipsis-horizontal" size={24} color="white" />
         </Pressable>
 
-        {isNormalMode && (
-          <View style={[styles.normalTopControls, { top: insets.top + 16 }]}>
+        {isAutoMode && (
+          <View style={[styles.autoTopControls, { top: insets.top + 16 }]}>
             <Pressable
               accessibilityLabel={`Flash ${flash}`}
               accessibilityRole="button"
@@ -1455,7 +1463,7 @@ export default function CameraScreen() {
           </View>
         )}
 
-        {!isNormalMode && <View style={[styles.dots, { bottom: insets.bottom + 124 }]}>
+        {!isAutoMode && <View style={[styles.dots, { bottom: insets.bottom + 124 }]}>
           {PRESETS.map((p, i) => (
             <View
               key={p.id}
@@ -1467,7 +1475,7 @@ export default function CameraScreen() {
           ))}
         </View>}
 
-        {isNormalMode && (
+        {isAutoMode && (
           <View style={[styles.zoomCluster, { bottom: insets.bottom + 112 }]}>
             <View
               accessible
@@ -1620,13 +1628,13 @@ export default function CameraScreen() {
               />
               <View style={styles.modeControlStatus} />
             </View>
-            <Text style={styles.controlLabel}>{isNormalMode ? 'Normal' : preset.name.replace(' photography', '')}</Text>
+            <Text style={styles.controlLabel}>{isAutoMode ? 'Auto' : preset.name.replace(' photography', '')}</Text>
           </Pressable>
         </View>
 
         <CaptureModeCarousel
           visible={modeMenuVisible}
-          selectedId={isNormalMode ? 'normal' : preset.id}
+          selectedId={activeCaptureModeId}
           onClose={() => setModeMenuVisible(false)}
           onApply={applyCaptureMode}
         />
@@ -1870,7 +1878,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.18)',
   },
-  normalTopControls: {
+  autoTopControls: {
     position: 'absolute',
     left: 18,
     flexDirection: 'row',

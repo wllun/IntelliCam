@@ -1,16 +1,20 @@
 # Project State
 
-Last updated: 2026-09-08
+Last updated: 2026-09-12
 
 ## Where we are
 
 Camera preview and JPEG capture work end-to-end using React Native Vision Camera 5. The app
 prefers the back camera and falls back to the front camera when necessary.
-Normal camera mode provides working flash, zoom, front/rear camera switching,
+Auto camera mode is the reliable launch default and provides working flash, zoom, front/rear camera switching,
 tap-to-focus/metering, AE/AF/AWB lock, exposure compensation, device-native
 Photo HDR, gridlines, aspect-ratio selection, and a capture timer. Smart Preset mode provides the
 "Focus card" UI; swipe to switch presets and view settings and tips—but
 presets do not affect capture yet.
+
+Auto and every special mode share the same camera screen, preview, shutter, capture,
+processing, and save pipeline. Future mode strategies must extend this shared capture
+engine rather than introduce separate camera screens.
 
 The implementation proposal for adapting each mode to the current environment
 and device capabilities is documented in
@@ -28,11 +32,12 @@ pending explicit approval.
 - [x] Vision Camera wired: permission request -> camera preview -> silent shutter by default -> JPEG saved directly to an "IntelliCam" MediaLibrary album without a save confirmation
 - [x] EAS Build configured (`eas.json`, `preview` profile builds an installable APK via `eas build -p android --profile preview`)
 - [x] Fail-safe forced-update gate for Android/iOS native builds — reads a public per-platform JSON policy at startup/foreground, validates native build numbers and HTTPS/Android market links, caches a forced policy for at most 72 hours, and is disabled by default
-- [x] Preset data (`constants/presets.ts`) - five launch modes (Star, Light Trail, Waterfall, Portrait, Product) as plain data
+- [x] Preset data (`constants/presets.ts`) - six special modes (Star, Light Trail, Waterfall, Portrait, 美顔, Product) as plain data
 - [x] "Focus card" preset UI on camera screen - swipe left/right to switch, floating card shows ISO/shutter/WB/RAW chips + shooting tip, dot indicator, preset-tinted shutter (UI only, no capture effect)
 - [x] Camera control UI - IntelliCam gallery button left of the shutter, capture-mode button right of the shutter, and three-dot settings button at the top-right (UI only)
-- [x] Normal camera capture mode - automatic photo capture with flash off/auto/on, zoom controls, front/rear camera switching, gridlines, aspect ratio, and timer
-- [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Normal, Star, Light Trail, Waterfall, Portrait, and Product; drag and snap calculations remain UI-thread worklet-safe, and selection updates the camera UI only
+- [x] Auto camera capture mode - the first-launch default for reliable automatic photo capture with flash off/auto/on, zoom controls, front/rear camera switching, gridlines, aspect ratio, and timer
+- [x] Single shared camera engine - Auto and every selected special mode use the same camera screen, preview, shutter, capture function, processing queue, and save pipeline; mode-specific strategies will plug into this engine
+- [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Auto, Star, Light Trail, Waterfall, Portrait, 美顔, and Product; drag and snap calculations remain UI-thread worklet-safe, and selection updates the camera UI only
 - [ ] Replace the current abstract centered swiper with the approved photographic 3D cover-flow design in `proposal-camera-mode-selection.md` after explicit approval
 - [x] IntelliCam-only gallery - grid, pull-to-refresh, pagination, full-screen preview, and recoverable deletion through iOS Recently Deleted or the Android 11+ system recycle bin
 - [x] Open a capture-mode selector from the mode button

@@ -29,7 +29,7 @@ The annual option should be visually highlighted as **Best value**.
 IntelliCam's documented MVP remains free. Features already identified as core
 MVP functionality must not be moved behind the subscription:
 
-- Normal, Star, Light Trail, Waterfall, Portrait, and Product capture modes
+- Auto, Star, Light Trail, Waterfall, Portrait, 美顔, and Product capture modes
 - Manual camera controls, focus, exposure, zoom, HDR, timer, and aspect ratio
 - Offline rule-based adaptive capture
 - RAW capture where supported by the device

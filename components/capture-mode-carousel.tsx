@@ -33,8 +33,8 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  AUTO_CAPTURE_MODE,
   CAPTURE_MODES,
-  NORMAL_CAPTURE_MODE,
   type CaptureModeOption,
 } from '@/constants/capture-modes';
 
@@ -230,7 +230,7 @@ export function CaptureModeCarousel({
   const cardWidth = clamp(cardHeight * 0.625, 164, 230);
   const sideOffset = Math.min(cardWidth * 0.59, width * 0.29);
   const dragStep = Math.max(118, sideOffset);
-  const activeMode = CAPTURE_MODES[draftIndex] ?? NORMAL_CAPTURE_MODE;
+  const activeMode = CAPTURE_MODES[draftIndex] ?? AUTO_CAPTURE_MODE;
 
   const finishHiding = useCallback(() => {
     modalMountedRef.current = false;

@@ -49,18 +49,20 @@ const MODE_PRESENTATION: Record<
   },
 };
 
-export const NORMAL_CAPTURE_MODE: CaptureModeOption = {
-  id: 'normal',
-  name: 'Normal',
+export const AUTO_CAPTURE_MODE: CaptureModeOption = {
+  id: 'auto',
+  name: 'Auto',
   description: 'Natural, automatic everyday photos',
   icon: 'camera-outline',
   tint: '#85B7EB',
-  tip: 'Flash, zoom and photo size controls',
+  tip: 'Flash, zoom and focus controls',
   artwork: require('../assets/images/capture-modes/normal.png'),
 };
 
+export const DEFAULT_CAPTURE_MODE_ID = AUTO_CAPTURE_MODE.id;
+
 export const CAPTURE_MODES: CaptureModeOption[] = [
-  NORMAL_CAPTURE_MODE,
+  AUTO_CAPTURE_MODE,
   ...PRESETS.map((preset) => ({
     ...preset,
     ...MODE_PRESENTATION[preset.id],
