@@ -4,6 +4,7 @@ import {
   AppState,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,6 +14,7 @@ import {
 } from 'react-native';
 import {
   Camera,
+  CommonResolutions,
   type CapturePhotoSettings,
   type CameraDevice,
   type CameraRef,
@@ -56,12 +58,17 @@ import {
 
 const ALBUM_NAME = 'IntelliCam';
 type TimerSeconds = 0 | 3 | 5 | 10 | 30;
+type PhotoQuality = 'standard' | 'maximum';
 type CameraFacing = 'front' | 'back';
 type CameraRatio = '4:3' | '1:1' | '16:9' | 'Full';
 
 const FLASH_MODES: FlashMode[] = ['off', 'auto', 'on'];
 const ASPECT_RATIOS: CameraRatio[] = ['4:3', '1:1', '16:9', 'Full'];
 const TIMER_OPTIONS: TimerSeconds[] = [0, 3, 5, 10, 30];
+const PHOTO_QUALITY_OPTIONS: { label: string; value: PhotoQuality }[] = [
+  { label: 'Standard', value: 'standard' },
+  { label: 'Maximum', value: 'maximum' },
+];
 const METERING_RESET_MS = 5000;
 const EXPOSURE_MIN = -2;
 const EXPOSURE_MAX = 2;
@@ -235,6 +242,7 @@ async function cropPhotoForAspectRatio(
   sourceFilePath: string,
   ratio: CameraRatio,
   fullScreenRatio: number,
+  jpegQuality: number,
 ) {
   const sourceUri = `file://${sourceFilePath}`;
   if (ratio === '4:3') return sourceUri;
@@ -256,7 +264,7 @@ async function cropPhotoForAspectRatio(
       crop.originY + crop.height,
     );
     try {
-      return `file://${await croppedImage.saveToTemporaryFileAsync('jpg', 92)}`;
+      return `file://${await croppedImage.saveToTemporaryFileAsync('jpg', jpegQuality)}`;
     } finally {
       croppedImage.dispose();
     }
@@ -408,18 +416,18 @@ export default function CameraScreen() {
     : frontDevice;
   const [hdrEnabled, setHdrEnabled] = useState(false);
   const [hdrApplied, setHdrApplied] = useState(false);
+  const [photoQuality, setPhotoQuality] = useState<PhotoQuality>('maximum');
   const supportsNativeHdr = cameraDevice?.supportsPhotoHDR ?? false;
+  const maximumPhotoQuality = photoQuality === 'maximum';
   const photoOutput = usePhotoOutput({
+    targetResolution: maximumPhotoQuality
+      ? CommonResolutions.HIGHEST_4_3
+      : CommonResolutions.UHD_4_3,
     containerFormat: 'jpeg',
-    quality: hdrEnabled ? 1 : 0.92,
-    qualityPrioritization: hdrEnabled
-      ? 'quality'
-      // CameraX zero-shutter-lag can stall the preview when zoom changes on
-      // Samsung S22/S23 devices running Android 16. "balanced" maps to
-      // CAPTURE_MODE_MINIMIZE_LATENCY and keeps the camera stream alive.
-      : Platform.OS === 'android'
-        ? 'balanced'
-        : cameraDevice?.supportsSpeedQualityPrioritization ? 'speed' : 'balanced',
+    quality: hdrEnabled || maximumPhotoQuality ? 1 : 0.92,
+    // Avoid CameraX zero-shutter-lag: it previously stalled the preview after
+    // zoom changes on Samsung S22/S23 devices running Android 16.
+    qualityPrioritization: hdrEnabled || maximumPhotoQuality ? 'quality' : 'balanced',
   });
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -471,6 +479,7 @@ export default function CameraScreen() {
     ratio: CameraRatio,
     fullScreenRatio: number,
     captureId: number,
+    jpegQuality: number,
   ) => {
     photoSaveQueueRef.current = photoSaveQueueRef.current
       .catch(() => undefined)
@@ -479,6 +488,7 @@ export default function CameraScreen() {
           sourceFilePath,
           ratio,
           fullScreenRatio,
+          jpegQuality,
         );
         const savedPhoto = await savePhotoToAlbum(processedUri);
         if (latestCaptureRef.current === captureId) {
@@ -636,6 +646,26 @@ export default function CameraScreen() {
   }, [activeCaptureModeId, cameraDevice?.id, facing, resetMetering]);
 
   useEffect(() => {
+    if (!cameraReady || !cameraDevice) return;
+    const controller = cameraRef.current?.controller;
+    if (!controller) return;
+
+    void controller.configure({
+      enableLowLightBoost: cameraDevice.supportsLowLightBoost
+        ? maximumPhotoQuality
+        : undefined,
+      enableDistortionCorrection:
+        Platform.OS === 'ios' && cameraDevice.supportsDistortionCorrection
+          ? maximumPhotoQuality
+          : undefined,
+    }).catch((error: unknown) => {
+      if (!isCameraLifecycleCancellation(error)) {
+        console.warn('Could not apply native photo quality enhancements:', error);
+      }
+    });
+  }, [cameraDevice, cameraReady, maximumPhotoQuality]);
+
+  useEffect(() => {
     if (!appActive || !screenFocused) resetMetering();
   }, [appActive, resetMetering, screenFocused]);
 
@@ -750,12 +780,25 @@ export default function CameraScreen() {
 
   useEffect(() => {
     const supportedFlashModes: FlashMode[] = cameraDevice?.hasFlash ? FLASH_MODES : ['off'];
+    const enableNativeEnhancements = hdrEnabled || maximumPhotoQuality;
     const settings: CapturePhotoSettings[] = supportedFlashModes.flatMap((flashMode) => [
-      { flashMode, enableShutterSound: false, enableVirtualDeviceFusion: hdrEnabled },
-      { flashMode, enableShutterSound: true, enableVirtualDeviceFusion: hdrEnabled },
+      {
+        flashMode,
+        enableShutterSound: false,
+        enableRedEyeReduction: enableNativeEnhancements,
+        enableDistortionCorrection: enableNativeEnhancements,
+        enableVirtualDeviceFusion: enableNativeEnhancements,
+      },
+      {
+        flashMode,
+        enableShutterSound: true,
+        enableRedEyeReduction: enableNativeEnhancements,
+        enableDistortionCorrection: enableNativeEnhancements,
+        enableVirtualDeviceFusion: enableNativeEnhancements,
+      },
     ]);
     void photoOutput.prepareSettings(settings).catch(() => undefined);
-  }, [cameraDevice?.hasFlash, hdrEnabled, photoOutput]);
+  }, [cameraDevice?.hasFlash, hdrEnabled, maximumPhotoQuality, photoOutput]);
 
   const zoomRulerWidth = Math.max(232, Math.min(width - 48, 320));
   const zoomRulerTicks = useMemo(
@@ -1217,7 +1260,9 @@ export default function CameraScreen() {
         {
           flashMode: cameraDevice?.hasFlash ? flash : 'off',
           enableShutterSound: shutterSoundEnabled,
-          enableVirtualDeviceFusion: hdrEnabled,
+          enableRedEyeReduction: hdrEnabled || maximumPhotoQuality,
+          enableDistortionCorrection: hdrEnabled || maximumPhotoQuality,
+          enableVirtualDeviceFusion: hdrEnabled || maximumPhotoQuality,
         },
         {},
       );
@@ -1229,7 +1274,13 @@ export default function CameraScreen() {
       });
       setCapturing(false);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      enqueuePhotoSave(photoFile.filePath, aspectRatio, width / height, captureSession);
+      enqueuePhotoSave(
+        photoFile.filePath,
+        aspectRatio,
+        width / height,
+        captureSession,
+        maximumPhotoQuality ? 100 : 92,
+      );
     } catch (error) {
       if (captureSessionRef.current === captureSession) {
         Alert.alert('Capture failed', String(error));
@@ -1423,7 +1474,7 @@ export default function CameraScreen() {
 
         <Pressable
           accessibilityLabel="Camera settings"
-          accessibilityHint="Change flash, zoom, camera, and photo size"
+          accessibilityHint="Change photo quality, gridlines, aspect ratio, timer, shutter sound, and HDR"
           accessibilityRole="button"
           onPress={() => {
             setModeMenuVisible(false);
@@ -1644,6 +1695,9 @@ export default function CameraScreen() {
             entering={FadeIn.duration(160)}
             exiting={FadeOut.duration(120)}
             style={[styles.settingsSheet, { top: insets.top + 68 }]}>
+            <ScrollView
+              contentContainerStyle={styles.settingsContent}
+              showsVerticalScrollIndicator={false}>
             <Text style={styles.sheetTitle}>Camera settings</Text>
             <View style={styles.iconSettingsRow}>
               <Pressable
@@ -1717,6 +1771,43 @@ export default function CameraScreen() {
 
             <View style={styles.settingRow}>
               <View style={styles.settingHeading}>
+                <Ionicons name="sparkles-outline" size={18} color="#bbb" />
+                <Text style={styles.settingLabel}>Photo quality</Text>
+              </View>
+              <View style={styles.segmented}>
+                {PHOTO_QUALITY_OPTIONS.map((option) => (
+                  <Pressable
+                    key={option.value}
+                    accessibilityHint={option.value === 'maximum'
+                      ? 'Uses the highest supported resolution and native image processing. Capture may take longer.'
+                      : 'Uses balanced processing for faster capture.'}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: photoQuality === option.value }}
+                    onPress={() => {
+                      if (photoQuality === option.value) return;
+                      cameraReadyRef.current = false;
+                      setCameraReady(false);
+                      setPhotoQuality(option.value);
+                      void Haptics.selectionAsync();
+                    }}
+                    style={[
+                      styles.segment,
+                      photoQuality === option.value && styles.segmentActive,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.segmentText,
+                        photoQuality === option.value && styles.segmentTextActive,
+                      ]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.settingRow}>
+              <View style={styles.settingHeading}>
                 <Ionicons name="scan-outline" size={18} color="#bbb" />
                 <Text style={styles.settingLabel}>Aspect ratio</Text>
               </View>
@@ -1762,7 +1853,7 @@ export default function CameraScreen() {
                 ))}
               </View>
             </View>
-
+            </ScrollView>
           </Animated.View>
         )}
       </View>
@@ -2109,11 +2200,13 @@ const styles = StyleSheet.create({
     width: 310,
     maxHeight: '68%',
     padding: 16,
-    gap: 14,
     borderRadius: 20,
     backgroundColor: 'rgba(20,20,20,0.96)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.16)',
+  },
+  settingsContent: {
+    gap: 14,
   },
   grid: {
     ...StyleSheet.absoluteFillObject,
