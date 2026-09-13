@@ -30,6 +30,7 @@ import { loadImage } from 'react-native-nitro-image';
 import { Image } from 'expo-image';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -55,6 +56,11 @@ import {
   AUTO_CAPTURE_MODE,
   DEFAULT_CAPTURE_MODE_ID,
 } from '@/constants/capture-modes';
+import {
+  embedPhotoMetadata,
+  type CaptureLocation,
+  type CapturePhotoMetadata,
+} from '@/services/photo-metadata';
 
 const ALBUM_NAME = 'IntelliCam';
 type TimerSeconds = 0 | 3 | 5 | 10 | 30;
@@ -445,6 +451,8 @@ export default function CameraScreen() {
   const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
   const [shutterSoundEnabled, setShutterSoundEnabled] = useState(false);
+  const [locationEnabled, setLocationEnabled] = useState(false);
+  const [captureLocation, setCaptureLocation] = useState<CaptureLocation>();
   const [countdown, setCountdown] = useState<number>();
   const [focusPoint, setFocusPoint] = useState<FocusPoint>();
   const [exposureCompensation, setExposureCompensation] = useState(0);
@@ -467,6 +475,7 @@ export default function CameraScreen() {
   const queuedCameraZoomRef = useRef<number | undefined>(undefined);
   const cameraZoomUpdateTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastCameraZoomUpdateRef = useRef(0);
+  const captureLocationRef = useRef<CaptureLocation | undefined>(undefined);
   const cameraZoom = useSharedValue(1);
   const zoomGestureActive = useSharedValue(false);
   const pinchStartZoom = useSharedValue(0);
@@ -480,6 +489,8 @@ export default function CameraScreen() {
     fullScreenRatio: number,
     captureId: number,
     jpegQuality: number,
+    metadata: CapturePhotoMetadata,
+    location?: CaptureLocation,
   ) => {
     photoSaveQueueRef.current = photoSaveQueueRef.current
       .catch(() => undefined)
@@ -490,6 +501,16 @@ export default function CameraScreen() {
           fullScreenRatio,
           jpegQuality,
         );
+        try {
+          await embedPhotoMetadata(
+            `file://${sourceFilePath}`,
+            processedUri,
+            metadata,
+            location,
+          );
+        } catch (metadataError) {
+          console.warn('Could not embed photo metadata:', metadataError);
+        }
         const savedPhoto = await savePhotoToAlbum(processedUri);
         if (latestCaptureRef.current === captureId) {
           setLatestPhoto(savedPhoto);
@@ -506,6 +527,71 @@ export default function CameraScreen() {
         }
       });
   }, []);
+
+  useEffect(() => {
+    captureLocationRef.current = captureLocation;
+  }, [captureLocation]);
+
+  useEffect(() => {
+    if (!locationEnabled || !appActive || !screenFocused) return;
+
+    let disposed = false;
+    let subscription: Location.LocationSubscription | undefined;
+    const updateLocation = (location: Location.LocationObject) => {
+      if (disposed) return;
+      setCaptureLocation({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        altitude: location.coords.altitude ?? undefined,
+      });
+    };
+
+    void (async () => {
+      try {
+        const lastKnown = await Location.getLastKnownPositionAsync({
+          maxAge: 120_000,
+          requiredAccuracy: 500,
+        });
+        if (lastKnown) updateLocation(lastKnown);
+        subscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 30_000,
+            distanceInterval: 25,
+          },
+          updateLocation,
+        );
+        if (disposed) subscription.remove();
+      } catch (locationError) {
+        console.warn('Could not update capture location:', locationError);
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      subscription?.remove();
+    };
+  }, [appActive, locationEnabled, screenFocused]);
+
+  const toggleLocationMetadata = async () => {
+    if (locationEnabled) {
+      setLocationEnabled(false);
+      setCaptureLocation(undefined);
+      void Haptics.selectionAsync();
+      return;
+    }
+
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        'Location not enabled',
+        'Allow location access in system settings to save coordinates inside new photos.',
+      );
+      return;
+    }
+    setLocationEnabled(true);
+    void Haptics.selectionAsync();
+  };
 
   const cancelPendingCapture = useCallback((withHapticFeedback = false) => {
     const wasCountingDown = countdownActiveRef.current;
@@ -1267,6 +1353,28 @@ export default function CameraScreen() {
         {},
       );
       const sourcePhotoUri = `file://${photoFile.filePath}`;
+      const captureModeName = activeCaptureModeId === AUTO_CAPTURE_MODE.id
+        ? AUTO_CAPTURE_MODE.name
+        : preset.name;
+      const metadata: CapturePhotoMetadata = {
+        schemaVersion: 1,
+        capturedAt: new Date().toISOString(),
+        captureMode: captureModeName,
+        captureModeId: activeCaptureModeId,
+        aspectRatio,
+        zoom: displayedZoom,
+        facing,
+        cameraName: cameraDevice?.localizedName,
+        cameraModel: cameraDevice?.modelID,
+        cameraType: cameraDevice?.type,
+        flash: cameraDevice?.hasFlash ? flash : 'off',
+        hdr: hdrApplied,
+        photoQuality,
+        exposureCompensation,
+        focusExposureLocked: meteringLocked,
+        timerSeconds,
+        locationSaved: locationEnabled && Boolean(captureLocationRef.current),
+      };
       latestCaptureRef.current = captureSession;
       setLatestPhoto({
         key: `${captureSession}-${sourcePhotoUri}`,
@@ -1280,6 +1388,8 @@ export default function CameraScreen() {
         width / height,
         captureSession,
         maximumPhotoQuality ? 100 : 92,
+        metadata,
+        locationEnabled ? captureLocationRef.current : undefined,
       );
     } catch (error) {
       if (captureSessionRef.current === captureSession) {
@@ -1474,7 +1584,7 @@ export default function CameraScreen() {
 
         <Pressable
           accessibilityLabel="Camera settings"
-          accessibilityHint="Change photo quality, gridlines, aspect ratio, timer, shutter sound, and HDR"
+          accessibilityHint="Change photo quality, location, gridlines, aspect ratio, timer, shutter sound, and HDR"
           accessibilityRole="button"
           onPress={() => {
             setModeMenuVisible(false);
@@ -1766,6 +1876,38 @@ export default function CameraScreen() {
                     HDR
                   </Text>
                 </View>
+              </Pressable>
+            </View>
+
+            <View style={styles.settingRow}>
+              <View style={styles.settingHeading}>
+                <Ionicons name="location-outline" size={18} color="#bbb" />
+                <View style={styles.settingLabelGroup}>
+                  <Text style={styles.settingLabel}>Photo location</Text>
+                  <Text style={styles.settingDescription}>
+                    {locationEnabled
+                      ? captureLocation ? 'Ready to embed coordinates' : 'Finding your location…'
+                      : 'Off by default for privacy'}
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                accessibilityHint="Controls whether coordinates are embedded in newly captured photos"
+                accessibilityLabel="Save photo location"
+                accessibilityRole="switch"
+                accessibilityState={{ checked: locationEnabled }}
+                onPress={() => void toggleLocationMetadata()}
+                style={({ pressed }) => [
+                  styles.locationToggle,
+                  locationEnabled && styles.locationToggleActive,
+                  pressed && styles.iconSettingButtonPressed,
+                ]}>
+                <Text style={[
+                  styles.locationToggleText,
+                  locationEnabled && styles.locationToggleTextActive,
+                ]}>
+                  {locationEnabled ? 'On' : 'Off'}
+                </Text>
               </Pressable>
             </View>
 
@@ -2399,11 +2541,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 7,
   },
+  settingLabelGroup: {
+    flex: 1,
+    gap: 2,
+  },
   settingLabel: {
     color: '#bbb',
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
+  },
+  settingDescription: {
+    color: '#8f8f8f',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  locationToggle: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  locationToggleActive: {
+    backgroundColor: 'rgba(255,212,0,0.16)',
+    borderColor: 'rgba(255,212,0,0.55)',
+  },
+  locationToggleText: {
+    color: '#bbb',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  locationToggleTextActive: {
+    color: '#FFD400',
   },
   segmented: {
     flexDirection: 'row',

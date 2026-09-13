@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 
 ## Where we are
 
@@ -41,6 +41,7 @@ pending explicit approval.
 - [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Auto, Star, Light Trail, Waterfall, Portrait, 美顔, and Product; drag and snap calculations remain UI-thread worklet-safe, and selection updates the camera UI only
 - [ ] Replace the current abstract centered swiper with the approved photographic 3D cover-flow design in `proposal-camera-mode-selection.md` after explicit approval
 - [x] IntelliCam-only gallery - grid, pull-to-refresh, pagination, full-screen preview, and recoverable deletion through iOS Recently Deleted or the Android 11+ system recycle bin
+- [x] Portable photo information - preserve camera EXIF through aspect-ratio cropping, embed IntelliCam capture settings in each JPEG, optionally embed GPS coordinates, and show available details from the full-screen gallery three-dot menu
 - [x] Open a capture-mode selector from the mode button
 - [x] Open the camera settings panel from the three-dot button
 - [x] Camera settings panel contains Photo quality, Gridlines, Aspect Ratio, Timer, Shutter sound, and HDR; zoom, flash, and camera-facing remain camera-surface controls instead of three-dot settings
@@ -83,6 +84,10 @@ The three-dot camera settings panel contains:
   The switch is selectable only when the camera reports Photo HDR support, and
   shows **Active** only after the negotiated camera-session configuration confirms
   that HDR was applied. Unsupported cameras show a disabled setting.
+- **Photo location:** optionally embeds GPS coordinates in newly captured JPEGs.
+  Default: off. Permission is requested only when the setting is turned on. The
+  location and IntelliCam capture settings travel with the original JPEG, but an
+  editor, social app, screenshot, or privacy export may remove metadata.
 
 Flash, zoom, and front/rear switching remain direct controls on the camera
 surface. Photo-size selection is no longer exposed in the settings panel.

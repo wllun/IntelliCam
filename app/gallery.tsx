@@ -4,11 +4,13 @@ import {
   Alert,
   BackHandler,
   FlatList,
+  Modal,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -22,6 +24,10 @@ import { Stack, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import MediaTrash from '@/modules/media-trash';
+import {
+  getPhotoInformation,
+  type PhotoInfoSection,
+} from '@/services/photo-metadata';
 
 const ALBUM_NAME = 'IntelliCam';
 const PAGE_SIZE = 60;
@@ -33,6 +39,10 @@ export default function GalleryScreen() {
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [selectedAsset, setSelectedAsset] = useState<MediaLibrary.Asset | null>(null);
   const [photoMenuVisible, setPhotoMenuVisible] = useState(false);
+  const [photoInfoVisible, setPhotoInfoVisible] = useState(false);
+  const [photoInfoLoading, setPhotoInfoLoading] = useState(false);
+  const [photoInfoError, setPhotoInfoError] = useState<string>();
+  const [photoInfoSections, setPhotoInfoSections] = useState<PhotoInfoSection[]>([]);
   const [endCursor, setEndCursor] = useState<string>();
   const [hasNextPage, setHasNextPage] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -98,7 +108,9 @@ export default function GalleryScreen() {
     if (!selectedAsset) return;
 
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (photoMenuVisible) {
+      if (photoInfoVisible) {
+        setPhotoInfoVisible(false);
+      } else if (photoMenuVisible) {
         setPhotoMenuVisible(false);
       } else {
         setSelectedAsset(null);
@@ -107,7 +119,7 @@ export default function GalleryScreen() {
     });
 
     return () => subscription.remove();
-  }, [photoMenuVisible, selectedAsset]);
+  }, [photoInfoVisible, photoMenuVisible, selectedAsset]);
 
   const loadMore = async () => {
     if (!hasNextPage || !endCursor || loadingMore) return;
@@ -187,8 +199,33 @@ export default function GalleryScreen() {
     );
   };
 
+  const openPhotoInformation = async () => {
+    const asset = selectedAsset;
+    if (!asset || photoInfoLoading) return;
+    setPhotoMenuVisible(false);
+    setPhotoInfoVisible(true);
+    setPhotoInfoLoading(true);
+    setPhotoInfoError(undefined);
+    setPhotoInfoSections([]);
+    try {
+      const assetInfo = await MediaLibrary.getAssetInfoAsync(asset, {
+        shouldDownloadFromNetwork: true,
+      });
+      setPhotoInfoSections(await getPhotoInformation(asset, assetInfo));
+    } catch (infoError) {
+      setPhotoInfoError(
+        infoError instanceof Error
+          ? infoError.message
+          : 'The photo information could not be loaded.',
+      );
+    } finally {
+      setPhotoInfoLoading(false);
+    }
+  };
+
   const closeSelectedPhoto = () => {
     setPhotoMenuVisible(false);
+    setPhotoInfoVisible(false);
     setSelectedAsset(null);
   };
 
@@ -197,6 +234,7 @@ export default function GalleryScreen() {
     const nextAsset = assets[nextIndex];
 
     if (nextAsset && nextAsset.id !== selectedAsset?.id) {
+      setPhotoInfoVisible(false);
       setSelectedAsset(nextAsset);
     }
   };
@@ -313,6 +351,19 @@ export default function GalleryScreen() {
                 style={[styles.photoMenu, { top: insets.top + 56 }]}
               >
                 <Pressable
+                  accessibilityHint="Shows capture settings, camera properties, and embedded location"
+                  accessibilityLabel="Photo information"
+                  accessibilityRole="button"
+                  onPress={() => void openPhotoInformation()}
+                  style={({ pressed }) => [
+                    styles.photoMenuItem,
+                    pressed && styles.photoMenuItemPressed,
+                  ]}>
+                  <Ionicons name="information-circle-outline" size={21} color="white" />
+                  <Text style={styles.photoMenuText}>Information</Text>
+                </Pressable>
+                <View style={styles.photoMenuDivider} />
+                <Pressable
                   accessibilityHint="Moves this photo to the device recycle bin after confirmation"
                   accessibilityLabel="Delete photo"
                   accessibilityRole="button"
@@ -370,6 +421,87 @@ export default function GalleryScreen() {
           </View>
         </View>
       )}
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setPhotoInfoVisible(false)}
+        statusBarTranslucent
+        transparent
+        visible={photoInfoVisible}>
+        <View style={styles.infoModal}>
+          <Pressable
+            accessibilityLabel="Close photo information"
+            accessibilityRole="button"
+            onPress={() => setPhotoInfoVisible(false)}
+            style={styles.infoScrim}
+          />
+          <View
+            accessibilityViewIsModal
+            style={[styles.infoSheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            <View style={styles.infoHandle} />
+            <View style={styles.infoHeader}>
+              <View>
+                <Text style={styles.infoTitle}>Photo information</Text>
+                <Text style={styles.infoSubtitle}>{selectedAsset?.filename}</Text>
+              </View>
+              <Pressable
+                accessibilityLabel="Close photo information"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => setPhotoInfoVisible(false)}
+                style={({ pressed }) => [
+                  styles.infoCloseButton,
+                  pressed && styles.photoMenuItemPressed,
+                ]}>
+                <Ionicons name="close" size={24} color="white" />
+              </Pressable>
+            </View>
+
+            {photoInfoLoading ? (
+              <View style={styles.infoLoading}>
+                <ActivityIndicator color="white" />
+                <Text style={styles.secondaryText}>Reading embedded photo data…</Text>
+              </View>
+            ) : photoInfoError ? (
+              <View style={styles.infoError}>
+                <Ionicons name="alert-circle-outline" size={28} color="#ffb4ab" />
+                <Text selectable style={styles.infoErrorText}>{photoInfoError}</Text>
+                <Pressable
+                  accessibilityLabel="Retry loading photo information"
+                  accessibilityRole="button"
+                  onPress={() => void openPhotoInformation()}
+                  style={({ pressed }) => [
+                    styles.infoRetryButton,
+                    pressed && styles.photoMenuItemPressed,
+                  ]}>
+                  <Text style={styles.infoRetryText}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <ScrollView
+                contentContainerStyle={styles.infoContent}
+                showsVerticalScrollIndicator={false}>
+                {photoInfoSections.map((section) => (
+                  <View key={section.title} style={styles.infoSection}>
+                    <Text style={styles.infoSectionTitle}>{section.title}</Text>
+                    <View style={styles.infoSectionCard}>
+                      {section.rows.map((item, index) => (
+                        <View key={`${section.title}-${item.label}`}>
+                          {index > 0 && <View style={styles.infoDivider} />}
+                          <View style={styles.infoRow}>
+                            <Text style={styles.infoLabel}>{item.label}</Text>
+                            <Text selectable style={styles.infoValue}>{item.value}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -463,9 +595,157 @@ const styles = StyleSheet.create({
   photoMenuItemPressed: {
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
+  photoMenuText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  photoMenuDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 10,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
   photoMenuDeleteText: {
     color: '#ff6b6b',
     fontSize: 16,
     fontWeight: '600',
+  },
+  infoModal: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  infoScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.58)',
+  },
+  infoSheet: {
+    maxHeight: '82%',
+    minHeight: 320,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderCurve: 'continuous',
+    backgroundColor: '#181818',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  infoHandle: {
+    width: 38,
+    height: 4,
+    alignSelf: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+    borderRadius: 2,
+    backgroundColor: '#6f6f6f',
+  },
+  infoHeader: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  infoTitle: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  infoSubtitle: {
+    maxWidth: 260,
+    marginTop: 3,
+    color: '#a9a9a9',
+    fontSize: 12,
+  },
+  infoCloseButton: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  infoLoading: {
+    minHeight: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: 24,
+  },
+  infoError: {
+    minHeight: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: 24,
+  },
+  infoErrorText: {
+    color: '#ffb4ab',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  infoRetryButton: {
+    minWidth: 96,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  infoRetryText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  infoContent: {
+    gap: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
+  infoSection: {
+    gap: 8,
+  },
+  infoSectionTitle: {
+    paddingHorizontal: 4,
+    color: '#a9a9a9',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  infoSectionCard: {
+    overflow: 'hidden',
+    borderRadius: 14,
+    borderCurve: 'continuous',
+    backgroundColor: '#242424',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  infoRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  infoLabel: {
+    flexShrink: 0,
+    color: '#b7b7b7',
+    fontSize: 14,
+  },
+  infoValue: {
+    flex: 1,
+    color: 'white',
+    fontSize: 14,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+  },
+  infoDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 16,
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
 });

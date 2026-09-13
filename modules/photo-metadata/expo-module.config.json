@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["PhotoMetadataModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.photometadata.PhotoMetadataModule"]
+  }
+}
