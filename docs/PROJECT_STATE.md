@@ -12,6 +12,12 @@ Photo HDR, maximum-quality native capture, gridlines, aspect-ratio selection, an
 "Focus card" UI; swipe to switch presets and view settings and tips—but
 presets do not affect capture yet.
 
+Auto mode also provides an optional Portrait effect beside Flash. After capture,
+the shared save pipeline detects the person locally, keeps the subject sharp,
+and blurs the background using ML Kit on Android or Vision/Core Image on iOS.
+If no clear person is found or processing fails, IntelliCam preserves and saves
+the original photo instead of losing the capture.
+
 Auto and every special mode share the same camera screen, preview, shutter, capture,
 processing, and save pipeline. Future mode strategies must extend this shared capture
 engine rather than introduce separate camera screens.
@@ -38,6 +44,7 @@ pending explicit approval.
 - [x] Auto camera capture mode - the first-launch default for reliable automatic photo capture with flash off/auto/on, zoom controls, front/rear camera switching, gridlines, aspect ratio, and timer
 - [x] Single shared camera engine - Auto and every selected special mode use the same camera screen, preview, shutter, capture function, processing queue, and save pipeline; mode-specific strategies will plug into this engine
 - [x] Native-quality capture pass - Maximum quality is the default, selects the highest supported 4:3 photo resolution, requests native quality prioritization, enables supported low-light boost and Apple fusion/distortion correction, and preserves JPEG quality through aspect-ratio cropping
+- [x] Native Portrait effect in Auto mode - icon control beside Flash, offline person segmentation and background blur after capture, portable applied/not-applied metadata, and safe original-photo fallback (ML Kit on Android; Vision/Core Image on iOS)
 - [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Auto, Star, Light Trail, Waterfall, Portrait, 美顔, and Product; drag and snap calculations remain UI-thread worklet-safe, and selection updates the camera UI only
 - [ ] Replace the current abstract centered swiper with the approved photographic 3D cover-flow design in `proposal-camera-mode-selection.md` after explicit approval
 - [x] IntelliCam-only gallery - newest-photo-first grid ordering, pull-to-refresh, pagination, full-screen preview, and recoverable deletion through iOS Recently Deleted or the Android 11+ system recycle bin
@@ -89,8 +96,10 @@ The three-dot camera settings panel contains:
   location and IntelliCam capture settings travel with the original JPEG, but an
   editor, social app, screenshot, or privacy export may remove metadata.
 
-Flash, zoom, and front/rear switching remain direct controls on the camera
-surface. Photo-size selection is no longer exposed in the settings panel.
+Flash, Portrait effect, zoom, and front/rear switching remain direct controls on
+the camera surface. Photo-size selection is no longer exposed in the settings
+panel. The Portrait capture-mode preset remains guidance-only until preset
+strategies are wired into capture; the Auto-mode Portrait effect is functional.
 
 ### Zoom interaction
 

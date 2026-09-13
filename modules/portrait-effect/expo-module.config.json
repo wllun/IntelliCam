@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["PortraitEffectModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.portraiteffect.PortraitEffectModule"]
+  }
+}

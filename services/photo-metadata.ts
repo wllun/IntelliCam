@@ -22,6 +22,8 @@ export interface CapturePhotoMetadata {
   focusExposureLocked: boolean;
   timerSeconds: number;
   locationSaved: boolean;
+  portraitEffectRequested?: boolean;
+  portraitEffectApplied?: boolean;
 }
 
 export interface CaptureLocation {
@@ -161,6 +163,9 @@ export async function getPhotoInformation(
         row('Facing', custom ? custom.facing[0].toUpperCase() + custom.facing.slice(1) : undefined),
         row('Flash', custom ? custom.flash[0].toUpperCase() + custom.flash.slice(1) : undefined),
         row('HDR', custom ? custom.hdr ? 'Applied' : 'Off' : undefined),
+        row('Portrait effect', custom?.portraitEffectRequested
+          ? custom.portraitEffectApplied ? 'Applied' : 'Not applied'
+          : custom ? 'Off' : undefined),
         row('Exposure compensation', custom ? `${custom.exposureCompensation >= 0 ? '+' : ''}${custom.exposureCompensation.toFixed(1)} EV` : undefined),
         row('Focus / exposure lock', custom ? custom.focusExposureLocked ? 'Locked' : 'Automatic' : undefined),
         row('Timer', custom ? custom.timerSeconds ? `${custom.timerSeconds} s` : 'Off' : undefined),

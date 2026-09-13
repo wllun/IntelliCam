@@ -61,6 +61,7 @@ import {
   type CaptureLocation,
   type CapturePhotoMetadata,
 } from '@/services/photo-metadata';
+import PortraitEffect from '@/modules/portrait-effect';
 
 const ALBUM_NAME = 'IntelliCam';
 type TimerSeconds = 0 | 3 | 5 | 10 | 30;
@@ -451,6 +452,7 @@ export default function CameraScreen() {
   const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
   const [shutterSoundEnabled, setShutterSoundEnabled] = useState(false);
+  const [portraitEffectEnabled, setPortraitEffectEnabled] = useState(false);
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [captureLocation, setCaptureLocation] = useState<CaptureLocation>();
   const [countdown, setCountdown] = useState<number>();
@@ -491,6 +493,7 @@ export default function CameraScreen() {
     jpegQuality: number,
     metadata: CapturePhotoMetadata,
     location?: CaptureLocation,
+    applyPortraitEffect = false,
   ) => {
     photoSaveQueueRef.current = photoSaveQueueRef.current
       .catch(() => undefined)
@@ -501,19 +504,52 @@ export default function CameraScreen() {
           fullScreenRatio,
           jpegQuality,
         );
+        let finalUri = processedUri;
+        let portraitApplied = false;
+        let portraitFailureMessage: string | undefined;
+        if (applyPortraitEffect) {
+          if (!PortraitEffect) {
+            portraitFailureMessage = 'Portrait processing requires a rebuilt IntelliCam app.';
+          } else {
+            try {
+              const result = await PortraitEffect.applyAsync(processedUri, jpegQuality);
+              finalUri = result.uri;
+              portraitApplied = result.applied;
+              if (!result.applied) {
+                portraitFailureMessage = 'No clear person was detected. The original photo was saved.';
+              }
+            } catch (portraitError) {
+              console.warn('Could not apply portrait effect:', portraitError);
+              portraitFailureMessage = 'Portrait processing failed. The original photo was saved.';
+            }
+          }
+        }
+        const finalMetadata: CapturePhotoMetadata = {
+          ...metadata,
+          portraitEffectRequested: applyPortraitEffect,
+          portraitEffectApplied: portraitApplied,
+        };
         try {
           await embedPhotoMetadata(
             `file://${sourceFilePath}`,
-            processedUri,
-            metadata,
+            finalUri,
+            finalMetadata,
             location,
           );
         } catch (metadataError) {
           console.warn('Could not embed photo metadata:', metadataError);
         }
-        const savedPhoto = await savePhotoToAlbum(processedUri);
+        const savedPhoto = await savePhotoToAlbum(finalUri);
         if (latestCaptureRef.current === captureId) {
           setLatestPhoto(savedPhoto);
+        }
+        if (
+          portraitFailureMessage
+          && latestCaptureRef.current === captureId
+          && appActiveRef.current
+          && screenFocusedRef.current
+        ) {
+          Alert.alert('Portrait effect not applied', portraitFailureMessage);
         }
       })
       .catch((error: unknown) => {
@@ -1374,6 +1410,8 @@ export default function CameraScreen() {
         focusExposureLocked: meteringLocked,
         timerSeconds,
         locationSaved: locationEnabled && Boolean(captureLocationRef.current),
+        portraitEffectRequested: portraitEffectEnabled,
+        portraitEffectApplied: false,
       };
       latestCaptureRef.current = captureSession;
       setLatestPhoto({
@@ -1390,6 +1428,7 @@ export default function CameraScreen() {
         maximumPhotoQuality ? 100 : 92,
         metadata,
         locationEnabled ? captureLocationRef.current : undefined,
+        portraitEffectEnabled,
       );
     } catch (error) {
       if (captureSessionRef.current === captureSession) {
@@ -1607,6 +1646,32 @@ export default function CameraScreen() {
                 color="white"
               />
               {flash === 'auto' && <Text style={styles.flashAuto}>A</Text>}
+            </Pressable>
+            <Pressable
+              accessibilityHint="Keeps a detected person sharp and blurs the background after capture"
+              accessibilityLabel="Portrait effect"
+              accessibilityRole="switch"
+              accessibilityState={{ checked: portraitEffectEnabled }}
+              onPress={() => {
+                if (!PortraitEffect) {
+                  Alert.alert(
+                    'Rebuild required',
+                    'Portrait processing uses a native module. Rebuild and reinstall IntelliCam to enable it.',
+                  );
+                  return;
+                }
+                setPortraitEffectEnabled((enabled) => !enabled);
+                void Haptics.selectionAsync();
+              }}
+              style={[
+                styles.roundControl,
+                portraitEffectEnabled && styles.roundControlActive,
+              ]}>
+              <Ionicons
+                name="person-outline"
+                size={21}
+                color={portraitEffectEnabled ? '#FFD400' : 'white'}
+              />
             </Pressable>
             <Pressable
               accessibilityLabel="Flip camera"
@@ -2126,6 +2191,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(20,20,20,0.7)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.18)',
+  },
+  roundControlActive: {
+    backgroundColor: 'rgba(255,212,0,0.16)',
+    borderColor: 'rgba(255,212,0,0.72)',
   },
   flashAuto: {
     position: 'absolute',
