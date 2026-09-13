@@ -32,6 +32,22 @@ import {
 const ALBUM_NAME = 'IntelliCam';
 const PAGE_SIZE = 60;
 const GRID_GAP = 2;
+const NEWEST_FIRST_SORT: MediaLibrary.SortByValue[] = [
+  [MediaLibrary.SortBy.creationTime, false],
+  [MediaLibrary.SortBy.modificationTime, false],
+];
+
+function sortPhotosNewestFirst(items: MediaLibrary.Asset[]) {
+  return [...items].sort((first, second) => {
+    const creationDifference = second.creationTime - first.creationTime;
+    if (creationDifference !== 0) return creationDifference;
+
+    const modificationDifference = second.modificationTime - first.modificationTime;
+    if (modificationDifference !== 0) return modificationDifference;
+
+    return second.id.localeCompare(first.id, undefined, { numeric: true });
+  });
+}
 
 export default function GalleryScreen() {
   const { width } = useWindowDimensions();
@@ -80,9 +96,9 @@ export default function GalleryScreen() {
         album,
         first: PAGE_SIZE,
         mediaType: MediaLibrary.MediaType.photo,
-        sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+        sortBy: NEWEST_FIRST_SORT,
       });
-      setAssets(page.assets);
+      setAssets(sortPhotosNewestFirst(page.assets));
       setEndCursor(page.endCursor);
       setHasNextPage(page.hasNextPage);
     } catch (loadError) {
@@ -132,11 +148,14 @@ export default function GalleryScreen() {
         first: PAGE_SIZE,
         after: endCursor,
         mediaType: MediaLibrary.MediaType.photo,
-        sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+        sortBy: NEWEST_FIRST_SORT,
       });
       setAssets((current) => {
         const known = new Set(current.map((asset) => asset.id));
-        return [...current, ...page.assets.filter((asset) => !known.has(asset.id))];
+        return sortPhotosNewestFirst([
+          ...current,
+          ...page.assets.filter((asset) => !known.has(asset.id)),
+        ]);
       });
       setEndCursor(page.endCursor);
       setHasNextPage(page.hasNextPage);

@@ -40,7 +40,7 @@ pending explicit approval.
 - [x] Native-quality capture pass - Maximum quality is the default, selects the highest supported 4:3 photo resolution, requests native quality prioritization, enables supported low-light boost and Apple fusion/distortion correction, and preserves JPEG quality through aspect-ratio cropping
 - [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Auto, Star, Light Trail, Waterfall, Portrait, 美顔, and Product; drag and snap calculations remain UI-thread worklet-safe, and selection updates the camera UI only
 - [ ] Replace the current abstract centered swiper with the approved photographic 3D cover-flow design in `proposal-camera-mode-selection.md` after explicit approval
-- [x] IntelliCam-only gallery - grid, pull-to-refresh, pagination, full-screen preview, and recoverable deletion through iOS Recently Deleted or the Android 11+ system recycle bin
+- [x] IntelliCam-only gallery - newest-photo-first grid ordering, pull-to-refresh, pagination, full-screen preview, and recoverable deletion through iOS Recently Deleted or the Android 11+ system recycle bin
 - [x] Portable photo information - preserve camera EXIF through aspect-ratio cropping, embed IntelliCam capture settings in each JPEG, optionally embed GPS coordinates, and show available details from the full-screen gallery three-dot menu
 - [x] Open a capture-mode selector from the mode button
 - [x] Open the camera settings panel from the three-dot button
