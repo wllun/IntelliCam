@@ -62,6 +62,12 @@ import {
   type CapturePhotoMetadata,
 } from '@/services/photo-metadata';
 import PortraitEffect from '@/modules/portrait-effect';
+import StarProcessor from '@/modules/star-processor';
+import {
+  getStarPlanLabel,
+  resolveStarCapturePlan,
+  type StarCapturePlan,
+} from '@/services/star-capture';
 
 const ALBUM_NAME = 'IntelliCam';
 type TimerSeconds = 0 | 3 | 5 | 10 | 30;
@@ -456,6 +462,7 @@ export default function CameraScreen() {
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [captureLocation, setCaptureLocation] = useState<CaptureLocation>();
   const [countdown, setCountdown] = useState<number>();
+  const [captureStatus, setCaptureStatus] = useState<string>();
   const [focusPoint, setFocusPoint] = useState<FocusPoint>();
   const [exposureCompensation, setExposureCompensation] = useState(0);
   const [meteringLocked, setMeteringLocked] = useState(false);
@@ -494,6 +501,7 @@ export default function CameraScreen() {
     metadata: CapturePhotoMetadata,
     location?: CaptureLocation,
     applyPortraitEffect = false,
+    metadataSourceFilePath = sourceFilePath,
   ) => {
     photoSaveQueueRef.current = photoSaveQueueRef.current
       .catch(() => undefined)
@@ -531,7 +539,7 @@ export default function CameraScreen() {
         };
         try {
           await embedPhotoMetadata(
-            `file://${sourceFilePath}`,
+            `file://${metadataSourceFilePath}`,
             finalUri,
             finalMetadata,
             location,
@@ -643,6 +651,7 @@ export default function CameraScreen() {
     resolveCountdown?.();
 
     setCountdown(undefined);
+    setCaptureStatus(undefined);
     setCapturing(false);
     if (wasCountingDown && withHapticFeedback) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -767,6 +776,8 @@ export default function CameraScreen() {
     resetMetering();
   }, [activeCaptureModeId, cameraDevice?.id, facing, resetMetering]);
 
+  const isStarMode = activeCaptureModeId === 'star';
+
   useEffect(() => {
     if (!cameraReady || !cameraDevice) return;
     const controller = cameraRef.current?.controller;
@@ -774,18 +785,18 @@ export default function CameraScreen() {
 
     void controller.configure({
       enableLowLightBoost: cameraDevice.supportsLowLightBoost
-        ? maximumPhotoQuality
+        ? maximumPhotoQuality || isStarMode
         : undefined,
       enableDistortionCorrection:
         Platform.OS === 'ios' && cameraDevice.supportsDistortionCorrection
-          ? maximumPhotoQuality
+          ? maximumPhotoQuality || isStarMode
           : undefined,
     }).catch((error: unknown) => {
       if (!isCameraLifecycleCancellation(error)) {
         console.warn('Could not apply native photo quality enhancements:', error);
       }
     });
-  }, [cameraDevice, cameraReady, maximumPhotoQuality]);
+  }, [cameraDevice, cameraReady, isStarMode, maximumPhotoQuality]);
 
   useEffect(() => {
     if (!appActive || !screenFocused) resetMetering();
@@ -798,6 +809,23 @@ export default function CameraScreen() {
     PRESETS.findIndex((item) => item.id === activeCaptureModeId),
   );
   const preset = PRESETS[presetIndex];
+  const starController = cameraRef.current?.controller;
+  const starCapturePlan = resolveStarCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: Boolean(cameraDevice?.supportsExposureLocking),
+    supportsManualFocus: Boolean(cameraDevice?.supportsFocusLocking),
+    supportsManualWhiteBalance: Boolean(cameraDevice?.supportsWhiteBalanceLocking),
+    supportsFrameStacking: Boolean(StarProcessor),
+    exposureSecondsRange: starController && starController.maxExposureDuration > 0
+      ? {
+          min: starController.minExposureDuration,
+          max: starController.maxExposureDuration,
+        }
+      : undefined,
+    isoRange: starController && starController.maxISO > 0
+      ? { min: starController.minISO, max: starController.maxISO }
+      : undefined,
+  });
   const neutralZoom = getNeutralZoom(cameraDevice);
   const minZoom = cameraDevice?.minZoom ?? neutralZoom;
   const maxZoom = cameraDevice?.maxZoom ?? neutralZoom;
@@ -902,7 +930,7 @@ export default function CameraScreen() {
 
   useEffect(() => {
     const supportedFlashModes: FlashMode[] = cameraDevice?.hasFlash ? FLASH_MODES : ['off'];
-    const enableNativeEnhancements = hdrEnabled || maximumPhotoQuality;
+    const enableNativeEnhancements = hdrEnabled || maximumPhotoQuality || isStarMode;
     const settings: CapturePhotoSettings[] = supportedFlashModes.flatMap((flashMode) => [
       {
         flashMode,
@@ -920,7 +948,7 @@ export default function CameraScreen() {
       },
     ]);
     void photoOutput.prepareSettings(settings).catch(() => undefined);
-  }, [cameraDevice?.hasFlash, hdrEnabled, maximumPhotoQuality, photoOutput]);
+  }, [cameraDevice?.hasFlash, hdrEnabled, isStarMode, maximumPhotoQuality, photoOutput]);
 
   const zoomRulerWidth = Math.max(232, Math.min(width - 48, 320));
   const zoomRulerTicks = useMemo(
@@ -1027,6 +1055,7 @@ export default function CameraScreen() {
   }, [appActive, cameraReady, nativeExposureBias, screenFocused, supportsExposure]);
 
   const changePreset = (direction: 1 | -1) => {
+    if (capturing) return;
     const nextPresetIndex = (presetIndex + direction + PRESETS.length) % PRESETS.length;
     setActiveCaptureModeId(PRESETS[nextPresetIndex].id);
     setCardVisible(true);
@@ -1094,7 +1123,7 @@ export default function CameraScreen() {
   };
 
   const swipe = Gesture.Pan()
-    .enabled(!isAutoMode)
+    .enabled(!isAutoMode && !capturing)
     .activeOffsetX([-30, 30])
     .onEnd((e) => {
       if (Math.abs(e.translationX) > 50) {
@@ -1294,6 +1323,7 @@ export default function CameraScreen() {
   };
 
   const applyCaptureMode = (modeId: string) => {
+    if (capturing) return;
     if (modeId === AUTO_CAPTURE_MODE.id) {
       setActiveCaptureModeId(AUTO_CAPTURE_MODE.id);
       setCardVisible(false);
@@ -1306,6 +1336,104 @@ export default function CameraScreen() {
     }
     setModeMenuVisible(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const getAutomaticStarPlan = (): StarCapturePlan => resolveStarCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: false,
+    supportsManualFocus: false,
+    supportsManualWhiteBalance: false,
+    supportsFrameStacking: Boolean(StarProcessor),
+  });
+
+  const prepareStarCapture = async (requestedPlan: StarCapturePlan) => {
+    const camera = cameraRef.current;
+    const controller = camera?.controller;
+    if (!camera || !controller) {
+      throw new Error('The camera is not ready for Star capture.');
+    }
+
+    await camera.resetFocus().catch(() => undefined);
+    if (requestedPlan.strategy === 'manual-long-exposure') {
+      let focusApplied = false;
+      let whiteBalanceApplied = false;
+      if (requestedPlan.lockFocusAtInfinity) {
+        try {
+          await controller.setFocusLocked(1);
+          focusApplied = true;
+        } catch (error) {
+          console.warn('Could not lock Star focus at infinity:', error);
+        }
+      }
+      if (requestedPlan.whiteBalanceKelvin !== undefined) {
+        try {
+          const gains = controller.convertWhiteBalanceTemperatureAndTintValues({
+            temperature: requestedPlan.whiteBalanceKelvin,
+            tint: 0,
+          });
+          await controller.setWhiteBalanceLocked(gains);
+          whiteBalanceApplied = true;
+        } catch (error) {
+          console.warn('Could not lock Star white balance:', error);
+        }
+      }
+      try {
+        await controller.setExposureLocked(
+          requestedPlan.exposureSeconds!,
+          requestedPlan.iso!,
+        );
+        return {
+          plan: requestedPlan,
+          manualExposureApplied: true,
+          focusApplied,
+          whiteBalanceApplied,
+          automaticMeteringApplied: false,
+        };
+      } catch (error) {
+        console.warn('Could not apply manual Star exposure; using automatic fallback:', error);
+        await camera.resetFocus().catch(() => undefined);
+      }
+    }
+
+    const fallbackPlan = requestedPlan.strategy === 'manual-long-exposure'
+      ? getAutomaticStarPlan()
+      : requestedPlan;
+    if (supportsExposure) {
+      const starBias = getNativeExposureBias(
+        Math.min(1, exposureMax),
+        exposureMin,
+        exposureMax,
+        deviceExposureMin,
+        deviceExposureMax,
+      );
+      await controller.setExposureBias(starBias).catch((error: unknown) => {
+        console.warn('Could not brighten the automatic Star exposure:', error);
+      });
+    }
+    let automaticMeteringApplied = false;
+    if (meteringModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: lockModes.length > 0 ? lockModes : meteringModes,
+            responsiveness: 'steady',
+            adaptiveness: 'locked',
+            autoResetAfter: null,
+          },
+        );
+        automaticMeteringApplied = true;
+      } catch (error) {
+        console.warn('Could not lock automatic Star metering:', error);
+      }
+    }
+    return {
+      plan: fallbackPlan,
+      manualExposureApplied: false,
+      focusApplied: false,
+      whiteBalanceApplied: false,
+      automaticMeteringApplied,
+    };
   };
 
   if (!hasCameraPermission || !hasMediaPermission) {
@@ -1378,17 +1506,85 @@ export default function CameraScreen() {
       countdownActiveRef.current = false;
       setCountdown(undefined);
 
-      const photoFile = await photoOutput.capturePhotoToFile(
-        {
-          flashMode: cameraDevice?.hasFlash ? flash : 'off',
-          enableShutterSound: shutterSoundEnabled,
-          enableRedEyeReduction: hdrEnabled || maximumPhotoQuality,
-          enableDistortionCorrection: hdrEnabled || maximumPhotoQuality,
-          enableVirtualDeviceFusion: hdrEnabled || maximumPhotoQuality,
-        },
-        {},
-      );
-      const sourcePhotoUri = `file://${photoFile.filePath}`;
+      let appliedStarPlan: StarCapturePlan | undefined;
+      let manualExposureApplied = false;
+      let starFocusApplied = false;
+      let starWhiteBalanceApplied = false;
+      let starAutomaticMeteringApplied = false;
+      if (isStarMode) {
+        setCaptureStatus('Preparing night capture…');
+        const prepared = await prepareStarCapture(starCapturePlan);
+        appliedStarPlan = prepared.plan;
+        manualExposureApplied = prepared.manualExposureApplied;
+        starFocusApplied = prepared.focusApplied;
+        starWhiteBalanceApplied = prepared.whiteBalanceApplied;
+        starAutomaticMeteringApplied = prepared.automaticMeteringApplied;
+      }
+
+      const frameCount = appliedStarPlan?.frameCount ?? 1;
+      const capturedFramePaths: string[] = [];
+      for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+        if (
+          captureSessionRef.current !== captureSession
+          || !cameraReadyRef.current
+          || !appActiveRef.current
+          || !screenFocusedRef.current
+        ) return;
+        if (isStarMode) {
+          setCaptureStatus(
+            frameCount === 1
+              ? 'Capturing stars… Keep still'
+              : `Capturing stars ${frameIndex + 1} of ${frameCount}… Keep still`,
+          );
+        }
+        const photoFile = await photoOutput.capturePhotoToFile(
+          {
+            flashMode: isStarMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
+            enableShutterSound: shutterSoundEnabled && frameIndex === 0,
+            enableRedEyeReduction: !isStarMode && (hdrEnabled || maximumPhotoQuality),
+            enableDistortionCorrection: isStarMode || hdrEnabled || maximumPhotoQuality,
+            enableVirtualDeviceFusion: isStarMode || hdrEnabled || maximumPhotoQuality,
+          },
+          {},
+        );
+        capturedFramePaths.push(photoFile.filePath);
+      }
+
+      const metadataSourceFilePath = capturedFramePaths[0];
+      let outputFilePath = metadataSourceFilePath;
+      let starProcessingOperations: string[] | undefined;
+      let starFallbackReason = appliedStarPlan?.fallbackReason;
+      if (
+        appliedStarPlan?.strategy === 'automatic-frame-stack'
+        && capturedFramePaths.length > 1
+        && StarProcessor
+      ) {
+        setCaptureStatus(`Combining ${capturedFramePaths.length} frames…`);
+        try {
+          const stacked = await StarProcessor.stackAverageAsync(
+            capturedFramePaths,
+            maximumPhotoQuality ? 100 : 92,
+          );
+          outputFilePath = stacked.uri.replace(/^file:\/\//, '');
+          starProcessingOperations = ['frame-average noise reduction'];
+        } catch (error) {
+          console.warn('Could not combine Star frames; saving the first frame:', error);
+          appliedStarPlan = {
+            ...appliedStarPlan,
+            strategy: 'automatic-low-light',
+            frameCount: 1,
+          };
+          starFallbackReason = 'Frame stacking failed; the first low-light frame was preserved.';
+        }
+      }
+
+      if (
+        captureSessionRef.current !== captureSession
+        || !appActiveRef.current
+        || !screenFocusedRef.current
+      ) return;
+
+      const sourcePhotoUri = `file://${outputFilePath}`;
       const captureModeName = activeCaptureModeId === AUTO_CAPTURE_MODE.id
         ? AUTO_CAPTURE_MODE.name
         : preset.name;
@@ -1403,15 +1599,30 @@ export default function CameraScreen() {
         cameraName: cameraDevice?.localizedName,
         cameraModel: cameraDevice?.modelID,
         cameraType: cameraDevice?.type,
-        flash: cameraDevice?.hasFlash ? flash : 'off',
+        flash: isStarMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
         hdr: hdrApplied,
         photoQuality,
         exposureCompensation,
         focusExposureLocked: meteringLocked,
         timerSeconds,
         locationSaved: locationEnabled && Boolean(captureLocationRef.current),
-        portraitEffectRequested: portraitEffectEnabled,
+        portraitEffectRequested: isAutoMode && portraitEffectEnabled,
         portraitEffectApplied: false,
+        captureStrategy: appliedStarPlan?.strategy,
+        captureFrameCount: appliedStarPlan?.frameCount,
+        manualExposureApplied: appliedStarPlan ? manualExposureApplied : undefined,
+        appliedExposureSeconds: manualExposureApplied ? appliedStarPlan?.exposureSeconds : undefined,
+        appliedIso: manualExposureApplied ? appliedStarPlan?.iso : undefined,
+        appliedWhiteBalanceKelvin: starWhiteBalanceApplied
+          ? appliedStarPlan?.whiteBalanceKelvin
+          : undefined,
+        focusStrategy: appliedStarPlan
+          ? starFocusApplied
+            ? 'infinity-locked'
+            : starAutomaticMeteringApplied ? 'automatic-locked' : undefined
+          : undefined,
+        processingOperations: starProcessingOperations,
+        captureFallbackReason: starFallbackReason,
       };
       latestCaptureRef.current = captureSession;
       setLatestPhoto({
@@ -1421,14 +1632,15 @@ export default function CameraScreen() {
       setCapturing(false);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       enqueuePhotoSave(
-        photoFile.filePath,
+        outputFilePath,
         aspectRatio,
         width / height,
         captureSession,
         maximumPhotoQuality ? 100 : 92,
         metadata,
         locationEnabled ? captureLocationRef.current : undefined,
-        portraitEffectEnabled,
+        isAutoMode && portraitEffectEnabled,
+        metadataSourceFilePath,
       );
     } catch (error) {
       if (captureSessionRef.current === captureSession) {
@@ -1438,7 +1650,15 @@ export default function CameraScreen() {
       if (captureSessionRef.current === captureSession) {
         countdownActiveRef.current = false;
         setCountdown(undefined);
+        setCaptureStatus(undefined);
         setCapturing(false);
+        if (isStarMode) {
+          void cameraRef.current?.resetFocus().catch(() => undefined);
+          const controller = cameraRef.current?.controller;
+          if (supportsExposure && controller) {
+            void controller.setExposureBias(nativeExposureBias).catch(() => undefined);
+          }
+        }
       }
     }
   };
@@ -1530,6 +1750,18 @@ export default function CameraScreen() {
           </Animated.View>
         )}
 
+        {captureStatus && countdown === undefined && (
+          <View
+            accessible
+            accessibilityLabel={captureStatus}
+            accessibilityLiveRegion="polite"
+            pointerEvents="none"
+            style={[styles.captureStatus, { bottom: insets.bottom + 160 }]}>
+            <Ionicons name="moon-outline" size={16} color="#9FE1CB" />
+            <Text style={styles.captureStatusText}>{captureStatus}</Text>
+          </View>
+        )}
+
         {isAutoMode && focusPoint && (
           <Animated.View
             entering={FadeIn.duration(120)}
@@ -1598,15 +1830,35 @@ export default function CameraScreen() {
                 <Ionicons name={preset.icon} size={20} color={preset.tint} />
                 <Text style={styles.cardTitle}>{preset.name}</Text>
               </View>
+              <Text style={styles.cardStatusLabel}>
+                {isStarMode ? 'CAPTURE PLAN' : 'SUGGESTED STARTING POINT'}
+              </Text>
               <View style={styles.chips}>
-                <Text style={styles.chip}>ISO {preset.iso}</Text>
-                <Text style={styles.chip}>{preset.shutter}</Text>
-                <Text style={styles.chip}>{preset.whiteBalance}K</Text>
-                {preset.raw && <Text style={styles.chip}>RAW</Text>}
+                {isStarMode ? (
+                  <>
+                    <Text style={styles.chip}>{getStarPlanLabel(starCapturePlan)}</Text>
+                    {starCapturePlan.exposureSeconds !== undefined && (
+                      <Text style={styles.chip}>{starCapturePlan.exposureSeconds.toFixed(1)}s</Text>
+                    )}
+                    {starCapturePlan.iso !== undefined && (
+                      <Text style={styles.chip}>ISO {starCapturePlan.iso}</Text>
+                    )}
+                    <Text style={styles.chip}>Flash off</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.chip}>ISO {preset.iso}</Text>
+                    <Text style={styles.chip}>{preset.shutter}</Text>
+                    <Text style={styles.chip}>{preset.whiteBalance}K</Text>
+                    {preset.raw && <Text style={styles.chip}>RAW</Text>}
+                  </>
+                )}
               </View>
               <View style={styles.tipRow}>
                 <Ionicons name="information-circle-outline" size={13} color={preset.tint} />
-                <Text style={[styles.tip, { color: preset.tint }]}>{preset.tip}</Text>
+                <Text style={[styles.tip, { color: preset.tint }]}>
+                  {isStarMode ? starCapturePlan.guidance : preset.tip}
+                </Text>
               </View>
             </Pressable>
           </Animated.View>
@@ -1625,11 +1877,13 @@ export default function CameraScreen() {
           accessibilityLabel="Camera settings"
           accessibilityHint="Change photo quality, location, gridlines, aspect ratio, timer, shutter sound, and HDR"
           accessibilityRole="button"
+          accessibilityState={{ disabled: capturing }}
+          disabled={capturing}
           onPress={() => {
             setModeMenuVisible(false);
             setSettingsVisible((visible) => !visible);
           }}
-          style={[styles.settingsButton, { top: insets.top + 16 }]}>
+          style={[styles.settingsButton, capturing && styles.controlDisabled, { top: insets.top + 16 }]}>
           <Ionicons name="ellipsis-horizontal" size={24} color="white" />
         </Pressable>
 
@@ -1786,8 +2040,10 @@ export default function CameraScreen() {
             accessibilityLabel="View IntelliCam photos"
             accessibilityHint="Opens photos saved in the IntelliCam album"
             accessibilityRole="button"
+            accessibilityState={{ disabled: capturing }}
+            disabled={capturing}
             onPress={() => router.push('/gallery' as Href)}
-            style={styles.secondaryControl}>
+            style={[styles.secondaryControl, capturing && styles.controlDisabled]}>
             {latestPhoto ? (
               <Animated.View
                 key={latestPhoto.key}
@@ -1834,11 +2090,13 @@ export default function CameraScreen() {
             accessibilityLabel="Change capture mode"
             accessibilityHint="Opens the swipeable capture mode selector"
             accessibilityRole="button"
+            accessibilityState={{ disabled: capturing }}
+            disabled={capturing}
             onPress={() => {
               setSettingsVisible(false);
               setModeMenuVisible(true);
             }}
-            style={styles.secondaryControl}>
+            style={[styles.secondaryControl, capturing && styles.controlDisabled]}>
             <View style={styles.modeControlIcon}>
               <Ionicons
                 name="albums-outline"
@@ -2124,6 +2382,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  cardStatusLabel: {
+    marginTop: 12,
+    color: 'rgba(255,255,255,0.52)',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.9,
+  },
   chips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2380,6 +2645,9 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
+  controlDisabled: {
+    opacity: 0.45,
+  },
   shutter: {
     width: 72,
     height: 72,
@@ -2469,6 +2737,27 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 12,
     fontWeight: '700',
+  },
+  captureStatus: {
+    position: 'absolute',
+    alignSelf: 'center',
+    maxWidth: '82%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: 'rgba(10,10,10,0.84)',
+    borderWidth: 1,
+    borderColor: 'rgba(159,225,203,0.42)',
+  },
+  captureStatusText: {
+    flexShrink: 1,
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   meteringControl: {
     position: 'absolute',

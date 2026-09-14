@@ -24,6 +24,15 @@ export interface CapturePhotoMetadata {
   locationSaved: boolean;
   portraitEffectRequested?: boolean;
   portraitEffectApplied?: boolean;
+  captureStrategy?: 'manual-long-exposure' | 'automatic-frame-stack' | 'automatic-low-light';
+  captureFrameCount?: number;
+  manualExposureApplied?: boolean;
+  appliedExposureSeconds?: number;
+  appliedIso?: number;
+  appliedWhiteBalanceKelvin?: number;
+  focusStrategy?: 'infinity-locked' | 'automatic-locked';
+  processingOperations?: string[];
+  captureFallbackReason?: string;
 }
 
 export interface CaptureLocation {
@@ -74,13 +83,26 @@ function parseCustomMetadata(value: string | undefined): CapturePhotoMetadata | 
   }
 }
 
-function rows(values: Array<PhotoInfoRow | undefined>) {
+function rows(values: (PhotoInfoRow | undefined)[]) {
   return values.filter((row): row is PhotoInfoRow => Boolean(row?.value));
 }
 
 function row(label: string, value: unknown): PhotoInfoRow | undefined {
   const normalized = text(value);
   return normalized ? { label, value: normalized } : undefined;
+}
+
+function formatCaptureStrategy(value: CapturePhotoMetadata['captureStrategy']) {
+  switch (value) {
+    case 'manual-long-exposure':
+      return 'Manual long exposure';
+    case 'automatic-frame-stack':
+      return 'Automatic frame stack';
+    case 'automatic-low-light':
+      return 'Automatic low light';
+    default:
+      return undefined;
+  }
 }
 
 export async function embedPhotoMetadata(
@@ -156,6 +178,21 @@ export async function getPhotoInformation(
       title: 'IntelliCam',
       rows: rows([
         row('Capture mode', custom?.captureMode),
+        row('Capture strategy', formatCaptureStrategy(custom?.captureStrategy)),
+        row('Frames combined', custom?.captureFrameCount && custom.captureFrameCount > 1
+          ? custom.captureFrameCount
+          : undefined),
+        row('Star exposure', custom?.manualExposureApplied && custom.appliedExposureSeconds
+          ? `${custom.appliedExposureSeconds.toFixed(1)} s at ISO ${custom.appliedIso}`
+          : undefined),
+        row('Star white balance', custom?.appliedWhiteBalanceKelvin
+          ? `${custom.appliedWhiteBalanceKelvin} K`
+          : undefined),
+        row('Star focus', custom?.focusStrategy === 'infinity-locked'
+          ? 'Infinity locked'
+          : custom?.focusStrategy === 'automatic-locked' ? 'Automatic metering lock' : undefined),
+        row('Processing', custom?.processingOperations?.join(', ')),
+        row('Fallback', custom?.captureFallbackReason),
         row('Aspect ratio', custom?.aspectRatio),
         row('Zoom', custom ? `${custom.zoom.toFixed(1)}×` : undefined),
         row('Photo quality', custom?.photoQuality === 'maximum' ? 'Maximum' : custom?.photoQuality === 'standard' ? 'Standard' : undefined),
