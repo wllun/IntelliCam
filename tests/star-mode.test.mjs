@@ -30,7 +30,7 @@ test('Star mode applies real manual camera controls only where supported', () =>
 });
 
 test('Star mode captures flash-off frames and stacks the automatic fallback', () => {
-  assert.match(cameraSource, /isLongCaptureMode \? 'off'/);
+  assert.match(cameraSource, /isFlashDisabledForMode \? 'off'/);
   assert.match(cameraSource, /StarProcessor\.stackAverageAsync\(/);
   assert.match(cameraSource, /Capturing stars.*frameIndex \+ 1/);
   assert.deepEqual(moduleConfig.platforms, ['apple', 'android']);

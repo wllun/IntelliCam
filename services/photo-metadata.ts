@@ -30,6 +30,8 @@ export interface CapturePhotoMetadata {
     | 'automatic-frame-stack'
     | 'automatic-lighten-composite'
     | 'automatic-temporal-average'
+    | 'locked-detail-capture'
+    | 'automatic-detail-capture'
     | 'automatic-low-light';
   captureFrameCount?: number;
   manualExposureApplied?: boolean;
@@ -37,6 +39,7 @@ export interface CapturePhotoMetadata {
   appliedIso?: number;
   appliedWhiteBalanceKelvin?: number;
   focusStrategy?: 'infinity-locked' | 'automatic-locked';
+  whiteBalanceStrategy?: 'manual-kelvin' | 'automatic-locked';
   processingOperations?: string[];
   captureFallbackReason?: string;
 }
@@ -110,6 +113,10 @@ function formatCaptureStrategy(value: CapturePhotoMetadata['captureStrategy']) {
       return 'Automatic light trail composite';
     case 'automatic-temporal-average':
       return 'Automatic temporal average';
+    case 'locked-detail-capture':
+      return 'Locked detail capture';
+    case 'automatic-detail-capture':
+      return 'Automatic detail capture';
     case 'automatic-low-light':
       return 'Automatic low light';
     default:
@@ -199,7 +206,7 @@ export async function getPhotoInformation(
           : undefined),
         row('White balance', custom?.appliedWhiteBalanceKelvin
           ? `${custom.appliedWhiteBalanceKelvin} K`
-          : undefined),
+          : custom?.whiteBalanceStrategy === 'automatic-locked' ? 'Automatic locked' : undefined),
         row('Capture focus', custom?.focusStrategy === 'infinity-locked'
           ? 'Infinity locked'
           : custom?.focusStrategy === 'automatic-locked' ? 'Automatic metering lock' : undefined),

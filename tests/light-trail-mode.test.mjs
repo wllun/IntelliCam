@@ -33,7 +33,7 @@ test('Light Trail resolves a real manual or multi-frame capture plan', () => {
 });
 
 test('Light Trail captures timed flash-off frames and composites their highlights', () => {
-  assert.match(cameraSource, /flashMode: isLongCaptureMode \? 'off'/);
+  assert.match(cameraSource, /flashMode: isFlashDisabledForMode \? 'off'/);
   assert.match(cameraSource, /LIGHT_TRAIL_FRAME_INTERVAL_MS/);
   assert.match(cameraSource, /StarProcessor\.compositeLightenAsync\(/);
   assert.match(cameraSource, /Building light trails from/);

@@ -80,6 +80,11 @@ import {
   WATERFALL_FRAME_INTERVAL_MS,
   type WaterfallCapturePlan,
 } from '@/services/waterfall-capture';
+import {
+  getProductPlanLabel,
+  resolveProductCapturePlan,
+  type ProductCapturePlan,
+} from '@/services/product-capture';
 
 const ALBUM_NAME = 'IntelliCam';
 type TimerSeconds = 0 | 3 | 5 | 10 | 30;
@@ -791,8 +796,10 @@ export default function CameraScreen() {
   const isStarMode = activeCaptureModeId === 'star';
   const isLightTrailMode = activeCaptureModeId === 'light-trail';
   const isWaterfallMode = activeCaptureModeId === 'waterfall';
+  const isProductMode = activeCaptureModeId === 'product';
   const isLongCaptureMode = isStarMode || isLightTrailMode || isWaterfallMode;
   const isMotionCompositeMode = isLightTrailMode || isWaterfallMode;
+  const isFlashDisabledForMode = isLongCaptureMode || isProductMode;
 
   useEffect(() => {
     if (!cameraReady || !cameraDevice) return;
@@ -805,14 +812,14 @@ export default function CameraScreen() {
         : undefined,
       enableDistortionCorrection:
         Platform.OS === 'ios' && cameraDevice.supportsDistortionCorrection
-          ? maximumPhotoQuality || isLongCaptureMode
+          ? maximumPhotoQuality || isLongCaptureMode || isProductMode
           : undefined,
     }).catch((error: unknown) => {
       if (!isCameraLifecycleCancellation(error)) {
         console.warn('Could not apply native photo quality enhancements:', error);
       }
     });
-  }, [cameraDevice, cameraReady, isLongCaptureMode, isStarMode, maximumPhotoQuality]);
+  }, [cameraDevice, cameraReady, isLongCaptureMode, isProductMode, isStarMode, maximumPhotoQuality]);
 
   useEffect(() => {
     if (!appActive || !screenFocused) resetMetering();
@@ -875,6 +882,20 @@ export default function CameraScreen() {
     isoRange: starController && starController.maxISO > 0
       ? { min: starController.minISO, max: starController.maxISO }
       : undefined,
+  });
+  const productCapturePlan = resolveProductCapturePlan({
+    supportsFocusLock: Boolean(
+      cameraDevice?.supportsFocusMetering
+      && (Platform.OS === 'android' || cameraDevice.supportsFocusLocking),
+    ),
+    supportsExposureLock: Boolean(
+      cameraDevice?.supportsExposureMetering
+      && (Platform.OS === 'android' || cameraDevice.supportsExposureLocking),
+    ),
+    supportsWhiteBalanceLock: Boolean(
+      cameraDevice?.supportsWhiteBalanceMetering
+      && (Platform.OS === 'android' || cameraDevice.supportsWhiteBalanceLocking),
+    ),
   });
   const neutralZoom = getNeutralZoom(cameraDevice);
   const minZoom = cameraDevice?.minZoom ?? neutralZoom;
@@ -980,25 +1001,28 @@ export default function CameraScreen() {
 
   useEffect(() => {
     const supportedFlashModes: FlashMode[] = cameraDevice?.hasFlash ? FLASH_MODES : ['off'];
-    const enableNativeEnhancements = hdrEnabled || maximumPhotoQuality || isLongCaptureMode;
+    const enableNativeEnhancements = hdrEnabled
+      || maximumPhotoQuality
+      || isLongCaptureMode
+      || isProductMode;
     const settings: CapturePhotoSettings[] = supportedFlashModes.flatMap((flashMode) => [
       {
         flashMode,
         enableShutterSound: false,
-        enableRedEyeReduction: !isLongCaptureMode && enableNativeEnhancements,
+        enableRedEyeReduction: !isFlashDisabledForMode && enableNativeEnhancements,
         enableDistortionCorrection: enableNativeEnhancements,
         enableVirtualDeviceFusion: !isMotionCompositeMode && enableNativeEnhancements,
       },
       {
         flashMode,
         enableShutterSound: true,
-        enableRedEyeReduction: !isLongCaptureMode && enableNativeEnhancements,
+        enableRedEyeReduction: !isFlashDisabledForMode && enableNativeEnhancements,
         enableDistortionCorrection: enableNativeEnhancements,
         enableVirtualDeviceFusion: !isMotionCompositeMode && enableNativeEnhancements,
       },
     ]);
     void photoOutput.prepareSettings(settings).catch(() => undefined);
-  }, [cameraDevice?.hasFlash, hdrEnabled, isLongCaptureMode, isMotionCompositeMode, maximumPhotoQuality, photoOutput]);
+  }, [cameraDevice?.hasFlash, hdrEnabled, isFlashDisabledForMode, isLongCaptureMode, isMotionCompositeMode, isProductMode, maximumPhotoQuality, photoOutput]);
 
   const zoomRulerWidth = Math.max(232, Math.min(width - 48, 320));
   const zoomRulerTicks = useMemo(
@@ -1698,6 +1722,87 @@ export default function CameraScreen() {
     };
   };
 
+  const getAutomaticProductPlan = (): ProductCapturePlan => resolveProductCapturePlan({
+    supportsFocusLock: false,
+    supportsExposureLock: false,
+    supportsWhiteBalanceLock: false,
+  });
+
+  const prepareProductCapture = async (requestedPlan: ProductCapturePlan) => {
+    const camera = cameraRef.current;
+    const controller = camera?.controller;
+    if (!camera || !controller) {
+      throw new Error('The camera is not ready for Product capture.');
+    }
+
+    await camera.resetFocus().catch(() => undefined);
+    if (supportsExposure) {
+      const productBias = getNativeExposureBias(
+        requestedPlan.exposureCompensation,
+        exposureMin,
+        exposureMax,
+        deviceExposureMin,
+        deviceExposureMax,
+      );
+      await controller.setExposureBias(productBias).catch((error: unknown) => {
+        console.warn('Could not protect Product highlights:', error);
+      });
+    }
+
+    const useLockedMetering = requestedPlan.strategy === 'locked-detail-capture'
+      && lockModes.length > 0;
+    const requestedModes = useLockedMetering ? lockModes : meteringModes;
+    if (requestedModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: requestedModes,
+            responsiveness: 'snappy',
+            adaptiveness: useLockedMetering ? 'locked' : 'continuous',
+            autoResetAfter: useLockedMetering ? null : 3,
+          },
+        );
+        return {
+          plan: requestedPlan,
+          manualExposureApplied: false,
+          focusApplied: useLockedMetering && requestedModes.includes('AF'),
+          whiteBalanceApplied: useLockedMetering && requestedModes.includes('AWB'),
+          automaticMeteringApplied: useLockedMetering,
+        };
+      } catch (error) {
+        console.warn('Could not apply locked Product metering; using automatic focus:', error);
+      }
+    }
+
+    const fallbackPlan = {
+      ...getAutomaticProductPlan(),
+      fallbackReason: useLockedMetering
+        ? 'Metering lock failed; using center-weighted automatic detail capture.'
+        : requestedPlan.fallbackReason,
+    };
+    if (meteringModes.length > 0 && requestedModes !== meteringModes) {
+      await camera.focusTo(
+        { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+        {
+          modes: meteringModes,
+          responsiveness: 'snappy',
+          adaptiveness: 'continuous',
+          autoResetAfter: 3,
+        },
+      ).catch((error: unknown) => {
+        console.warn('Could not apply automatic Product metering:', error);
+      });
+    }
+    return {
+      plan: fallbackPlan,
+      manualExposureApplied: false,
+      focusApplied: false,
+      whiteBalanceApplied: false,
+      automaticMeteringApplied: false,
+    };
+  };
+
   if (!hasCameraPermission || !hasMediaPermission) {
     return (
       <View style={styles.centered}>
@@ -1772,6 +1877,7 @@ export default function CameraScreen() {
         | StarCapturePlan
         | LightTrailCapturePlan
         | WaterfallCapturePlan
+        | ProductCapturePlan
         | undefined;
       let manualExposureApplied = false;
       let captureFocusApplied = false;
@@ -1796,6 +1902,14 @@ export default function CameraScreen() {
       } else if (isWaterfallMode) {
         setCaptureStatus('Preparing waterfall capture…');
         const prepared = await prepareWaterfallCapture(waterfallCapturePlan);
+        appliedCapturePlan = prepared.plan;
+        manualExposureApplied = prepared.manualExposureApplied;
+        captureFocusApplied = prepared.focusApplied;
+        captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
+        captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
+      } else if (isProductMode) {
+        setCaptureStatus('Preparing product detail…');
+        const prepared = await prepareProductCapture(productCapturePlan);
         appliedCapturePlan = prepared.plan;
         manualExposureApplied = prepared.manualExposureApplied;
         captureFocusApplied = prepared.focusApplied;
@@ -1830,14 +1944,17 @@ export default function CameraScreen() {
               ? 'Smoothing waterfall… Keep still'
               : `Smoothing waterfall ${frameIndex + 1} of ${frameCount}… Keep still`,
           );
+        } else if (isProductMode) {
+          setCaptureStatus('Capturing product detail… Hold steady');
         }
         const photoFile = await photoOutput.capturePhotoToFile(
           {
-            flashMode: isLongCaptureMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
+            flashMode: isFlashDisabledForMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
             enableShutterSound: shutterSoundEnabled && frameIndex === 0,
-            enableRedEyeReduction: !isLongCaptureMode && (hdrEnabled || maximumPhotoQuality),
-            enableDistortionCorrection: isLongCaptureMode || hdrEnabled || maximumPhotoQuality,
-            enableVirtualDeviceFusion: !isMotionCompositeMode && (isStarMode || hdrEnabled || maximumPhotoQuality),
+            enableRedEyeReduction: !isFlashDisabledForMode && (hdrEnabled || maximumPhotoQuality),
+            enableDistortionCorrection: isLongCaptureMode || isProductMode || hdrEnabled || maximumPhotoQuality,
+            enableVirtualDeviceFusion: !isMotionCompositeMode
+              && (isStarMode || isProductMode || hdrEnabled || maximumPhotoQuality),
           },
           {},
         );
@@ -1952,11 +2069,11 @@ export default function CameraScreen() {
         cameraName: cameraDevice?.localizedName,
         cameraModel: cameraDevice?.modelID,
         cameraType: cameraDevice?.type,
-        flash: isLongCaptureMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
+        flash: isFlashDisabledForMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
         hdr: hdrApplied,
         photoQuality,
         exposureCompensation,
-        focusExposureLocked: meteringLocked,
+        focusExposureLocked: meteringLocked || captureAutomaticMeteringApplied,
         timerSeconds,
         locationSaved: locationEnabled && Boolean(captureLocationRef.current),
         portraitEffectRequested: isAutoMode && portraitEffectEnabled,
@@ -1968,6 +2085,9 @@ export default function CameraScreen() {
         appliedIso: manualExposureApplied ? appliedCapturePlan?.iso : undefined,
         appliedWhiteBalanceKelvin: captureWhiteBalanceApplied
           ? appliedCapturePlan?.whiteBalanceKelvin
+          : undefined,
+        whiteBalanceStrategy: captureWhiteBalanceApplied
+          ? isProductMode ? 'automatic-locked' : 'manual-kelvin'
           : undefined,
         focusStrategy: appliedCapturePlan
           ? isStarMode && captureFocusApplied
@@ -2005,7 +2125,7 @@ export default function CameraScreen() {
         setCountdown(undefined);
         setCaptureStatus(undefined);
         setCapturing(false);
-        if (isLongCaptureMode) {
+        if (isLongCaptureMode || isProductMode) {
           void cameraRef.current?.resetFocus().catch(() => undefined);
           const controller = cameraRef.current?.controller;
           if (supportsExposure && controller) {
@@ -2185,7 +2305,9 @@ export default function CameraScreen() {
                 <Text style={styles.cardTitle}>{preset.name}</Text>
               </View>
               <Text style={styles.cardStatusLabel}>
-                {isLongCaptureMode ? 'CAPTURE PLAN' : 'SUGGESTED STARTING POINT'}
+                {isLongCaptureMode || isProductMode
+                  ? 'CAPTURE PLAN'
+                  : 'SUGGESTED STARTING POINT'}
               </Text>
               <View style={styles.chips}>
                 {isStarMode ? (
@@ -2221,6 +2343,18 @@ export default function CameraScreen() {
                     )}
                     <Text style={styles.chip}>Flash off</Text>
                   </>
+                ) : isProductMode ? (
+                  <>
+                    <Text style={styles.chip}>{getProductPlanLabel(productCapturePlan)}</Text>
+                    <Text style={styles.chip}>Center focus</Text>
+                    <Text style={styles.chip}>
+                      {productCapturePlan.exposureCompensation.toFixed(1)} EV
+                    </Text>
+                    <Text style={styles.chip}>
+                      {productCapturePlan.lockWhiteBalance ? 'WB lock' : 'Auto WB'}
+                    </Text>
+                    <Text style={styles.chip}>Flash off</Text>
+                  </>
                 ) : (
                   <>
                     <Text style={styles.chip}>ISO {preset.iso}</Text>
@@ -2237,7 +2371,9 @@ export default function CameraScreen() {
                     ? starCapturePlan.guidance
                     : isLightTrailMode
                       ? lightTrailCapturePlan.guidance
-                      : isWaterfallMode ? waterfallCapturePlan.guidance : preset.tip}
+                      : isWaterfallMode
+                        ? waterfallCapturePlan.guidance
+                        : isProductMode ? productCapturePlan.guidance : preset.tip}
                 </Text>
               </View>
             </Pressable>
