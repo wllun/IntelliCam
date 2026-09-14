@@ -74,6 +74,12 @@ import {
   resolveLightTrailCapturePlan,
   type LightTrailCapturePlan,
 } from '@/services/light-trail-capture';
+import {
+  getWaterfallPlanLabel,
+  resolveWaterfallCapturePlan,
+  WATERFALL_FRAME_INTERVAL_MS,
+  type WaterfallCapturePlan,
+} from '@/services/waterfall-capture';
 
 const ALBUM_NAME = 'IntelliCam';
 type TimerSeconds = 0 | 3 | 5 | 10 | 30;
@@ -784,7 +790,9 @@ export default function CameraScreen() {
 
   const isStarMode = activeCaptureModeId === 'star';
   const isLightTrailMode = activeCaptureModeId === 'light-trail';
-  const isLongCaptureMode = isStarMode || isLightTrailMode;
+  const isWaterfallMode = activeCaptureModeId === 'waterfall';
+  const isLongCaptureMode = isStarMode || isLightTrailMode || isWaterfallMode;
+  const isMotionCompositeMode = isLightTrailMode || isWaterfallMode;
 
   useEffect(() => {
     if (!cameraReady || !cameraDevice) return;
@@ -820,6 +828,8 @@ export default function CameraScreen() {
   const starController = cameraRef.current?.controller;
   const supportsNativeLightTrailCompositing =
     typeof StarProcessor?.compositeLightenAsync === 'function';
+  const supportsNativeTemporalAveraging =
+    typeof StarProcessor?.stackAverageAsync === 'function';
   const starCapturePlan = resolveStarCapturePlan({
     platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
     supportsManualExposure: Boolean(cameraDevice?.supportsExposureLocking),
@@ -841,6 +851,21 @@ export default function CameraScreen() {
     supportsManualExposure: Boolean(cameraDevice?.supportsExposureLocking),
     supportsManualWhiteBalance: Boolean(cameraDevice?.supportsWhiteBalanceLocking),
     supportsLightenCompositing: supportsNativeLightTrailCompositing,
+    exposureSecondsRange: starController && starController.maxExposureDuration > 0
+      ? {
+          min: starController.minExposureDuration,
+          max: starController.maxExposureDuration,
+        }
+      : undefined,
+    isoRange: starController && starController.maxISO > 0
+      ? { min: starController.minISO, max: starController.maxISO }
+      : undefined,
+  });
+  const waterfallCapturePlan = resolveWaterfallCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: Boolean(cameraDevice?.supportsExposureLocking),
+    supportsManualWhiteBalance: Boolean(cameraDevice?.supportsWhiteBalanceLocking),
+    supportsTemporalAveraging: supportsNativeTemporalAveraging,
     exposureSecondsRange: starController && starController.maxExposureDuration > 0
       ? {
           min: starController.minExposureDuration,
@@ -962,18 +987,18 @@ export default function CameraScreen() {
         enableShutterSound: false,
         enableRedEyeReduction: !isLongCaptureMode && enableNativeEnhancements,
         enableDistortionCorrection: enableNativeEnhancements,
-        enableVirtualDeviceFusion: !isLightTrailMode && enableNativeEnhancements,
+        enableVirtualDeviceFusion: !isMotionCompositeMode && enableNativeEnhancements,
       },
       {
         flashMode,
         enableShutterSound: true,
         enableRedEyeReduction: !isLongCaptureMode && enableNativeEnhancements,
         enableDistortionCorrection: enableNativeEnhancements,
-        enableVirtualDeviceFusion: !isLightTrailMode && enableNativeEnhancements,
+        enableVirtualDeviceFusion: !isMotionCompositeMode && enableNativeEnhancements,
       },
     ]);
     void photoOutput.prepareSettings(settings).catch(() => undefined);
-  }, [cameraDevice?.hasFlash, hdrEnabled, isLightTrailMode, isLongCaptureMode, maximumPhotoQuality, photoOutput]);
+  }, [cameraDevice?.hasFlash, hdrEnabled, isLongCaptureMode, isMotionCompositeMode, maximumPhotoQuality, photoOutput]);
 
   const zoomRulerWidth = Math.max(232, Math.min(width - 48, 320));
   const zoomRulerTicks = useMemo(
@@ -1567,6 +1592,112 @@ export default function CameraScreen() {
     };
   };
 
+  const getAutomaticWaterfallPlan = (): WaterfallCapturePlan => resolveWaterfallCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: false,
+    supportsManualWhiteBalance: false,
+    supportsTemporalAveraging: supportsNativeTemporalAveraging,
+  });
+
+  const prepareWaterfallCapture = async (requestedPlan: WaterfallCapturePlan) => {
+    const camera = cameraRef.current;
+    const controller = camera?.controller;
+    if (!camera || !controller) {
+      throw new Error('The camera is not ready for Waterfall capture.');
+    }
+
+    await camera.resetFocus().catch(() => undefined);
+    let automaticMeteringApplied = false;
+    if (meteringModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: lockModes.length > 0 ? lockModes : meteringModes,
+            responsiveness: 'steady',
+            adaptiveness: 'locked',
+            autoResetAfter: null,
+          },
+        );
+        automaticMeteringApplied = true;
+      } catch (error) {
+        console.warn('Could not lock Waterfall focus and metering:', error);
+      }
+    }
+
+    if (requestedPlan.strategy === 'manual-slow-exposure') {
+      let whiteBalanceApplied = false;
+      if (requestedPlan.whiteBalanceKelvin !== undefined) {
+        try {
+          const gains = controller.convertWhiteBalanceTemperatureAndTintValues({
+            temperature: requestedPlan.whiteBalanceKelvin,
+            tint: 0,
+          });
+          await controller.setWhiteBalanceLocked(gains);
+          whiteBalanceApplied = true;
+        } catch (error) {
+          console.warn('Could not lock Waterfall white balance:', error);
+        }
+      }
+      try {
+        await controller.setExposureLocked(
+          requestedPlan.exposureSeconds!,
+          requestedPlan.iso!,
+        );
+        return {
+          plan: requestedPlan,
+          manualExposureApplied: true,
+          focusApplied: automaticMeteringApplied,
+          whiteBalanceApplied,
+          automaticMeteringApplied,
+        };
+      } catch (error) {
+        console.warn('Could not apply manual Waterfall exposure; using automatic fallback:', error);
+        await camera.resetFocus().catch(() => undefined);
+        automaticMeteringApplied = false;
+      }
+    }
+
+    const fallbackPlan = requestedPlan.strategy === 'manual-slow-exposure'
+      ? getAutomaticWaterfallPlan()
+      : requestedPlan;
+    if (supportsExposure) {
+      const highlightProtectingBias = getNativeExposureBias(
+        Math.max(-0.7, exposureMin),
+        exposureMin,
+        exposureMax,
+        deviceExposureMin,
+        deviceExposureMax,
+      );
+      await controller.setExposureBias(highlightProtectingBias).catch((error: unknown) => {
+        console.warn('Could not protect Waterfall highlights:', error);
+      });
+    }
+    if (!automaticMeteringApplied && meteringModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: lockModes.length > 0 ? lockModes : meteringModes,
+            responsiveness: 'steady',
+            adaptiveness: 'locked',
+            autoResetAfter: null,
+          },
+        );
+        automaticMeteringApplied = true;
+      } catch (error) {
+        console.warn('Could not lock automatic Waterfall metering:', error);
+      }
+    }
+    return {
+      plan: fallbackPlan,
+      manualExposureApplied: false,
+      focusApplied: automaticMeteringApplied,
+      whiteBalanceApplied: false,
+      automaticMeteringApplied,
+    };
+  };
+
   if (!hasCameraPermission || !hasMediaPermission) {
     return (
       <View style={styles.centered}>
@@ -1637,7 +1768,11 @@ export default function CameraScreen() {
       countdownActiveRef.current = false;
       setCountdown(undefined);
 
-      let appliedCapturePlan: StarCapturePlan | LightTrailCapturePlan | undefined;
+      let appliedCapturePlan:
+        | StarCapturePlan
+        | LightTrailCapturePlan
+        | WaterfallCapturePlan
+        | undefined;
       let manualExposureApplied = false;
       let captureFocusApplied = false;
       let captureWhiteBalanceApplied = false;
@@ -1653,6 +1788,14 @@ export default function CameraScreen() {
       } else if (isLightTrailMode) {
         setCaptureStatus('Preparing light trails…');
         const prepared = await prepareLightTrailCapture(lightTrailCapturePlan);
+        appliedCapturePlan = prepared.plan;
+        manualExposureApplied = prepared.manualExposureApplied;
+        captureFocusApplied = prepared.focusApplied;
+        captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
+        captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
+      } else if (isWaterfallMode) {
+        setCaptureStatus('Preparing waterfall capture…');
+        const prepared = await prepareWaterfallCapture(waterfallCapturePlan);
         appliedCapturePlan = prepared.plan;
         manualExposureApplied = prepared.manualExposureApplied;
         captureFocusApplied = prepared.focusApplied;
@@ -1681,6 +1824,12 @@ export default function CameraScreen() {
               ? 'Capturing light trail… Keep still'
               : `Capturing light trails ${frameIndex + 1} of ${frameCount}… Keep still`,
           );
+        } else if (isWaterfallMode) {
+          setCaptureStatus(
+            frameCount === 1
+              ? 'Smoothing waterfall… Keep still'
+              : `Smoothing waterfall ${frameIndex + 1} of ${frameCount}… Keep still`,
+          );
         }
         const photoFile = await photoOutput.capturePhotoToFile(
           {
@@ -1688,7 +1837,7 @@ export default function CameraScreen() {
             enableShutterSound: shutterSoundEnabled && frameIndex === 0,
             enableRedEyeReduction: !isLongCaptureMode && (hdrEnabled || maximumPhotoQuality),
             enableDistortionCorrection: isLongCaptureMode || hdrEnabled || maximumPhotoQuality,
-            enableVirtualDeviceFusion: !isLightTrailMode && (isStarMode || hdrEnabled || maximumPhotoQuality),
+            enableVirtualDeviceFusion: !isMotionCompositeMode && (isStarMode || hdrEnabled || maximumPhotoQuality),
           },
           {},
         );
@@ -1699,6 +1848,13 @@ export default function CameraScreen() {
         ) {
           await new Promise<void>((resolve) => {
             setTimeout(resolve, LIGHT_TRAIL_FRAME_INTERVAL_MS);
+          });
+        } else if (
+          appliedCapturePlan?.strategy === 'automatic-temporal-average'
+          && frameIndex < frameCount - 1
+        ) {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, WATERFALL_FRAME_INTERVAL_MS);
           });
         }
       }
@@ -1750,6 +1906,28 @@ export default function CameraScreen() {
             frameCount: 1,
           };
           captureFallbackReason = 'Light Trail compositing failed; the first low-light frame was preserved.';
+        }
+      } else if (
+        appliedCapturePlan?.strategy === 'automatic-temporal-average'
+        && capturedFramePaths.length > 1
+        && StarProcessor
+      ) {
+        setCaptureStatus(`Smoothing water from ${capturedFramePaths.length} frames…`);
+        try {
+          const averaged = await StarProcessor.stackAverageAsync(
+            capturedFramePaths,
+            maximumPhotoQuality ? 100 : 92,
+          );
+          outputFilePath = averaged.uri.replace(/^file:\/\//, '');
+          captureProcessingOperations = ['temporal average water smoothing'];
+        } catch (error) {
+          console.warn('Could not combine Waterfall frames; saving the first frame:', error);
+          appliedCapturePlan = {
+            ...appliedCapturePlan,
+            strategy: 'automatic-low-light',
+            frameCount: 1,
+          };
+          captureFallbackReason = 'Waterfall smoothing failed; the first frame was preserved.';
         }
       }
 
@@ -2032,6 +2210,17 @@ export default function CameraScreen() {
                     )}
                     <Text style={styles.chip}>Flash off</Text>
                   </>
+                ) : isWaterfallMode ? (
+                  <>
+                    <Text style={styles.chip}>{getWaterfallPlanLabel(waterfallCapturePlan)}</Text>
+                    {waterfallCapturePlan.exposureSeconds !== undefined && (
+                      <Text style={styles.chip}>{waterfallCapturePlan.exposureSeconds.toFixed(2)}s</Text>
+                    )}
+                    {waterfallCapturePlan.iso !== undefined && (
+                      <Text style={styles.chip}>ISO {waterfallCapturePlan.iso}</Text>
+                    )}
+                    <Text style={styles.chip}>Flash off</Text>
+                  </>
                 ) : (
                   <>
                     <Text style={styles.chip}>ISO {preset.iso}</Text>
@@ -2046,7 +2235,9 @@ export default function CameraScreen() {
                 <Text style={[styles.tip, { color: preset.tint }]}>
                   {isStarMode
                     ? starCapturePlan.guidance
-                    : isLightTrailMode ? lightTrailCapturePlan.guidance : preset.tip}
+                    : isLightTrailMode
+                      ? lightTrailCapturePlan.guidance
+                      : isWaterfallMode ? waterfallCapturePlan.guidance : preset.tip}
                 </Text>
               </View>
             </Pressable>

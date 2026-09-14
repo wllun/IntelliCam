@@ -26,8 +26,10 @@ export interface CapturePhotoMetadata {
   portraitEffectApplied?: boolean;
   captureStrategy?:
     | 'manual-long-exposure'
+    | 'manual-slow-exposure'
     | 'automatic-frame-stack'
     | 'automatic-lighten-composite'
+    | 'automatic-temporal-average'
     | 'automatic-low-light';
   captureFrameCount?: number;
   manualExposureApplied?: boolean;
@@ -100,10 +102,14 @@ function formatCaptureStrategy(value: CapturePhotoMetadata['captureStrategy']) {
   switch (value) {
     case 'manual-long-exposure':
       return 'Manual long exposure';
+    case 'manual-slow-exposure':
+      return 'Manual slow exposure';
     case 'automatic-frame-stack':
       return 'Automatic frame stack';
     case 'automatic-lighten-composite':
       return 'Automatic light trail composite';
+    case 'automatic-temporal-average':
+      return 'Automatic temporal average';
     case 'automatic-low-light':
       return 'Automatic low light';
     default:
