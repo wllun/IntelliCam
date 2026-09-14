@@ -68,6 +68,12 @@ import {
   resolveStarCapturePlan,
   type StarCapturePlan,
 } from '@/services/star-capture';
+import {
+  getLightTrailPlanLabel,
+  LIGHT_TRAIL_FRAME_INTERVAL_MS,
+  resolveLightTrailCapturePlan,
+  type LightTrailCapturePlan,
+} from '@/services/light-trail-capture';
 
 const ALBUM_NAME = 'IntelliCam';
 type TimerSeconds = 0 | 3 | 5 | 10 | 30;
@@ -777,6 +783,8 @@ export default function CameraScreen() {
   }, [activeCaptureModeId, cameraDevice?.id, facing, resetMetering]);
 
   const isStarMode = activeCaptureModeId === 'star';
+  const isLightTrailMode = activeCaptureModeId === 'light-trail';
+  const isLongCaptureMode = isStarMode || isLightTrailMode;
 
   useEffect(() => {
     if (!cameraReady || !cameraDevice) return;
@@ -789,14 +797,14 @@ export default function CameraScreen() {
         : undefined,
       enableDistortionCorrection:
         Platform.OS === 'ios' && cameraDevice.supportsDistortionCorrection
-          ? maximumPhotoQuality || isStarMode
+          ? maximumPhotoQuality || isLongCaptureMode
           : undefined,
     }).catch((error: unknown) => {
       if (!isCameraLifecycleCancellation(error)) {
         console.warn('Could not apply native photo quality enhancements:', error);
       }
     });
-  }, [cameraDevice, cameraReady, isStarMode, maximumPhotoQuality]);
+  }, [cameraDevice, cameraReady, isLongCaptureMode, isStarMode, maximumPhotoQuality]);
 
   useEffect(() => {
     if (!appActive || !screenFocused) resetMetering();
@@ -810,12 +818,29 @@ export default function CameraScreen() {
   );
   const preset = PRESETS[presetIndex];
   const starController = cameraRef.current?.controller;
+  const supportsNativeLightTrailCompositing =
+    typeof StarProcessor?.compositeLightenAsync === 'function';
   const starCapturePlan = resolveStarCapturePlan({
     platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
     supportsManualExposure: Boolean(cameraDevice?.supportsExposureLocking),
     supportsManualFocus: Boolean(cameraDevice?.supportsFocusLocking),
     supportsManualWhiteBalance: Boolean(cameraDevice?.supportsWhiteBalanceLocking),
     supportsFrameStacking: Boolean(StarProcessor),
+    exposureSecondsRange: starController && starController.maxExposureDuration > 0
+      ? {
+          min: starController.minExposureDuration,
+          max: starController.maxExposureDuration,
+        }
+      : undefined,
+    isoRange: starController && starController.maxISO > 0
+      ? { min: starController.minISO, max: starController.maxISO }
+      : undefined,
+  });
+  const lightTrailCapturePlan = resolveLightTrailCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: Boolean(cameraDevice?.supportsExposureLocking),
+    supportsManualWhiteBalance: Boolean(cameraDevice?.supportsWhiteBalanceLocking),
+    supportsLightenCompositing: supportsNativeLightTrailCompositing,
     exposureSecondsRange: starController && starController.maxExposureDuration > 0
       ? {
           min: starController.minExposureDuration,
@@ -917,9 +942,9 @@ export default function CameraScreen() {
   }, [cameraDevice, meteringModes]);
   const cameraOutputs = useMemo(() => [photoOutput], [photoOutput]);
   const cameraConstraints = useMemo<Constraint[]>(() => [
-    { photoHDR: hdrEnabled && supportsNativeHdr },
+    { photoHDR: hdrEnabled && supportsNativeHdr && !isLongCaptureMode },
     { resolutionBias: photoOutput },
-  ], [hdrEnabled, photoOutput, supportsNativeHdr]);
+  ], [hdrEnabled, isLongCaptureMode, photoOutput, supportsNativeHdr]);
   const isLandscapeCapture = width > height;
   const previewFrame = getPreviewFrame(
     width,
@@ -930,25 +955,25 @@ export default function CameraScreen() {
 
   useEffect(() => {
     const supportedFlashModes: FlashMode[] = cameraDevice?.hasFlash ? FLASH_MODES : ['off'];
-    const enableNativeEnhancements = hdrEnabled || maximumPhotoQuality || isStarMode;
+    const enableNativeEnhancements = hdrEnabled || maximumPhotoQuality || isLongCaptureMode;
     const settings: CapturePhotoSettings[] = supportedFlashModes.flatMap((flashMode) => [
       {
         flashMode,
         enableShutterSound: false,
-        enableRedEyeReduction: enableNativeEnhancements,
+        enableRedEyeReduction: !isLongCaptureMode && enableNativeEnhancements,
         enableDistortionCorrection: enableNativeEnhancements,
-        enableVirtualDeviceFusion: enableNativeEnhancements,
+        enableVirtualDeviceFusion: !isLightTrailMode && enableNativeEnhancements,
       },
       {
         flashMode,
         enableShutterSound: true,
-        enableRedEyeReduction: enableNativeEnhancements,
+        enableRedEyeReduction: !isLongCaptureMode && enableNativeEnhancements,
         enableDistortionCorrection: enableNativeEnhancements,
-        enableVirtualDeviceFusion: enableNativeEnhancements,
+        enableVirtualDeviceFusion: !isLightTrailMode && enableNativeEnhancements,
       },
     ]);
     void photoOutput.prepareSettings(settings).catch(() => undefined);
-  }, [cameraDevice?.hasFlash, hdrEnabled, isStarMode, maximumPhotoQuality, photoOutput]);
+  }, [cameraDevice?.hasFlash, hdrEnabled, isLightTrailMode, isLongCaptureMode, maximumPhotoQuality, photoOutput]);
 
   const zoomRulerWidth = Math.max(232, Math.min(width - 48, 320));
   const zoomRulerTicks = useMemo(
@@ -1436,6 +1461,112 @@ export default function CameraScreen() {
     };
   };
 
+  const getAutomaticLightTrailPlan = (): LightTrailCapturePlan => resolveLightTrailCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: false,
+    supportsManualWhiteBalance: false,
+    supportsLightenCompositing: supportsNativeLightTrailCompositing,
+  });
+
+  const prepareLightTrailCapture = async (requestedPlan: LightTrailCapturePlan) => {
+    const camera = cameraRef.current;
+    const controller = camera?.controller;
+    if (!camera || !controller) {
+      throw new Error('The camera is not ready for Light Trail capture.');
+    }
+
+    await camera.resetFocus().catch(() => undefined);
+    let automaticMeteringApplied = false;
+    if (meteringModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: lockModes.length > 0 ? lockModes : meteringModes,
+            responsiveness: 'steady',
+            adaptiveness: 'locked',
+            autoResetAfter: null,
+          },
+        );
+        automaticMeteringApplied = true;
+      } catch (error) {
+        console.warn('Could not lock Light Trail focus and metering:', error);
+      }
+    }
+
+    if (requestedPlan.strategy === 'manual-long-exposure') {
+      let whiteBalanceApplied = false;
+      if (requestedPlan.whiteBalanceKelvin !== undefined) {
+        try {
+          const gains = controller.convertWhiteBalanceTemperatureAndTintValues({
+            temperature: requestedPlan.whiteBalanceKelvin,
+            tint: 0,
+          });
+          await controller.setWhiteBalanceLocked(gains);
+          whiteBalanceApplied = true;
+        } catch (error) {
+          console.warn('Could not lock Light Trail white balance:', error);
+        }
+      }
+      try {
+        await controller.setExposureLocked(
+          requestedPlan.exposureSeconds!,
+          requestedPlan.iso!,
+        );
+        return {
+          plan: requestedPlan,
+          manualExposureApplied: true,
+          focusApplied: automaticMeteringApplied,
+          whiteBalanceApplied,
+          automaticMeteringApplied,
+        };
+      } catch (error) {
+        console.warn('Could not apply manual Light Trail exposure; using automatic fallback:', error);
+        await camera.resetFocus().catch(() => undefined);
+        automaticMeteringApplied = false;
+      }
+    }
+
+    const fallbackPlan = requestedPlan.strategy === 'manual-long-exposure'
+      ? getAutomaticLightTrailPlan()
+      : requestedPlan;
+    if (supportsExposure) {
+      const highlightProtectingBias = getNativeExposureBias(
+        Math.max(-1, exposureMin),
+        exposureMin,
+        exposureMax,
+        deviceExposureMin,
+        deviceExposureMax,
+      );
+      await controller.setExposureBias(highlightProtectingBias).catch((error: unknown) => {
+        console.warn('Could not protect Light Trail highlights:', error);
+      });
+    }
+    if (!automaticMeteringApplied && meteringModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: lockModes.length > 0 ? lockModes : meteringModes,
+            responsiveness: 'steady',
+            adaptiveness: 'locked',
+            autoResetAfter: null,
+          },
+        );
+        automaticMeteringApplied = true;
+      } catch (error) {
+        console.warn('Could not lock automatic Light Trail metering:', error);
+      }
+    }
+    return {
+      plan: fallbackPlan,
+      manualExposureApplied: false,
+      focusApplied: automaticMeteringApplied,
+      whiteBalanceApplied: false,
+      automaticMeteringApplied,
+    };
+  };
+
   if (!hasCameraPermission || !hasMediaPermission) {
     return (
       <View style={styles.centered}>
@@ -1506,22 +1637,30 @@ export default function CameraScreen() {
       countdownActiveRef.current = false;
       setCountdown(undefined);
 
-      let appliedStarPlan: StarCapturePlan | undefined;
+      let appliedCapturePlan: StarCapturePlan | LightTrailCapturePlan | undefined;
       let manualExposureApplied = false;
-      let starFocusApplied = false;
-      let starWhiteBalanceApplied = false;
-      let starAutomaticMeteringApplied = false;
+      let captureFocusApplied = false;
+      let captureWhiteBalanceApplied = false;
+      let captureAutomaticMeteringApplied = false;
       if (isStarMode) {
         setCaptureStatus('Preparing night capture…');
         const prepared = await prepareStarCapture(starCapturePlan);
-        appliedStarPlan = prepared.plan;
+        appliedCapturePlan = prepared.plan;
         manualExposureApplied = prepared.manualExposureApplied;
-        starFocusApplied = prepared.focusApplied;
-        starWhiteBalanceApplied = prepared.whiteBalanceApplied;
-        starAutomaticMeteringApplied = prepared.automaticMeteringApplied;
+        captureFocusApplied = prepared.focusApplied;
+        captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
+        captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
+      } else if (isLightTrailMode) {
+        setCaptureStatus('Preparing light trails…');
+        const prepared = await prepareLightTrailCapture(lightTrailCapturePlan);
+        appliedCapturePlan = prepared.plan;
+        manualExposureApplied = prepared.manualExposureApplied;
+        captureFocusApplied = prepared.focusApplied;
+        captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
+        captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
       }
 
-      const frameCount = appliedStarPlan?.frameCount ?? 1;
+      const frameCount = appliedCapturePlan?.frameCount ?? 1;
       const capturedFramePaths: string[] = [];
       for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
         if (
@@ -1536,26 +1675,40 @@ export default function CameraScreen() {
               ? 'Capturing stars… Keep still'
               : `Capturing stars ${frameIndex + 1} of ${frameCount}… Keep still`,
           );
+        } else if (isLightTrailMode) {
+          setCaptureStatus(
+            frameCount === 1
+              ? 'Capturing light trail… Keep still'
+              : `Capturing light trails ${frameIndex + 1} of ${frameCount}… Keep still`,
+          );
         }
         const photoFile = await photoOutput.capturePhotoToFile(
           {
-            flashMode: isStarMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
+            flashMode: isLongCaptureMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
             enableShutterSound: shutterSoundEnabled && frameIndex === 0,
-            enableRedEyeReduction: !isStarMode && (hdrEnabled || maximumPhotoQuality),
-            enableDistortionCorrection: isStarMode || hdrEnabled || maximumPhotoQuality,
-            enableVirtualDeviceFusion: isStarMode || hdrEnabled || maximumPhotoQuality,
+            enableRedEyeReduction: !isLongCaptureMode && (hdrEnabled || maximumPhotoQuality),
+            enableDistortionCorrection: isLongCaptureMode || hdrEnabled || maximumPhotoQuality,
+            enableVirtualDeviceFusion: !isLightTrailMode && (isStarMode || hdrEnabled || maximumPhotoQuality),
           },
           {},
         );
         capturedFramePaths.push(photoFile.filePath);
+        if (
+          appliedCapturePlan?.strategy === 'automatic-lighten-composite'
+          && frameIndex < frameCount - 1
+        ) {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, LIGHT_TRAIL_FRAME_INTERVAL_MS);
+          });
+        }
       }
 
       const metadataSourceFilePath = capturedFramePaths[0];
       let outputFilePath = metadataSourceFilePath;
-      let starProcessingOperations: string[] | undefined;
-      let starFallbackReason = appliedStarPlan?.fallbackReason;
+      let captureProcessingOperations: string[] | undefined;
+      let captureFallbackReason = appliedCapturePlan?.fallbackReason;
       if (
-        appliedStarPlan?.strategy === 'automatic-frame-stack'
+        appliedCapturePlan?.strategy === 'automatic-frame-stack'
         && capturedFramePaths.length > 1
         && StarProcessor
       ) {
@@ -1566,15 +1719,37 @@ export default function CameraScreen() {
             maximumPhotoQuality ? 100 : 92,
           );
           outputFilePath = stacked.uri.replace(/^file:\/\//, '');
-          starProcessingOperations = ['frame-average noise reduction'];
+          captureProcessingOperations = ['frame-average noise reduction'];
         } catch (error) {
           console.warn('Could not combine Star frames; saving the first frame:', error);
-          appliedStarPlan = {
-            ...appliedStarPlan,
+          appliedCapturePlan = {
+            ...appliedCapturePlan,
             strategy: 'automatic-low-light',
             frameCount: 1,
           };
-          starFallbackReason = 'Frame stacking failed; the first low-light frame was preserved.';
+          captureFallbackReason = 'Frame stacking failed; the first low-light frame was preserved.';
+        }
+      } else if (
+        appliedCapturePlan?.strategy === 'automatic-lighten-composite'
+        && capturedFramePaths.length > 1
+        && StarProcessor
+      ) {
+        setCaptureStatus(`Building light trails from ${capturedFramePaths.length} frames…`);
+        try {
+          const composited = await StarProcessor.compositeLightenAsync(
+            capturedFramePaths,
+            maximumPhotoQuality ? 100 : 92,
+          );
+          outputFilePath = composited.uri.replace(/^file:\/\//, '');
+          captureProcessingOperations = ['lighten blend trail composite'];
+        } catch (error) {
+          console.warn('Could not combine Light Trail frames; saving the first frame:', error);
+          appliedCapturePlan = {
+            ...appliedCapturePlan,
+            strategy: 'automatic-low-light',
+            frameCount: 1,
+          };
+          captureFallbackReason = 'Light Trail compositing failed; the first low-light frame was preserved.';
         }
       }
 
@@ -1599,7 +1774,7 @@ export default function CameraScreen() {
         cameraName: cameraDevice?.localizedName,
         cameraModel: cameraDevice?.modelID,
         cameraType: cameraDevice?.type,
-        flash: isStarMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
+        flash: isLongCaptureMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
         hdr: hdrApplied,
         photoQuality,
         exposureCompensation,
@@ -1608,21 +1783,21 @@ export default function CameraScreen() {
         locationSaved: locationEnabled && Boolean(captureLocationRef.current),
         portraitEffectRequested: isAutoMode && portraitEffectEnabled,
         portraitEffectApplied: false,
-        captureStrategy: appliedStarPlan?.strategy,
-        captureFrameCount: appliedStarPlan?.frameCount,
-        manualExposureApplied: appliedStarPlan ? manualExposureApplied : undefined,
-        appliedExposureSeconds: manualExposureApplied ? appliedStarPlan?.exposureSeconds : undefined,
-        appliedIso: manualExposureApplied ? appliedStarPlan?.iso : undefined,
-        appliedWhiteBalanceKelvin: starWhiteBalanceApplied
-          ? appliedStarPlan?.whiteBalanceKelvin
+        captureStrategy: appliedCapturePlan?.strategy,
+        captureFrameCount: appliedCapturePlan?.frameCount,
+        manualExposureApplied: appliedCapturePlan ? manualExposureApplied : undefined,
+        appliedExposureSeconds: manualExposureApplied ? appliedCapturePlan?.exposureSeconds : undefined,
+        appliedIso: manualExposureApplied ? appliedCapturePlan?.iso : undefined,
+        appliedWhiteBalanceKelvin: captureWhiteBalanceApplied
+          ? appliedCapturePlan?.whiteBalanceKelvin
           : undefined,
-        focusStrategy: appliedStarPlan
-          ? starFocusApplied
+        focusStrategy: appliedCapturePlan
+          ? isStarMode && captureFocusApplied
             ? 'infinity-locked'
-            : starAutomaticMeteringApplied ? 'automatic-locked' : undefined
+            : captureAutomaticMeteringApplied ? 'automatic-locked' : undefined
           : undefined,
-        processingOperations: starProcessingOperations,
-        captureFallbackReason: starFallbackReason,
+        processingOperations: captureProcessingOperations,
+        captureFallbackReason,
       };
       latestCaptureRef.current = captureSession;
       setLatestPhoto({
@@ -1652,7 +1827,7 @@ export default function CameraScreen() {
         setCountdown(undefined);
         setCaptureStatus(undefined);
         setCapturing(false);
-        if (isStarMode) {
+        if (isLongCaptureMode) {
           void cameraRef.current?.resetFocus().catch(() => undefined);
           const controller = cameraRef.current?.controller;
           if (supportsExposure && controller) {
@@ -1683,6 +1858,7 @@ export default function CameraScreen() {
               onSessionConfigSelected={(config) => {
                 setHdrApplied(
                   hdrEnabled
+                  && !isLongCaptureMode
                   && (supportsNativeHdr ? config.isPhotoHDREnabled : true),
                 );
               }}
@@ -1757,7 +1933,7 @@ export default function CameraScreen() {
             accessibilityLiveRegion="polite"
             pointerEvents="none"
             style={[styles.captureStatus, { bottom: insets.bottom + 160 }]}>
-            <Ionicons name="moon-outline" size={16} color="#9FE1CB" />
+            <Ionicons name={preset.icon} size={16} color={preset.tint} />
             <Text style={styles.captureStatusText}>{captureStatus}</Text>
           </View>
         )}
@@ -1831,7 +2007,7 @@ export default function CameraScreen() {
                 <Text style={styles.cardTitle}>{preset.name}</Text>
               </View>
               <Text style={styles.cardStatusLabel}>
-                {isStarMode ? 'CAPTURE PLAN' : 'SUGGESTED STARTING POINT'}
+                {isLongCaptureMode ? 'CAPTURE PLAN' : 'SUGGESTED STARTING POINT'}
               </Text>
               <View style={styles.chips}>
                 {isStarMode ? (
@@ -1842,6 +2018,17 @@ export default function CameraScreen() {
                     )}
                     {starCapturePlan.iso !== undefined && (
                       <Text style={styles.chip}>ISO {starCapturePlan.iso}</Text>
+                    )}
+                    <Text style={styles.chip}>Flash off</Text>
+                  </>
+                ) : isLightTrailMode ? (
+                  <>
+                    <Text style={styles.chip}>{getLightTrailPlanLabel(lightTrailCapturePlan)}</Text>
+                    {lightTrailCapturePlan.exposureSeconds !== undefined && (
+                      <Text style={styles.chip}>{lightTrailCapturePlan.exposureSeconds.toFixed(1)}s</Text>
+                    )}
+                    {lightTrailCapturePlan.iso !== undefined && (
+                      <Text style={styles.chip}>ISO {lightTrailCapturePlan.iso}</Text>
                     )}
                     <Text style={styles.chip}>Flash off</Text>
                   </>
@@ -1857,7 +2044,9 @@ export default function CameraScreen() {
               <View style={styles.tipRow}>
                 <Ionicons name="information-circle-outline" size={13} color={preset.tint} />
                 <Text style={[styles.tip, { color: preset.tint }]}>
-                  {isStarMode ? starCapturePlan.guidance : preset.tip}
+                  {isStarMode
+                    ? starCapturePlan.guidance
+                    : isLightTrailMode ? lightTrailCapturePlan.guidance : preset.tip}
                 </Text>
               </View>
             </Pressable>

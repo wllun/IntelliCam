@@ -24,7 +24,11 @@ export interface CapturePhotoMetadata {
   locationSaved: boolean;
   portraitEffectRequested?: boolean;
   portraitEffectApplied?: boolean;
-  captureStrategy?: 'manual-long-exposure' | 'automatic-frame-stack' | 'automatic-low-light';
+  captureStrategy?:
+    | 'manual-long-exposure'
+    | 'automatic-frame-stack'
+    | 'automatic-lighten-composite'
+    | 'automatic-low-light';
   captureFrameCount?: number;
   manualExposureApplied?: boolean;
   appliedExposureSeconds?: number;
@@ -98,6 +102,8 @@ function formatCaptureStrategy(value: CapturePhotoMetadata['captureStrategy']) {
       return 'Manual long exposure';
     case 'automatic-frame-stack':
       return 'Automatic frame stack';
+    case 'automatic-lighten-composite':
+      return 'Automatic light trail composite';
     case 'automatic-low-light':
       return 'Automatic low light';
     default:
@@ -182,13 +188,13 @@ export async function getPhotoInformation(
         row('Frames combined', custom?.captureFrameCount && custom.captureFrameCount > 1
           ? custom.captureFrameCount
           : undefined),
-        row('Star exposure', custom?.manualExposureApplied && custom.appliedExposureSeconds
+        row('Manual exposure', custom?.manualExposureApplied && custom.appliedExposureSeconds
           ? `${custom.appliedExposureSeconds.toFixed(1)} s at ISO ${custom.appliedIso}`
           : undefined),
-        row('Star white balance', custom?.appliedWhiteBalanceKelvin
+        row('White balance', custom?.appliedWhiteBalanceKelvin
           ? `${custom.appliedWhiteBalanceKelvin} K`
           : undefined),
-        row('Star focus', custom?.focusStrategy === 'infinity-locked'
+        row('Capture focus', custom?.focusStrategy === 'infinity-locked'
           ? 'Infinity locked'
           : custom?.focusStrategy === 'automatic-locked' ? 'Automatic metering lock' : undefined),
         row('Processing', custom?.processingOperations?.join(', ')),

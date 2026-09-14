@@ -30,7 +30,7 @@ test('Star mode applies real manual camera controls only where supported', () =>
 });
 
 test('Star mode captures flash-off frames and stacks the automatic fallback', () => {
-  assert.match(cameraSource, /isStarMode \? 'off'/);
+  assert.match(cameraSource, /isLongCaptureMode \? 'off'/);
   assert.match(cameraSource, /StarProcessor\.stackAverageAsync\(/);
   assert.match(cameraSource, /Capturing stars.*frameIndex \+ 1/);
   assert.deepEqual(moduleConfig.platforms, ['apple', 'android']);
@@ -40,8 +40,8 @@ test('Star mode captures flash-off frames and stacks the automatic fallback', ()
 });
 
 test('Star capture records the applied plan without claiming unsupported settings', () => {
-  assert.match(cameraSource, /manualExposureApplied: appliedStarPlan \? manualExposureApplied/);
-  assert.match(cameraSource, /captureFallbackReason: starFallbackReason/);
+  assert.match(cameraSource, /manualExposureApplied: appliedCapturePlan \? manualExposureApplied/);
+  assert.match(cameraSource, /captureFallbackReason,/);
   assert.match(metadataSource, /row\('Capture strategy'/);
   assert.match(metadataSource, /row\('Frames combined'/);
   assert.match(metadataSource, /row\('Fallback'/);

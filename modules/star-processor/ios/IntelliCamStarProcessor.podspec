@@ -1,8 +1,8 @@
 Pod::Spec.new do |s|
   s.name             = 'IntelliCamStarProcessor'
   s.version          = '1.0.0'
-  s.summary          = 'Averages IntelliCam Star capture frames.'
-  s.description      = 'A local Expo module for low-noise multi-frame Star photos.'
+  s.summary          = 'Combines IntelliCam long-capture frames.'
+  s.description      = 'A local Expo module for Star averaging and Light Trail highlight compositing.'
   s.license          = { :type => 'MIT' }
   s.author           = 'IntelliCam'
   s.homepage         = 'https://example.invalid/intellicam'

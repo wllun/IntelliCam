@@ -25,6 +25,62 @@ class StarProcessorModule : Module() {
         stackAverage(sourceUris, jpegQuality.coerceIn(80, 100))
       }
     }
+
+    AsyncFunction("compositeLightenAsync") Coroutine { sourceUris: List<String>, jpegQuality: Int ->
+      withContext(Dispatchers.Default) {
+        compositeLighten(sourceUris, jpegQuality.coerceIn(80, 100))
+      }
+    }
+  }
+
+  private fun compositeLighten(
+    sourceUris: List<String>,
+    jpegQuality: Int,
+  ): Map<String, Any> {
+    require(sourceUris.size in 2..MAX_FRAMES) {
+      "Light Trail compositing requires between 2 and $MAX_FRAMES frames."
+    }
+
+    val paths = sourceUris.map(::filePath)
+    val base = decodeOrientedBitmap(paths.first())
+      ?: throw IllegalArgumentException("The first Light Trail frame could not be decoded.")
+    val mutableBase = if (base.isMutable && base.config == Bitmap.Config.ARGB_8888) {
+      base
+    } else {
+      base.copy(Bitmap.Config.ARGB_8888, true).also { base.recycle() }
+    }
+
+    try {
+      paths.drop(1).forEachIndexed { index, path ->
+        val decoded = decodeOrientedBitmap(path)
+          ?: throw IllegalArgumentException("Light Trail frame ${index + 2} could not be decoded.")
+        val frame = if (decoded.width == mutableBase.width && decoded.height == mutableBase.height) {
+          decoded
+        } else {
+          Bitmap.createScaledBitmap(decoded, mutableBase.width, mutableBase.height, true)
+            .also { decoded.recycle() }
+        }
+        try {
+          lightenInto(mutableBase, frame)
+        } finally {
+          frame.recycle()
+        }
+      }
+
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      val output = File(context.cacheDir, "intellicam-light-trail-${UUID.randomUUID()}.jpg")
+      FileOutputStream(output).use { stream ->
+        check(mutableBase.compress(Bitmap.CompressFormat.JPEG, jpegQuality, stream)) {
+          "The Light Trail photo could not be encoded."
+        }
+      }
+      return mapOf(
+        "uri" to Uri.fromFile(output).toString(),
+        "frameCount" to sourceUris.size,
+      )
+    } finally {
+      mutableBase.recycle()
+    }
   }
 
   private fun stackAverage(
@@ -102,6 +158,30 @@ class StarProcessorModule : Module() {
     }
   }
 
+  private fun lightenInto(base: Bitmap, frame: Bitmap) {
+    val width = base.width
+    val basePixels = IntArray(width * ROW_BLOCK_SIZE)
+    val framePixels = IntArray(width * ROW_BLOCK_SIZE)
+
+    var startY = 0
+    while (startY < base.height) {
+      val rowCount = minOf(ROW_BLOCK_SIZE, base.height - startY)
+      val pixelCount = width * rowCount
+      base.getPixels(basePixels, 0, width, 0, startY, width, rowCount)
+      frame.getPixels(framePixels, 0, width, 0, startY, width, rowCount)
+      for (pixelIndex in 0 until pixelCount) {
+        val first = basePixels[pixelIndex]
+        val next = framePixels[pixelIndex]
+        val red = max(first shr 16 and 0xff, next shr 16 and 0xff)
+        val green = max(first shr 8 and 0xff, next shr 8 and 0xff)
+        val blue = max(first and 0xff, next and 0xff)
+        basePixels[pixelIndex] = (0xff shl 24) or (red shl 16) or (green shl 8) or blue
+      }
+      base.setPixels(basePixels, 0, width, 0, startY, width, rowCount)
+      startY += rowCount
+    }
+  }
+
   private fun decodeOrientedBitmap(path: String): Bitmap? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(path, bounds)
@@ -146,7 +226,7 @@ class StarProcessorModule : Module() {
     val uri = Uri.parse(value)
     val path = if (uri.scheme == "file") uri.path else value
     require(!path.isNullOrBlank() && File(path).exists()) {
-      "A Star capture frame no longer exists."
+      "A capture frame no longer exists."
     }
     return path
   }
