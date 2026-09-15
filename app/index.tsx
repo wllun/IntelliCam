@@ -3079,7 +3079,7 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: 'rgba(12,12,12,0.82)',
+    backgroundColor: 'rgba(12,12,12,0.58)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.16)',
   },
@@ -3127,11 +3127,11 @@ const styles = StyleSheet.create({
   zoomRulerTick: {
     width: 1,
     height: 7,
-    backgroundColor: 'rgba(255,255,255,0.58)',
+    backgroundColor: 'rgba(255,255,255,0.72)',
   },
   zoomRulerTickMedium: {
     height: 11,
-    backgroundColor: 'rgba(255,255,255,0.78)',
+    backgroundColor: 'rgba(255,255,255,0.85)',
   },
   zoomRulerTickMajor: {
     width: 2,
