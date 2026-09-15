@@ -53,18 +53,6 @@ export const PRESETS: Preset[] = [
     tip: 'Use a tripod or brace against something solid',
   },
   {
-    id: 'portrait',
-    name: 'Portrait',
-    icon: 'person-outline',
-    tint: '#F4C0D1',
-    iso: 200,
-    shutter: '1/120',
-    whiteBalance: 5200,
-    focus: 'auto',
-    raw: false,
-    tip: 'Stand 1–2 m from your subject',
-  },
-  {
     id: 'beauty',
     name: '美顔',
     icon: 'sparkles-outline',

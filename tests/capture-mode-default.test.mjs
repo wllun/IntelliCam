@@ -10,6 +10,10 @@ const cameraScreenSource = await readFile(
   new URL('../app/index.tsx', import.meta.url),
   'utf8',
 );
+const presetSource = await readFile(
+  new URL('../constants/presets.ts', import.meta.url),
+  'utf8',
+);
 
 test('keeps Auto as the first and default capture mode', () => {
   assert.match(captureModesSource, /id:\s*['"]auto['"]/);
@@ -27,4 +31,10 @@ test('keeps Auto as the first and default capture mode', () => {
 test('uses one active mode id on the shared camera screen', () => {
   assert.match(cameraScreenSource, /selectedId=\{activeCaptureModeId\}/);
   assert.doesNotMatch(cameraScreenSource, /type CaptureMode = ['"]normal['"] \| ['"]preset['"]/);
+});
+
+test('omits standalone Portrait mode while retaining Auto Portrait effect', () => {
+  assert.doesNotMatch(presetSource, /id:\s*['"]portrait['"]/);
+  assert.match(presetSource, /id:\s*['"]beauty['"]/);
+  assert.match(cameraScreenSource, /accessibilityLabel="Portrait effect"/);
 });

@@ -32,11 +32,6 @@ const MODE_PRESENTATION: Record<
     description: 'Smooth flowing water with scene detail',
     artwork: require('../assets/images/capture-modes/waterfall.png'),
   },
-  portrait: {
-    name: 'Portrait',
-    description: 'Keep people crisp with gentle separation',
-    artwork: require('../assets/images/capture-modes/portrait.png'),
-  },
   beauty: {
     name: '美顔',
     description: 'Flattering portraits with natural-looking skin',

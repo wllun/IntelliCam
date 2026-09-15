@@ -39,14 +39,14 @@ pending explicit approval.
 - [x] Vision Camera wired: permission request -> camera preview -> silent shutter by default -> JPEG saved directly to an "IntelliCam" MediaLibrary album without a save confirmation
 - [x] EAS Build configured (`eas.json`, `preview` profile builds an installable APK via `eas build -p android --profile preview`)
 - [x] Fail-safe forced-update gate for Android/iOS native builds — reads a public per-platform JSON policy at startup/foreground, validates native build numbers and HTTPS/Android market links, caches a forced policy for at most 72 hours, and is disabled by default
-- [x] Preset data (`constants/presets.ts`) - six special modes (Star, Light Trail, Waterfall, Portrait, 美顔, Product) as plain data
+- [x] Preset data (`constants/presets.ts`) - five special modes (Star, Light Trail, Waterfall, 美顔, Product) as plain data; standalone Portrait was removed from the selector while the functional Auto-mode Portrait effect remains
 - [x] "Focus card" preset UI on camera screen - swipe left/right to switch, floating card shows executable Star, Light Trail, Waterfall, and Product capture plans or clearly labelled suggested settings for the remaining modes, plus shooting guidance, dot indicator, and preset-tinted shutter
 - [x] Camera control UI - IntelliCam gallery button left of the shutter, capture-mode button right of the shutter, and three-dot settings button at the top-right (UI only)
 - [x] Auto camera capture mode - the first-launch default for reliable automatic photo capture with flash off/auto/on, zoom controls, front/rear camera switching, gridlines, aspect ratio, and timer
 - [x] Single shared camera engine - Auto and every selected special mode use the same camera screen, preview, shutter, capture function, processing queue, and save pipeline; mode-specific strategies will plug into this engine
 - [x] Native-quality capture pass - Maximum quality is the default, selects the highest supported 4:3 photo resolution, requests native quality prioritization, enables supported low-light boost and Apple fusion/distortion correction, and preserves JPEG quality through aspect-ratio cropping
 - [x] Native Portrait effect in Auto mode - icon control beside Flash, offline person segmentation and background blur after capture, portable applied/not-applied metadata, and safe original-photo fallback (ML Kit on Android; Vision/Core Image on iOS)
-- [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Auto, Star, Light Trail, Waterfall, Portrait, 美顔, and Product; drag and snap calculations remain UI-thread worklet-safe, and applying Star, Light Trail, Waterfall, or Product activates its capture strategy
+- [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Auto, Star, Light Trail, Waterfall, 美顔, and Product; drag and snap calculations remain UI-thread worklet-safe, and applying Star, Light Trail, Waterfall, or Product activates its capture strategy
 - [ ] Replace the current abstract centered swiper with the approved photographic 3D cover-flow design in `proposal-camera-mode-selection.md` after explicit approval
 - [x] IntelliCam-only gallery - newest-photo-first grid ordering, pull-to-refresh, pagination, full-screen preview, and recoverable deletion through iOS Recently Deleted or the Android 11+ system recycle bin
 - [x] Portable photo information - preserve camera EXIF through aspect-ratio cropping, embed IntelliCam capture settings in each JPEG, optionally embed GPS coordinates, and show available details from the full-screen gallery three-dot menu
@@ -65,7 +65,7 @@ pending explicit approval.
 - [x] Waterfall camera mode - capability-resolved 1-second low-ISO manual exposure with locked focus/metering and 5500 K white balance on supported iOS cameras; otherwise eight timed, flash-off, highlight-protected frames combined with native temporal averaging on Android/iOS; live progress, safe single-frame fallback, and applied-plan metadata
 - [x] Product camera mode - center-weighted close-subject autofocus, mild highlight-protecting exposure compensation, supported AE/AF/AWB locks, flash-off reflection control, native detail enhancements, live capture feedback, automatic fallback, and applied-plan metadata
 - [ ] Persist photo quality, gridlines, aspect ratio, timer, shutter sound, and HDR choices
-- [ ] Wire the remaining presets into actual capture (Star, Light Trail, Waterfall, and Product are implemented; Portrait preset and 美顔 remain)
+- [ ] Wire the remaining preset into actual capture (Star, Light Trail, Waterfall, and Product are implemented; 美顔 remains)
 - [ ] Implement the adaptive capture engine defined in `ADAPTIVE_CAPTURE_PROPOSAL.md`; fixed preset values remain UI suggestions until a resolved capture plan is applied
 - [ ] Move presets to SQLite `camera_presets` table (enables custom/user presets)
 - [ ] Local SQLite `photos` table (capture metadata)
@@ -103,8 +103,8 @@ The three-dot camera settings panel contains:
 
 Flash, Portrait effect, zoom, and front/rear switching remain direct controls on
 the camera surface. Photo-size selection is no longer exposed in the settings
-panel. The Portrait capture-mode preset remains guidance-only until preset
-strategies are wired into capture; the Auto-mode Portrait effect is functional.
+panel. Standalone Portrait mode is not shown in the capture-mode selector; the
+Auto-mode Portrait effect remains functional.
 
 ### Zoom interaction
 
