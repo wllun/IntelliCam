@@ -119,8 +119,8 @@ const ZOOM_RULER_TICK_STEP = 0.1;
 const ZOOM_RULER_TICK_SPACING = 8;
 const ZOOM_RULER_PIXELS_PER_ZOOM = ZOOM_RULER_TICK_SPACING / ZOOM_RULER_TICK_STEP;
 const ZOOM_RULER_LABEL_WIDTH = 48;
-const ZOOM_NATIVE_UPDATE_STEPS = 72;
-const ZOOM_NATIVE_UPDATE_INTERVAL_MS = 32;
+const ZOOM_NATIVE_UPDATE_STEPS = 128;
+const ZOOM_NATIVE_UPDATE_INTERVAL_MS = 24;
 const ZOOM_EASING = Easing.bezier(0.23, 1, 0.32, 1);
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
 interface FocusPoint {
@@ -961,6 +961,16 @@ export default function CameraScreen() {
       zoomRangeDevice ? zoomRangeDevice.maxZoom / zoomRangeNeutralZoom : 1,
     ),
   );
+  // Quantize live updates over the reachable ruler range, not the camera's
+  // often much larger native maxZoom (which made small moves look stepped).
+  const nativeGestureMinZoom = getActiveCameraZoom(
+    rulerMinZoom, rulerMinZoom, rulerMaxZoom, minZoom, maxZoom, neutralZoom,
+    usingDedicatedUltraWide, primaryBackHasIntegratedUltraWide,
+  );
+  const nativeGestureMaxZoom = getActiveCameraZoom(
+    rulerMaxZoom, rulerMinZoom, rulerMaxZoom, minZoom, maxZoom, neutralZoom,
+    usingDedicatedUltraWide, primaryBackHasIntegratedUltraWide,
+  );
   const getRulerZoomOption = (requestedDisplayZoom: number) => {
     const displayZoom = clamp(requestedDisplayZoom, rulerMinZoom, rulerMaxZoom);
     const device = facing === 'back'
@@ -1097,18 +1107,21 @@ export default function CameraScreen() {
   useAnimatedReaction(
     () => {
       if (!zoomGestureActive.get()) return null;
-      const range = maxZoom - minZoom;
-      if (range <= 0) return minZoom;
+      const range = nativeGestureMaxZoom - nativeGestureMinZoom;
+      if (range <= 0) return nativeGestureMinZoom;
 
       const step = range / ZOOM_NATIVE_UPDATE_STEPS;
-      const bucket = Math.round((cameraZoom.get() - minZoom) / step);
-      return Math.max(minZoom, Math.min(maxZoom, minZoom + bucket * step));
+      const bucket = Math.round((cameraZoom.get() - nativeGestureMinZoom) / step);
+      return Math.max(
+        nativeGestureMinZoom,
+        Math.min(nativeGestureMaxZoom, nativeGestureMinZoom + bucket * step),
+      );
     },
     (nextZoom, previousZoom) => {
       if (nextZoom === null || nextZoom === previousZoom) return;
       scheduleOnRN(updateCameraZoom, nextZoom);
     },
-    [maxZoom, minZoom, updateCameraZoom],
+    [nativeGestureMaxZoom, nativeGestureMinZoom, updateCameraZoom],
   );
 
   useEffect(() => {
@@ -1195,7 +1208,10 @@ export default function CameraScreen() {
     } else if (animated) {
       cancelZoomAnimations();
       cancelNativeZoomAnimation();
-      void cameraRef.current?.startZoomAnimation(option.targetZoom, 4).catch((error) => {
+      // CameraX treats `rate` as milliseconds, while AVFoundation treats it as
+      // zoom factors per second. A value of 4 was effectively instant on Android.
+      const nativeZoomRate = Platform.OS === 'android' ? ZOOM_TRANSITION_MS : 4;
+      void cameraRef.current?.startZoomAnimation(option.targetZoom, nativeZoomRate).catch((error) => {
         if (!isCameraLifecycleCancellation(error)) {
           console.warn('Could not animate camera zoom:', error);
         }
