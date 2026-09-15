@@ -43,7 +43,7 @@ pending explicit approval.
 - [x] Camera control UI - IntelliCam gallery button left of the shutter, capture-mode button right of the shutter, and three-dot settings button at the top-right (UI only)
 - [x] Auto camera capture mode - the first-launch default for reliable automatic photo capture with flash off/auto/on, zoom controls, front/rear camera switching, gridlines, aspect ratio, and timer
 - [x] Single shared camera engine - Auto and every selected special mode use the same camera screen, preview, shutter, capture function, processing queue, and save pipeline; mode-specific strategies will plug into this engine
-- [x] Native-quality capture pass - Maximum quality is the default, selects the highest supported 4:3 photo resolution, requests native quality prioritization, enables supported low-light boost and Apple fusion/distortion correction, and preserves JPEG quality through aspect-ratio cropping
+- [x] Native-quality capture pass - All photos request the highest supported 4:3 photo resolution, native quality prioritization, supported low-light boost and Apple fusion/distortion correction, and maximum JPEG quality through aspect-ratio cropping; the Photo quality setting was removed
 - [x] Native Portrait effect in Auto mode - icon control beside Flash, offline person segmentation and background blur after capture, portable applied/not-applied metadata, and safe original-photo fallback (ML Kit on Android; Vision/Core Image on iOS)
 - [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Auto, Star, Light Trail, Waterfall, Beauty, and Product; drag and snap calculations remain UI-thread worklet-safe, and applying any special mode activates its capture strategy
 - [ ] Replace the current abstract centered swiper with the approved photographic 3D cover-flow design in `proposal-camera-mode-selection.md` after explicit approval
@@ -51,7 +51,7 @@ pending explicit approval.
 - [x] Portable photo information - preserve camera EXIF through aspect-ratio cropping, embed IntelliCam capture settings in each JPEG, optionally embed GPS coordinates, and show available details from the full-screen gallery three-dot menu
 - [x] Open a capture-mode selector from the mode button
 - [x] Open the camera settings panel from the three-dot button
-- [x] Camera settings panel contains Photo quality, Gridlines, Aspect Ratio, Timer, Shutter sound, and HDR; zoom, flash, and camera-facing remain camera-surface controls instead of three-dot settings
+- [x] Camera settings panel contains Gridlines, Aspect Ratio, Timer, Shutter sound, and HDR; zoom, flash, and camera-facing remain camera-surface controls instead of three-dot settings
 - [x] Gridlines overlay and 3-second/10-second capture countdown
 - [x] Cancellable capture timer - tapping the shutter again cancels; backgrounding, leaving the camera screen, camera remounts, and mount failures invalidate pending capture; countdown includes animated text and per-second haptics
 - [x] Aspect-ratio selection (`4:3`, `1:1`, `16:9`) applied as a centered crop to the captured JPEG
@@ -64,7 +64,7 @@ pending explicit approval.
 - [x] Waterfall camera mode - capability-resolved 1-second low-ISO manual exposure with locked focus/metering and 5500 K white balance on supported iOS cameras; otherwise eight timed, flash-off, highlight-protected frames combined with native temporal averaging on Android/iOS; live progress, safe single-frame fallback, and applied-plan metadata
 - [x] Product camera mode - center-weighted close-subject autofocus, mild highlight-protecting exposure compensation, supported AE/AF/AWB locks, flash-off reflection control, native detail enhancements, live capture feedback, automatic fallback, and applied-plan metadata
 - [x] Beauty camera mode - soft-light capture preparation, gentle exposure lift, center-weighted continuous metering, flash-off capture, offline person/face-aware natural skin smoothing on Android and iOS, safe original-photo fallback, and applied-effect metadata
-- [ ] Persist photo quality, gridlines, aspect ratio, timer, shutter sound, and HDR choices
+- [ ] Persist gridlines, aspect ratio, timer, shutter sound, and HDR choices
 - [ ] Implement the adaptive capture engine defined in `ADAPTIVE_CAPTURE_PROPOSAL.md`; fixed preset values remain UI suggestions until a resolved capture plan is applied
 - [ ] Move presets to SQLite `camera_presets` table (enables custom/user presets)
 - [ ] Local SQLite `photos` table (capture metadata)
@@ -79,10 +79,6 @@ pending explicit approval.
 The three-dot camera settings panel contains:
 
 - **Gridlines:** rule-of-thirds overlay. Default: off.
-- **Photo quality:** `Maximum` selects the highest supported 4:3 capture
-  resolution, maximum JPEG quality, native quality prioritization, and available
-  device processing enhancements. `Standard` uses UHD 4:3, balanced capture,
-  and a smaller JPEG for faster shots. Default: `Maximum`.
 - **Aspect ratio:** `4:3`, `1:1`, or `16:9`. Default: `4:3`. In portrait
   orientation, the `4:3` camera ratio appears as 3:4 on screen.
 - **Timer:** off, 3 seconds, or 10 seconds. Default: off. During a

@@ -7,16 +7,13 @@ const cameraScreenSource = await readFile(
   'utf8',
 );
 
-test('starts with maximum native photo quality', () => {
-  assert.match(
-    cameraScreenSource,
-    /useState<PhotoQuality>\(['"]maximum['"]\)/,
-  );
-  assert.match(cameraScreenSource, /CommonResolutions\.HIGHEST_4_3/);
-  assert.match(
-    cameraScreenSource,
-    /qualityPrioritization:[^\n]*\? ['"]quality['"] : ['"]balanced['"]/,
-  );
+test('always captures at maximum native photo quality without a settings choice', () => {
+  assert.match(cameraScreenSource, /targetResolution: CommonResolutions\.HIGHEST_4_3/);
+  assert.match(cameraScreenSource, /quality: 1/);
+  assert.match(cameraScreenSource, /qualityPrioritization: ['"]quality['"]/);
+  assert.match(cameraScreenSource, /photoQuality: ['"]maximum['"]/);
+  assert.doesNotMatch(cameraScreenSource, /PHOTO_QUALITY_OPTIONS|setPhotoQuality|UHD_4_3/);
+  assert.doesNotMatch(cameraScreenSource, /<Text style=\{styles\.settingLabel\}>Photo quality<\/Text>/);
 });
 
 test('uses available native enhancement controls for maximum quality', () => {
@@ -24,5 +21,5 @@ test('uses available native enhancement controls for maximum quality', () => {
   assert.match(cameraScreenSource, /supportsLowLightBoost/);
   assert.match(cameraScreenSource, /enableDistortionCorrection:/);
   assert.match(cameraScreenSource, /enableVirtualDeviceFusion:/);
-  assert.match(cameraScreenSource, /maximumPhotoQuality \? 100 : 92/);
+  assert.match(cameraScreenSource, /captureSession,\s*100,\s*metadata/);
 });

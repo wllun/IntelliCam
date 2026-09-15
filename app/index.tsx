@@ -88,7 +88,6 @@ import {
 
 const ALBUM_NAME = 'IntelliCam';
 type TimerSeconds = 0 | 3 | 5 | 10 | 30;
-type PhotoQuality = 'standard' | 'maximum';
 type CameraFacing = 'front' | 'back';
 type CameraRatio = '4:3' | '1:1' | '16:9' | 'Full';
 type PostCaptureEffect = 'portrait' | 'beauty';
@@ -107,10 +106,6 @@ interface BeautyCapturePlan {
 const FLASH_MODES: FlashMode[] = ['off', 'auto', 'on'];
 const ASPECT_RATIOS: CameraRatio[] = ['4:3', '1:1', '16:9', 'Full'];
 const TIMER_OPTIONS: TimerSeconds[] = [0, 3, 5, 10, 30];
-const PHOTO_QUALITY_OPTIONS: { label: string; value: PhotoQuality }[] = [
-  { label: 'Standard', value: 'standard' },
-  { label: 'Maximum', value: 'maximum' },
-];
 const METERING_RESET_MS = 5000;
 const EXPOSURE_MIN = -2;
 const EXPOSURE_MAX = 2;
@@ -458,18 +453,14 @@ export default function CameraScreen() {
     : frontDevice;
   const [hdrEnabled, setHdrEnabled] = useState(false);
   const [hdrApplied, setHdrApplied] = useState(false);
-  const [photoQuality, setPhotoQuality] = useState<PhotoQuality>('maximum');
   const supportsNativeHdr = cameraDevice?.supportsPhotoHDR ?? false;
-  const maximumPhotoQuality = photoQuality === 'maximum';
   const photoOutput = usePhotoOutput({
-    targetResolution: maximumPhotoQuality
-      ? CommonResolutions.HIGHEST_4_3
-      : CommonResolutions.UHD_4_3,
+    targetResolution: CommonResolutions.HIGHEST_4_3,
     containerFormat: 'jpeg',
-    quality: hdrEnabled || maximumPhotoQuality ? 1 : 0.92,
+    quality: 1,
     // Avoid CameraX zero-shutter-lag: it previously stalled the preview after
     // zoom changes on Samsung S22/S23 devices running Android 16.
-    qualityPrioritization: hdrEnabled || maximumPhotoQuality ? 'quality' : 'balanced',
+    qualityPrioritization: 'quality',
   });
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -852,18 +843,18 @@ export default function CameraScreen() {
 
     void controller.configure({
       enableLowLightBoost: cameraDevice.supportsLowLightBoost
-        ? maximumPhotoQuality || isStarMode
+        ? true
         : undefined,
       enableDistortionCorrection:
         Platform.OS === 'ios' && cameraDevice.supportsDistortionCorrection
-          ? maximumPhotoQuality || isLongCaptureMode || isBeautyMode || isProductMode
+          ? true
           : undefined,
     }).catch((error: unknown) => {
       if (!isCameraLifecycleCancellation(error)) {
         console.warn('Could not apply native photo quality enhancements:', error);
       }
     });
-  }, [cameraDevice, cameraReady, isBeautyMode, isLongCaptureMode, isProductMode, isStarMode, maximumPhotoQuality]);
+  }, [cameraDevice, cameraReady]);
 
   useEffect(() => {
     if (!appActive || !screenFocused) resetMetering();
@@ -1051,29 +1042,24 @@ export default function CameraScreen() {
 
   useEffect(() => {
     const supportedFlashModes: FlashMode[] = cameraDevice?.hasFlash ? FLASH_MODES : ['off'];
-    const enableNativeEnhancements = hdrEnabled
-      || maximumPhotoQuality
-      || isLongCaptureMode
-      || isBeautyMode
-      || isProductMode;
     const settings: CapturePhotoSettings[] = supportedFlashModes.flatMap((flashMode) => [
       {
         flashMode,
         enableShutterSound: false,
-        enableRedEyeReduction: !isFlashDisabledForMode && enableNativeEnhancements,
-        enableDistortionCorrection: enableNativeEnhancements,
-        enableVirtualDeviceFusion: !isMotionCompositeMode && enableNativeEnhancements,
+        enableRedEyeReduction: !isFlashDisabledForMode,
+        enableDistortionCorrection: true,
+        enableVirtualDeviceFusion: !isMotionCompositeMode,
       },
       {
         flashMode,
         enableShutterSound: true,
-        enableRedEyeReduction: !isFlashDisabledForMode && enableNativeEnhancements,
-        enableDistortionCorrection: enableNativeEnhancements,
-        enableVirtualDeviceFusion: !isMotionCompositeMode && enableNativeEnhancements,
+        enableRedEyeReduction: !isFlashDisabledForMode,
+        enableDistortionCorrection: true,
+        enableVirtualDeviceFusion: !isMotionCompositeMode,
       },
     ]);
     void photoOutput.prepareSettings(settings).catch(() => undefined);
-  }, [cameraDevice?.hasFlash, hdrEnabled, isBeautyMode, isFlashDisabledForMode, isLongCaptureMode, isMotionCompositeMode, isProductMode, maximumPhotoQuality, photoOutput]);
+  }, [cameraDevice?.hasFlash, isFlashDisabledForMode, isMotionCompositeMode, photoOutput]);
 
   const zoomRulerWidth = Math.max(232, Math.min(width - 48, 320));
   const zoomRulerTicks = useMemo(
@@ -2057,10 +2043,9 @@ export default function CameraScreen() {
           {
             flashMode: isFlashDisabledForMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
             enableShutterSound: shutterSoundEnabled && frameIndex === 0,
-            enableRedEyeReduction: !isFlashDisabledForMode && (hdrEnabled || maximumPhotoQuality),
-            enableDistortionCorrection: isLongCaptureMode || isBeautyMode || isProductMode || hdrEnabled || maximumPhotoQuality,
-            enableVirtualDeviceFusion: !isMotionCompositeMode
-              && (isStarMode || isBeautyMode || isProductMode || hdrEnabled || maximumPhotoQuality),
+            enableRedEyeReduction: !isFlashDisabledForMode,
+            enableDistortionCorrection: true,
+            enableVirtualDeviceFusion: !isMotionCompositeMode,
           },
           {},
         );
@@ -2095,7 +2080,7 @@ export default function CameraScreen() {
         try {
           const stacked = await StarProcessor.stackAverageAsync(
             capturedFramePaths,
-            maximumPhotoQuality ? 100 : 92,
+            100,
           );
           outputFilePath = stacked.uri.replace(/^file:\/\//, '');
           captureProcessingOperations = ['frame-average noise reduction'];
@@ -2117,7 +2102,7 @@ export default function CameraScreen() {
         try {
           const composited = await StarProcessor.compositeLightenAsync(
             capturedFramePaths,
-            maximumPhotoQuality ? 100 : 92,
+            100,
           );
           outputFilePath = composited.uri.replace(/^file:\/\//, '');
           captureProcessingOperations = ['lighten blend trail composite'];
@@ -2139,7 +2124,7 @@ export default function CameraScreen() {
         try {
           const averaged = await StarProcessor.stackAverageAsync(
             capturedFramePaths,
-            maximumPhotoQuality ? 100 : 92,
+            100,
           );
           outputFilePath = averaged.uri.replace(/^file:\/\//, '');
           captureProcessingOperations = ['temporal average water smoothing'];
@@ -2177,7 +2162,7 @@ export default function CameraScreen() {
         cameraType: cameraDevice?.type,
         flash: isFlashDisabledForMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
         hdr: hdrApplied,
-        photoQuality,
+        photoQuality: 'maximum',
         exposureCompensation,
         focusExposureLocked: meteringLocked || captureAutomaticMeteringApplied,
         timerSeconds,
@@ -2217,7 +2202,7 @@ export default function CameraScreen() {
         aspectRatio,
         width / height,
         captureSession,
-        maximumPhotoQuality ? 100 : 92,
+        100,
         metadata,
         locationEnabled ? captureLocationRef.current : undefined,
         isBeautyMode ? 'beauty' : isAutoMode && portraitEffectEnabled ? 'portrait' : undefined,
@@ -2865,43 +2850,6 @@ export default function CameraScreen() {
                   {locationEnabled ? 'On' : 'Off'}
                 </Text>
               </Pressable>
-            </View>
-
-            <View style={styles.settingRow}>
-              <View style={styles.settingHeading}>
-                <Ionicons name="sparkles-outline" size={18} color="#bbb" />
-                <Text style={styles.settingLabel}>Photo quality</Text>
-              </View>
-              <View style={styles.segmented}>
-                {PHOTO_QUALITY_OPTIONS.map((option) => (
-                  <Pressable
-                    key={option.value}
-                    accessibilityHint={option.value === 'maximum'
-                      ? 'Uses the highest supported resolution and native image processing. Capture may take longer.'
-                      : 'Uses balanced processing for faster capture.'}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: photoQuality === option.value }}
-                    onPress={() => {
-                      if (photoQuality === option.value) return;
-                      cameraReadyRef.current = false;
-                      setCameraReady(false);
-                      setPhotoQuality(option.value);
-                      void Haptics.selectionAsync();
-                    }}
-                    style={[
-                      styles.segment,
-                      photoQuality === option.value && styles.segmentActive,
-                    ]}>
-                    <Text
-                      style={[
-                        styles.segmentText,
-                        photoQuality === option.value && styles.segmentTextActive,
-                      ]}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
             </View>
 
             <View style={styles.settingRow}>
