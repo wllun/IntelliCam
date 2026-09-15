@@ -31,6 +31,19 @@ test('keeps capture location private by default', () => {
   assert.match(cameraSource, /requestForegroundPermissionsAsync\(\)/);
 });
 
+test('shows photo location with the three other icon-only camera settings', () => {
+  const start = cameraSource.indexOf('<View style={styles.iconSettingsRow}>');
+  const end = cameraSource.indexOf('<View style={styles.settingRow}>', start);
+  assert.ok(start >= 0 && end > start);
+  const iconRow = cameraSource.slice(start, end);
+  for (const label of ['Gridlines', 'Shutter sound', 'HDR', 'Photo location']) {
+    assert.ok(iconRow.includes(`accessibilityLabel="${label}"`));
+  }
+  assert.equal((iconRow.match(/accessibilityRole="switch"/g) ?? []).length, 4);
+  assert.match(iconRow, /locationEnabled && styles\.iconSettingButtonActive/);
+  assert.doesNotMatch(cameraSource, /<Text style=\{styles\.settingLabel\}>Photo location<\/Text>/);
+});
+
 test('offers photo information from the gallery overflow menu', () => {
   assert.match(gallerySource, /accessibilityLabel="Photo information"/);
   assert.match(gallerySource, /getAssetInfoAsync\(asset/);

@@ -51,7 +51,7 @@ pending explicit approval.
 - [x] Portable photo information - preserve camera EXIF through aspect-ratio cropping, embed IntelliCam capture settings in each JPEG, optionally embed GPS coordinates, and show available details from the full-screen gallery three-dot menu
 - [x] Open a capture-mode selector from the mode button
 - [x] Open the camera settings panel from the three-dot button
-- [x] Camera settings panel contains Gridlines, Aspect Ratio, Timer, Shutter sound, and HDR; zoom, flash, and camera-facing remain camera-surface controls instead of three-dot settings
+- [x] Camera settings panel has a four-icon row for Gridlines, Shutter sound, HDR, and Photo location, plus Aspect Ratio and Timer; zoom, flash, and camera-facing remain camera-surface controls instead of three-dot settings
 - [x] Gridlines overlay and 3-second/10-second capture countdown
 - [x] Cancellable capture timer - tapping the shutter again cancels; backgrounding, leaving the camera screen, camera remounts, and mount failures invalidate pending capture; countdown includes animated text and per-second haptics
 - [x] Aspect-ratio selection (`4:3`, `1:1`, `16:9`) applied as a centered crop to the captured JPEG
@@ -77,6 +77,9 @@ pending explicit approval.
 ## Camera settings
 
 The three-dot camera settings panel contains:
+
+Gridlines, Shutter sound, HDR, and Photo location share one icon-only row. Active
+settings are highlighted; each button retains an accessible name and state.
 
 - **Gridlines:** rule-of-thirds overlay. Default: off.
 - **Aspect ratio:** `4:3`, `1:1`, or `16:9`. Default: `4:3`. In portrait

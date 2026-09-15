@@ -2493,7 +2493,7 @@ export default function CameraScreen() {
 
         <Pressable
           accessibilityLabel="Camera settings"
-          accessibilityHint="Change photo quality, location, gridlines, aspect ratio, timer, shutter sound, and HDR"
+          accessibilityHint="Change photo location, gridlines, aspect ratio, timer, shutter sound, and HDR"
           accessibilityRole="button"
           accessibilityState={{ disabled: capturing }}
           disabled={capturing}
@@ -2745,7 +2745,7 @@ export default function CameraScreen() {
           <Animated.View
             entering={FadeIn.duration(160)}
             exiting={FadeOut.duration(120)}
-            style={[styles.settingsSheet, { top: insets.top + 68 }]}>
+            style={[styles.settingsSheet, { top: insets.top + 68, width: Math.min(310, width - 36) }]}>
             <ScrollView
               contentContainerStyle={styles.settingsContent}
               showsVerticalScrollIndicator={false}>
@@ -2818,37 +2818,26 @@ export default function CameraScreen() {
                   </Text>
                 </View>
               </Pressable>
-            </View>
-
-            <View style={styles.settingRow}>
-              <View style={styles.settingHeading}>
-                <Ionicons name="location-outline" size={18} color="#bbb" />
-                <View style={styles.settingLabelGroup}>
-                  <Text style={styles.settingLabel}>Photo location</Text>
-                  <Text style={styles.settingDescription}>
-                    {locationEnabled
-                      ? captureLocation ? 'Ready to embed coordinates' : 'Finding your location…'
-                      : 'Off by default for privacy'}
-                  </Text>
-                </View>
-              </View>
               <Pressable
-                accessibilityHint="Controls whether coordinates are embedded in newly captured photos"
-                accessibilityLabel="Save photo location"
+                accessibilityLabel="Photo location"
+                accessibilityHint={locationEnabled
+                  ? captureLocation
+                    ? 'Coordinates are ready for new photos. Tap to stop saving location.'
+                    : 'Finding your location for new photos. Tap to stop saving location.'
+                  : 'Off for privacy. Tap to save coordinates in new photos; location permission may be requested.'}
                 accessibilityRole="switch"
-                accessibilityState={{ checked: locationEnabled }}
+                accessibilityState={{ checked: locationEnabled, busy: locationEnabled && !captureLocation }}
                 onPress={() => void toggleLocationMetadata()}
                 style={({ pressed }) => [
-                  styles.locationToggle,
-                  locationEnabled && styles.locationToggleActive,
+                  styles.iconSettingButton,
+                  locationEnabled && styles.iconSettingButtonActive,
                   pressed && styles.iconSettingButtonPressed,
                 ]}>
-                <Text style={[
-                  styles.locationToggleText,
-                  locationEnabled && styles.locationToggleTextActive,
-                ]}>
-                  {locationEnabled ? 'On' : 'Off'}
-                </Text>
+                <Ionicons
+                  name={locationEnabled ? 'location' : 'location-outline'}
+                  size={25}
+                  color={locationEnabled ? '#FFD400' : 'white'}
+                />
               </Pressable>
             </View>
 
@@ -3480,41 +3469,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 7,
   },
-  settingLabelGroup: {
-    flex: 1,
-    gap: 2,
-  },
   settingLabel: {
     color: '#bbb',
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
-  },
-  settingDescription: {
-    color: '#8f8f8f',
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  locationToggle: {
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  locationToggleActive: {
-    backgroundColor: 'rgba(255,212,0,0.16)',
-    borderColor: 'rgba(255,212,0,0.55)',
-  },
-  locationToggleText: {
-    color: '#bbb',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  locationToggleTextActive: {
-    color: '#FFD400',
   },
   segmented: {
     flexDirection: 'row',
