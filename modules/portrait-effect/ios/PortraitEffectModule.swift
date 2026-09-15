@@ -10,6 +10,10 @@ public final class PortraitEffectModule: Module {
     AsyncFunction("applyAsync") { (sourceURI: String, jpegQuality: Int) throws -> [String: Any] in
       return try self.applyPortraitEffect(sourceURI: sourceURI, jpegQuality: jpegQuality)
     }
+
+    AsyncFunction("applyBeautyAsync") { (sourceURI: String, jpegQuality: Int) throws -> [String: Any] in
+      return try self.applyBeautyEffect(sourceURI: sourceURI, jpegQuality: jpegQuality)
+    }
   }
 
   private func fileURL(_ value: String) throws -> URL {
@@ -91,5 +95,113 @@ public final class PortraitEffectModule: Module {
       .appendingPathComponent("intellicam-portrait-\(UUID().uuidString).jpg")
     try data.write(to: outputURL, options: .atomic)
     return ["uri": outputURL.absoluteString, "applied": true]
+  }
+
+  private func applyBeautyEffect(sourceURI: String, jpegQuality: Int) throws -> [String: Any] {
+    let sourceURL = try fileURL(sourceURI)
+    guard var image = CIImage(
+      contentsOf: sourceURL,
+      options: [.applyOrientationProperty: true]
+    ) else {
+      throw NSError(domain: "PortraitEffect", code: 4, userInfo: [NSLocalizedDescriptionKey: "The captured photo could not be decoded."])
+    }
+
+    let maximumEdge: CGFloat = 4096
+    let longestEdge = max(image.extent.width, image.extent.height)
+    if longestEdge > maximumEdge {
+      let scale = maximumEdge / longestEdge
+      image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+    }
+    image = image.transformed(by: CGAffineTransform(
+      translationX: -image.extent.origin.x,
+      y: -image.extent.origin.y
+    ))
+
+    let faceRequest = VNDetectFaceRectanglesRequest()
+    let handler = VNImageRequestHandler(ciImage: image, orientation: .up)
+    try handler.perform([faceRequest])
+    guard let faces = faceRequest.results, !faces.isEmpty else {
+      return ["uri": sourceURI, "applied": false]
+    }
+
+    guard let mask = beautyMask(for: faces, extent: image.extent) else {
+      return ["uri": sourceURI, "applied": false]
+    }
+    let softened = image
+      .applyingFilter("CINoiseReduction", parameters: [
+        "inputNoiseLevel": 0.035,
+        "inputSharpness": 0.58,
+      ])
+      .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: 0.08])
+    let beautyImage = softened.applyingFilter("CIBlendWithMask", parameters: [
+      kCIInputBackgroundImageKey: image,
+      kCIInputMaskImageKey: mask,
+    ])
+
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    let context = CIContext(options: [.cacheIntermediates: false])
+    let quality = Double(min(max(jpegQuality, 80), 100)) / 100
+    let qualityKey = CIImageRepresentationOption(
+      rawValue: kCGImageDestinationLossyCompressionQuality as String
+    )
+    guard let data = context.jpegRepresentation(
+      of: beautyImage,
+      colorSpace: colorSpace,
+      options: [qualityKey: quality]
+    ) else {
+      throw NSError(domain: "PortraitEffect", code: 5, userInfo: [NSLocalizedDescriptionKey: "The Beauty photo could not be encoded."])
+    }
+
+    let outputURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("intellicam-beauty-\(UUID().uuidString).jpg")
+    try data.write(to: outputURL, options: .atomic)
+    return ["uri": outputURL.absoluteString, "applied": true]
+  }
+
+  private func beautyMask(
+    for faces: [VNFaceObservation],
+    extent: CGRect
+  ) -> CIImage? {
+    var combinedMask: CIImage?
+
+    for face in faces {
+      let bounds = face.boundingBox
+      var faceRect = CGRect(
+        x: extent.minX + bounds.minX * extent.width,
+        y: extent.minY + bounds.minY * extent.height,
+        width: bounds.width * extent.width,
+        height: bounds.height * extent.height
+      )
+      faceRect = faceRect.insetBy(
+        dx: -faceRect.width * 0.08,
+        dy: -faceRect.height * 0.12
+      ).intersection(extent)
+      guard !faceRect.isEmpty else { continue }
+
+      guard let faceMask = CIFilter(
+        name: "CIRoundedRectangleGenerator",
+        parameters: [
+          "inputExtent": CIVector(cgRect: faceRect),
+          "inputRadius": min(faceRect.width, faceRect.height) * 0.4,
+          "inputColor": CIColor(red: 1, green: 1, blue: 1, alpha: 1),
+        ]
+      )?.outputImage else { continue }
+      let featherRadius = max(8, min(faceRect.width, faceRect.height) * 0.06)
+      let featheredMask = faceMask
+        .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: featherRadius])
+        .cropped(to: extent)
+      combinedMask = combinedMask.map {
+        featheredMask.applyingFilter("CIMaximumCompositing", parameters: [
+          kCIInputBackgroundImageKey: $0,
+        ])
+      } ?? featheredMask
+    }
+
+    return combinedMask?.applyingFilter("CIColorMatrix", parameters: [
+      "inputRVector": CIVector(x: 0.3, y: 0, z: 0, w: 0),
+      "inputGVector": CIVector(x: 0, y: 0.3, z: 0, w: 0),
+      "inputBVector": CIVector(x: 0, y: 0, z: 0.3, w: 0),
+      "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+    ])
   }
 }

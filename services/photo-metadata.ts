@@ -24,12 +24,15 @@ export interface CapturePhotoMetadata {
   locationSaved: boolean;
   portraitEffectRequested?: boolean;
   portraitEffectApplied?: boolean;
+  beautyEffectRequested?: boolean;
+  beautyEffectApplied?: boolean;
   captureStrategy?:
     | 'manual-long-exposure'
     | 'manual-slow-exposure'
     | 'automatic-frame-stack'
     | 'automatic-lighten-composite'
     | 'automatic-temporal-average'
+    | 'natural-beauty-processing'
     | 'locked-detail-capture'
     | 'automatic-detail-capture'
     | 'automatic-low-light';
@@ -113,6 +116,8 @@ function formatCaptureStrategy(value: CapturePhotoMetadata['captureStrategy']) {
       return 'Automatic light trail composite';
     case 'automatic-temporal-average':
       return 'Automatic temporal average';
+    case 'natural-beauty-processing':
+      return 'Natural beauty processing';
     case 'locked-detail-capture':
       return 'Locked detail capture';
     case 'automatic-detail-capture':
@@ -222,6 +227,9 @@ export async function getPhotoInformation(
         row('Portrait effect', custom?.portraitEffectRequested
           ? custom.portraitEffectApplied ? 'Applied' : 'Not applied'
           : custom ? 'Off' : undefined),
+        row('Beauty effect', custom?.beautyEffectRequested
+          ? custom.beautyEffectApplied ? 'Applied' : 'Not applied'
+          : undefined),
         row('Exposure compensation', custom ? `${custom.exposureCompensation >= 0 ? '+' : ''}${custom.exposureCompensation.toFixed(1)} EV` : undefined),
         row('Focus / exposure lock', custom ? custom.focusExposureLocked ? 'Locked' : 'Automatic' : undefined),
         row('Timer', custom ? custom.timerSeconds ? `${custom.timerSeconds} s` : 'Off' : undefined),

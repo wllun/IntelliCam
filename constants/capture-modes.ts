@@ -33,8 +33,8 @@ const MODE_PRESENTATION: Record<
     artwork: require('../assets/images/capture-modes/waterfall.png'),
   },
   beauty: {
-    name: '美顔',
-    description: 'Flattering portraits with natural-looking skin',
+    name: 'Beauty',
+    description: 'Natural skin smoothing with preserved detail',
     artwork: require('../assets/images/capture-modes/portrait.png'),
   },
   product: {

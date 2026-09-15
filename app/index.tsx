@@ -91,6 +91,18 @@ type TimerSeconds = 0 | 3 | 5 | 10 | 30;
 type PhotoQuality = 'standard' | 'maximum';
 type CameraFacing = 'front' | 'back';
 type CameraRatio = '4:3' | '1:1' | '16:9' | 'Full';
+type PostCaptureEffect = 'portrait' | 'beauty';
+
+interface BeautyCapturePlan {
+  strategy: 'natural-beauty-processing';
+  frameCount: 1;
+  exposureCompensation: number;
+  guidance: string;
+  fallbackReason?: string;
+  exposureSeconds?: undefined;
+  iso?: undefined;
+  whiteBalanceKelvin?: undefined;
+}
 
 const FLASH_MODES: FlashMode[] = ['off', 'auto', 'on'];
 const ASPECT_RATIOS: CameraRatio[] = ['4:3', '1:1', '16:9', 'Full'];
@@ -517,7 +529,7 @@ export default function CameraScreen() {
     jpegQuality: number,
     metadata: CapturePhotoMetadata,
     location?: CaptureLocation,
-    applyPortraitEffect = false,
+    postCaptureEffect?: PostCaptureEffect,
     metadataSourceFilePath = sourceFilePath,
   ) => {
     photoSaveQueueRef.current = photoSaveQueueRef.current
@@ -530,22 +542,48 @@ export default function CameraScreen() {
           jpegQuality,
         );
         let finalUri = processedUri;
+        const applyPortraitEffect = postCaptureEffect === 'portrait';
+        const applyBeautyEffect = postCaptureEffect === 'beauty';
         let portraitApplied = false;
-        let portraitFailureMessage: string | undefined;
+        let beautyApplied = false;
+        let effectFailureTitle: string | undefined;
+        let effectFailureMessage: string | undefined;
         if (applyPortraitEffect) {
           if (!PortraitEffect) {
-            portraitFailureMessage = 'Portrait processing requires a rebuilt IntelliCam app.';
+            effectFailureTitle = 'Portrait effect not applied';
+            effectFailureMessage = 'Portrait processing requires a rebuilt IntelliCam app.';
           } else {
             try {
               const result = await PortraitEffect.applyAsync(processedUri, jpegQuality);
               finalUri = result.uri;
               portraitApplied = result.applied;
               if (!result.applied) {
-                portraitFailureMessage = 'No clear person was detected. The original photo was saved.';
+                effectFailureTitle = 'Portrait effect not applied';
+                effectFailureMessage = 'No clear person was detected. The original photo was saved.';
               }
             } catch (portraitError) {
               console.warn('Could not apply portrait effect:', portraitError);
-              portraitFailureMessage = 'Portrait processing failed. The original photo was saved.';
+              effectFailureTitle = 'Portrait effect not applied';
+              effectFailureMessage = 'Portrait processing failed. The original photo was saved.';
+            }
+          }
+        } else if (applyBeautyEffect) {
+          if (!PortraitEffect?.applyBeautyAsync) {
+            effectFailureTitle = 'Beauty effect not applied';
+            effectFailureMessage = 'Beauty processing requires a rebuilt IntelliCam app.';
+          } else {
+            try {
+              const result = await PortraitEffect.applyBeautyAsync(processedUri, jpegQuality);
+              finalUri = result.uri;
+              beautyApplied = result.applied;
+              if (!result.applied) {
+                effectFailureTitle = 'Beauty effect not applied';
+                effectFailureMessage = 'No clear face or person was detected. The original photo was saved.';
+              }
+            } catch (beautyError) {
+              console.warn('Could not apply Beauty effect:', beautyError);
+              effectFailureTitle = 'Beauty effect not applied';
+              effectFailureMessage = 'Beauty processing failed. The original photo was saved.';
             }
           }
         }
@@ -553,6 +591,11 @@ export default function CameraScreen() {
           ...metadata,
           portraitEffectRequested: applyPortraitEffect,
           portraitEffectApplied: portraitApplied,
+          beautyEffectRequested: applyBeautyEffect,
+          beautyEffectApplied: beautyApplied,
+          processingOperations: beautyApplied
+            ? [...(metadata.processingOperations ?? []), 'natural skin smoothing']
+            : metadata.processingOperations,
         };
         try {
           await embedPhotoMetadata(
@@ -569,12 +612,12 @@ export default function CameraScreen() {
           setLatestPhoto(savedPhoto);
         }
         if (
-          portraitFailureMessage
+          effectFailureMessage
           && latestCaptureRef.current === captureId
           && appActiveRef.current
           && screenFocusedRef.current
         ) {
-          Alert.alert('Portrait effect not applied', portraitFailureMessage);
+          Alert.alert(effectFailureTitle ?? 'Effect not applied', effectFailureMessage);
         }
       })
       .catch((error: unknown) => {
@@ -796,10 +839,11 @@ export default function CameraScreen() {
   const isStarMode = activeCaptureModeId === 'star';
   const isLightTrailMode = activeCaptureModeId === 'light-trail';
   const isWaterfallMode = activeCaptureModeId === 'waterfall';
+  const isBeautyMode = activeCaptureModeId === 'beauty';
   const isProductMode = activeCaptureModeId === 'product';
   const isLongCaptureMode = isStarMode || isLightTrailMode || isWaterfallMode;
   const isMotionCompositeMode = isLightTrailMode || isWaterfallMode;
-  const isFlashDisabledForMode = isLongCaptureMode || isProductMode;
+  const isFlashDisabledForMode = isLongCaptureMode || isBeautyMode || isProductMode;
 
   useEffect(() => {
     if (!cameraReady || !cameraDevice) return;
@@ -812,14 +856,14 @@ export default function CameraScreen() {
         : undefined,
       enableDistortionCorrection:
         Platform.OS === 'ios' && cameraDevice.supportsDistortionCorrection
-          ? maximumPhotoQuality || isLongCaptureMode || isProductMode
+          ? maximumPhotoQuality || isLongCaptureMode || isBeautyMode || isProductMode
           : undefined,
     }).catch((error: unknown) => {
       if (!isCameraLifecycleCancellation(error)) {
         console.warn('Could not apply native photo quality enhancements:', error);
       }
     });
-  }, [cameraDevice, cameraReady, isLongCaptureMode, isProductMode, isStarMode, maximumPhotoQuality]);
+  }, [cameraDevice, cameraReady, isBeautyMode, isLongCaptureMode, isProductMode, isStarMode, maximumPhotoQuality]);
 
   useEffect(() => {
     if (!appActive || !screenFocused) resetMetering();
@@ -897,6 +941,12 @@ export default function CameraScreen() {
       && (Platform.OS === 'android' || cameraDevice.supportsWhiteBalanceLocking),
     ),
   });
+  const beautyCapturePlan: BeautyCapturePlan = {
+    strategy: 'natural-beauty-processing',
+    frameCount: 1,
+    exposureCompensation: 0.2,
+    guidance: 'Use soft, even light and keep the face unobstructed.',
+  };
   const neutralZoom = getNeutralZoom(cameraDevice);
   const minZoom = cameraDevice?.minZoom ?? neutralZoom;
   const maxZoom = cameraDevice?.maxZoom ?? neutralZoom;
@@ -1004,6 +1054,7 @@ export default function CameraScreen() {
     const enableNativeEnhancements = hdrEnabled
       || maximumPhotoQuality
       || isLongCaptureMode
+      || isBeautyMode
       || isProductMode;
     const settings: CapturePhotoSettings[] = supportedFlashModes.flatMap((flashMode) => [
       {
@@ -1022,7 +1073,7 @@ export default function CameraScreen() {
       },
     ]);
     void photoOutput.prepareSettings(settings).catch(() => undefined);
-  }, [cameraDevice?.hasFlash, hdrEnabled, isFlashDisabledForMode, isLongCaptureMode, isMotionCompositeMode, isProductMode, maximumPhotoQuality, photoOutput]);
+  }, [cameraDevice?.hasFlash, hdrEnabled, isBeautyMode, isFlashDisabledForMode, isLongCaptureMode, isMotionCompositeMode, isProductMode, maximumPhotoQuality, photoOutput]);
 
   const zoomRulerWidth = Math.max(232, Math.min(width - 48, 320));
   const zoomRulerTicks = useMemo(
@@ -1728,6 +1779,50 @@ export default function CameraScreen() {
     supportsWhiteBalanceLock: false,
   });
 
+  const prepareBeautyCapture = async (requestedPlan: BeautyCapturePlan) => {
+    const camera = cameraRef.current;
+    const controller = camera?.controller;
+    if (!camera || !controller) {
+      throw new Error('The camera is not ready for Beauty capture.');
+    }
+
+    await camera.resetFocus().catch(() => undefined);
+    if (supportsExposure) {
+      const beautyBias = getNativeExposureBias(
+        requestedPlan.exposureCompensation,
+        exposureMin,
+        exposureMax,
+        deviceExposureMin,
+        deviceExposureMax,
+      );
+      await controller.setExposureBias(beautyBias).catch((error: unknown) => {
+        console.warn('Could not apply Beauty exposure:', error);
+      });
+    }
+
+    if (meteringModes.length > 0) {
+      await camera.focusTo(
+        { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+        {
+          modes: meteringModes,
+          responsiveness: 'snappy',
+          adaptiveness: 'continuous',
+          autoResetAfter: 3,
+        },
+      ).catch((error: unknown) => {
+        console.warn('Could not apply Beauty face-area metering:', error);
+      });
+    }
+
+    return {
+      plan: requestedPlan,
+      manualExposureApplied: false,
+      focusApplied: false,
+      whiteBalanceApplied: false,
+      automaticMeteringApplied: false,
+    };
+  };
+
   const prepareProductCapture = async (requestedPlan: ProductCapturePlan) => {
     const camera = cameraRef.current;
     const controller = camera?.controller;
@@ -1877,6 +1972,7 @@ export default function CameraScreen() {
         | StarCapturePlan
         | LightTrailCapturePlan
         | WaterfallCapturePlan
+        | BeautyCapturePlan
         | ProductCapturePlan
         | undefined;
       let manualExposureApplied = false;
@@ -1902,6 +1998,14 @@ export default function CameraScreen() {
       } else if (isWaterfallMode) {
         setCaptureStatus('Preparing waterfall capture…');
         const prepared = await prepareWaterfallCapture(waterfallCapturePlan);
+        appliedCapturePlan = prepared.plan;
+        manualExposureApplied = prepared.manualExposureApplied;
+        captureFocusApplied = prepared.focusApplied;
+        captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
+        captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
+      } else if (isBeautyMode) {
+        setCaptureStatus('Preparing Beauty capture…');
+        const prepared = await prepareBeautyCapture(beautyCapturePlan);
         appliedCapturePlan = prepared.plan;
         manualExposureApplied = prepared.manualExposureApplied;
         captureFocusApplied = prepared.focusApplied;
@@ -1944,6 +2048,8 @@ export default function CameraScreen() {
               ? 'Smoothing waterfall… Keep still'
               : `Smoothing waterfall ${frameIndex + 1} of ${frameCount}… Keep still`,
           );
+        } else if (isBeautyMode) {
+          setCaptureStatus('Capturing Beauty photo… Hold steady');
         } else if (isProductMode) {
           setCaptureStatus('Capturing product detail… Hold steady');
         }
@@ -1952,9 +2058,9 @@ export default function CameraScreen() {
             flashMode: isFlashDisabledForMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off',
             enableShutterSound: shutterSoundEnabled && frameIndex === 0,
             enableRedEyeReduction: !isFlashDisabledForMode && (hdrEnabled || maximumPhotoQuality),
-            enableDistortionCorrection: isLongCaptureMode || isProductMode || hdrEnabled || maximumPhotoQuality,
+            enableDistortionCorrection: isLongCaptureMode || isBeautyMode || isProductMode || hdrEnabled || maximumPhotoQuality,
             enableVirtualDeviceFusion: !isMotionCompositeMode
-              && (isStarMode || isProductMode || hdrEnabled || maximumPhotoQuality),
+              && (isStarMode || isBeautyMode || isProductMode || hdrEnabled || maximumPhotoQuality),
           },
           {},
         );
@@ -2078,6 +2184,8 @@ export default function CameraScreen() {
         locationSaved: locationEnabled && Boolean(captureLocationRef.current),
         portraitEffectRequested: isAutoMode && portraitEffectEnabled,
         portraitEffectApplied: false,
+        beautyEffectRequested: isBeautyMode,
+        beautyEffectApplied: false,
         captureStrategy: appliedCapturePlan?.strategy,
         captureFrameCount: appliedCapturePlan?.frameCount,
         manualExposureApplied: appliedCapturePlan ? manualExposureApplied : undefined,
@@ -2112,7 +2220,7 @@ export default function CameraScreen() {
         maximumPhotoQuality ? 100 : 92,
         metadata,
         locationEnabled ? captureLocationRef.current : undefined,
-        isAutoMode && portraitEffectEnabled,
+        isBeautyMode ? 'beauty' : isAutoMode && portraitEffectEnabled ? 'portrait' : undefined,
         metadataSourceFilePath,
       );
     } catch (error) {
@@ -2125,7 +2233,7 @@ export default function CameraScreen() {
         setCountdown(undefined);
         setCaptureStatus(undefined);
         setCapturing(false);
-        if (isLongCaptureMode || isProductMode) {
+        if (isLongCaptureMode || isBeautyMode || isProductMode) {
           void cameraRef.current?.resetFocus().catch(() => undefined);
           const controller = cameraRef.current?.controller;
           if (supportsExposure && controller) {
@@ -2305,7 +2413,7 @@ export default function CameraScreen() {
                 <Text style={styles.cardTitle}>{preset.name}</Text>
               </View>
               <Text style={styles.cardStatusLabel}>
-                {isLongCaptureMode || isProductMode
+                {isLongCaptureMode || isBeautyMode || isProductMode
                   ? 'CAPTURE PLAN'
                   : 'SUGGESTED STARTING POINT'}
               </Text>
@@ -2343,6 +2451,13 @@ export default function CameraScreen() {
                     )}
                     <Text style={styles.chip}>Flash off</Text>
                   </>
+                ) : isBeautyMode ? (
+                  <>
+                    <Text style={styles.chip}>Natural retouch</Text>
+                    <Text style={styles.chip}>Skin smoothing</Text>
+                    <Text style={styles.chip}>Detail preserved</Text>
+                    <Text style={styles.chip}>Flash off</Text>
+                  </>
                 ) : isProductMode ? (
                   <>
                     <Text style={styles.chip}>{getProductPlanLabel(productCapturePlan)}</Text>
@@ -2373,7 +2488,9 @@ export default function CameraScreen() {
                       ? lightTrailCapturePlan.guidance
                       : isWaterfallMode
                         ? waterfallCapturePlan.guidance
-                        : isProductMode ? productCapturePlan.guidance : preset.tip}
+                        : isBeautyMode
+                          ? beautyCapturePlan.guidance
+                          : isProductMode ? productCapturePlan.guidance : preset.tip}
                 </Text>
               </View>
             </Pressable>

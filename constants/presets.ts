@@ -54,7 +54,7 @@ export const PRESETS: Preset[] = [
   },
   {
     id: 'beauty',
-    name: '美顔',
+    name: 'Beauty',
     icon: 'sparkles-outline',
     tint: '#F5B8CE',
     iso: 200,
@@ -62,7 +62,7 @@ export const PRESETS: Preset[] = [
     whiteBalance: 5000,
     focus: 'auto',
     raw: false,
-    tip: 'Use soft, even light for natural-looking skin',
+    tip: 'Use soft, even light for a natural-looking retouch',
   },
   {
     id: 'product',

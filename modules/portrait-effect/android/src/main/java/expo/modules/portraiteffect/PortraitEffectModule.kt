@@ -34,6 +34,12 @@ class PortraitEffectModule : Module() {
         applyPortraitEffect(sourceUri, jpegQuality.coerceIn(80, 100))
       }
     }
+
+    AsyncFunction("applyBeautyAsync") Coroutine { sourceUri: String, jpegQuality: Int ->
+      withContext(Dispatchers.Default) {
+        applyBeautyEffect(sourceUri, jpegQuality.coerceIn(80, 100))
+      }
+    }
   }
 
   private suspend fun applyPortraitEffect(
@@ -78,6 +84,65 @@ class PortraitEffectModule : Module() {
         FileOutputStream(outputFile).use { stream ->
           check(output.compress(Bitmap.CompressFormat.JPEG, jpegQuality, stream)) {
             "The portrait photo could not be encoded."
+          }
+        }
+      } finally {
+        output.recycle()
+      }
+      return mapOf("uri" to Uri.fromFile(outputFile).toString(), "applied" to true)
+    } finally {
+      if (!segmentationBitmap.isRecycled && segmentationBitmap !== bitmap) {
+        segmentationBitmap.recycle()
+      }
+      if (!bitmap.isRecycled) {
+        bitmap.recycle()
+      }
+      segmenter.close()
+    }
+  }
+
+  private suspend fun applyBeautyEffect(
+    sourceUri: String,
+    jpegQuality: Int,
+  ): Map<String, Any> {
+    val sourcePath = filePath(sourceUri)
+    val sourceBitmap = decodeOrientedBitmap(sourcePath)
+      ?: throw IllegalArgumentException("The captured photo could not be decoded.")
+    val bitmap = scaleDown(sourceBitmap, MAX_OUTPUT_EDGE)
+    if (bitmap !== sourceBitmap) sourceBitmap.recycle()
+
+    val segmentationBitmap = scaleDown(bitmap, SEGMENTATION_EDGE)
+    val segmenter = Segmentation.getClient(
+      SelfieSegmenterOptions.Builder()
+        .setDetectorMode(SelfieSegmenterOptions.SINGLE_IMAGE_MODE)
+        .build()
+    )
+
+    try {
+      val mask = awaitMask(segmenter.process(InputImage.fromBitmap(segmentationBitmap, 0)))
+      if (segmentationBitmap !== bitmap) segmentationBitmap.recycle()
+      val confidence = readConfidenceMask(mask)
+      val hasPerson = confidence.count { it >= SUBJECT_DETECTION_THRESHOLD } >=
+        max(1, (confidence.size * MIN_SUBJECT_FRACTION).roundToInt())
+      if (!hasPerson) {
+        bitmap.recycle()
+        return mapOf("uri" to sourceUri, "applied" to false)
+      }
+
+      val smoothingLayer = createBeautySmoothingLayer(bitmap)
+      val output = try {
+        blendBeauty(bitmap, smoothingLayer, confidence, mask.width, mask.height)
+      } finally {
+        bitmap.recycle()
+        smoothingLayer.recycle()
+      }
+
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      val outputFile = File(context.cacheDir, "intellicam-beauty-${UUID.randomUUID()}.jpg")
+      try {
+        FileOutputStream(outputFile).use { stream ->
+          check(output.compress(Bitmap.CompressFormat.JPEG, jpegQuality, stream)) {
+            "The Beauty photo could not be encoded."
           }
         }
       } finally {
@@ -177,6 +242,24 @@ class PortraitEffectModule : Module() {
     return small
   }
 
+  private fun createBeautySmoothingLayer(source: Bitmap): Bitmap {
+    val longestEdge = max(source.width, source.height)
+    val scale = min(1.0, BEAUTY_SMOOTH_EDGE.toDouble() / longestEdge)
+    val width = max(1, (source.width * scale).roundToInt())
+    val height = max(1, (source.height * scale).roundToInt())
+    val layer = if (width == source.width && height == source.height) {
+      source.copy(Bitmap.Config.ARGB_8888, true)
+        ?: throw IllegalStateException("The Beauty smoothing layer could not be created.")
+    } else {
+      Bitmap.createScaledBitmap(source, width, height, true)
+    }
+    val pixels = IntArray(width * height)
+    layer.getPixels(pixels, 0, width, 0, 0, width, height)
+    repeat(2) { boxBlur(pixels, width, height, BEAUTY_BLUR_RADIUS) }
+    layer.setPixels(pixels, 0, width, 0, 0, width, height)
+    return layer
+  }
+
   private fun boxBlur(pixels: IntArray, width: Int, height: Int, radius: Int) {
     val scratch = IntArray(pixels.size)
     val window = radius * 2 + 1
@@ -256,6 +339,71 @@ class PortraitEffectModule : Module() {
     return output
   }
 
+  private fun blendBeauty(
+    subject: Bitmap,
+    smoothingLayer: Bitmap,
+    confidence: FloatArray,
+    maskWidth: Int,
+    maskHeight: Int,
+  ): Bitmap {
+    val output = Bitmap.createBitmap(subject.width, subject.height, Bitmap.Config.ARGB_8888)
+    val subjectRow = IntArray(subject.width)
+    val outputRow = IntArray(subject.width)
+    val smoothingPixels = IntArray(smoothingLayer.width * smoothingLayer.height)
+    smoothingLayer.getPixels(
+      smoothingPixels,
+      0,
+      smoothingLayer.width,
+      0,
+      0,
+      smoothingLayer.width,
+      smoothingLayer.height,
+    )
+
+    for (y in 0 until subject.height) {
+      subject.getPixels(subjectRow, 0, subject.width, 0, y, subject.width, 1)
+      val smoothingY = min(smoothingLayer.height - 1, y * smoothingLayer.height / subject.height)
+      val maskY = min(maskHeight - 1, y * maskHeight / subject.height)
+      for (x in 0 until subject.width) {
+        val sourceColor = subjectRow[x]
+        val smoothingX = min(smoothingLayer.width - 1, x * smoothingLayer.width / subject.width)
+        val maskX = min(maskWidth - 1, x * maskWidth / subject.width)
+        val subjectAlpha = smoothSubjectAlpha(confidence[maskY * maskWidth + maskX])
+        val skinAlpha = skinLikelihood(sourceColor)
+        val blendAmount = subjectAlpha * skinAlpha * BEAUTY_SMOOTH_STRENGTH
+        val softenedColor = gentlyLiftSkinTone(
+          smoothingPixels[smoothingY * smoothingLayer.width + smoothingX]
+        )
+        outputRow[x] = blendColor(sourceColor, softenedColor, blendAmount)
+      }
+      output.setPixels(outputRow, 0, subject.width, 0, y, subject.width, 1)
+    }
+    return output
+  }
+
+  private fun skinLikelihood(color: Int): Float {
+    val red = color shr 16 and 0xff
+    val green = color shr 8 and 0xff
+    val blue = color and 0xff
+    val brightest = max(red, max(green, blue))
+    val darkest = min(red, min(green, blue))
+    if (brightest < 35 || brightest - darkest < 8) return 0f
+
+    val cb = -0.168736f * red - 0.331264f * green + 0.5f * blue + 128f
+    val cr = 0.5f * red - 0.418688f * green - 0.081312f * blue + 128f
+    val cbScore = (1f - kotlin.math.abs(cb - 112f) / 48f).coerceIn(0f, 1f)
+    val crScore = (1f - kotlin.math.abs(cr - 153f) / 50f).coerceIn(0f, 1f)
+    val warmth = if (red >= blue * 0.78f && red >= green * 0.72f) 1f else 0.35f
+    return min(cbScore, crScore) * warmth
+  }
+
+  private fun gentlyLiftSkinTone(color: Int): Int {
+    val red = ((color shr 16 and 0xff) * 1.025f + 2f).roundToInt().coerceIn(0, 255)
+    val green = ((color shr 8 and 0xff) * 1.018f + 1f).roundToInt().coerceIn(0, 255)
+    val blue = ((color and 0xff) * 1.01f).roundToInt().coerceIn(0, 255)
+    return (0xff shl 24) or (red shl 16) or (green shl 8) or blue
+  }
+
   private fun smoothSubjectAlpha(confidence: Float): Float {
     val value = ((confidence - MASK_EDGE_LOW) / (MASK_EDGE_HIGH - MASK_EDGE_LOW)).coerceIn(0f, 1f)
     return value * value * (3f - 2f * value)
@@ -274,6 +422,9 @@ class PortraitEffectModule : Module() {
     private const val SEGMENTATION_EDGE = 768
     private const val BLUR_EDGE = 640
     private const val BLUR_RADIUS = 10
+    private const val BEAUTY_SMOOTH_EDGE = 960
+    private const val BEAUTY_BLUR_RADIUS = 3
+    private const val BEAUTY_SMOOTH_STRENGTH = 0.32f
     private const val SUBJECT_DETECTION_THRESHOLD = 0.55f
     private const val MIN_SUBJECT_FRACTION = 0.005f
     private const val MASK_EDGE_LOW = 0.22f
