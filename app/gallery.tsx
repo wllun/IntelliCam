@@ -77,7 +77,7 @@ export default function GalleryScreen() {
     setError(undefined);
 
     try {
-      const permission = await MediaLibrary.getPermissionsAsync();
+      const permission = await MediaLibrary.getPermissionsAsync(false, ['photo']);
       if (!permission.granted) {
         setAssets([]);
         setError('Photo access is required to view the IntelliCam album.');

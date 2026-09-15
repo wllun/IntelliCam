@@ -14,6 +14,10 @@ test('requests newest-first creation dates from Media Library', () => {
   );
 });
 
+test('checks only photo permission when loading the gallery', () => {
+  assert.match(gallerySource, /MediaLibrary\.getPermissionsAsync\(false, \['photo'\]\)/);
+});
+
 test('reapplies newest-first ordering after initial load and pagination', () => {
   assert.match(gallerySource, /setAssets\(sortPhotosNewestFirst\(page\.assets\)\)/);
   assert.match(

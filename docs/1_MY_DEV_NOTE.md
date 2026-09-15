@@ -1,6 +1,10 @@
 1. Copy the latest code to the short build folder
-    `robocopy "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules android ios .expo dist web-build`
-    [Company Laptop Cmd] : `robocopy "C:\Users\User\Desktop\React App\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules android ios .expo dist web-build`
+    `robocopy "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam\android" "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam\ios" .expo dist web-build`
+    [Company Laptop Cmd] : `robocopy "C:\Users\User\Desktop\React App\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules "C:\Users\User\Desktop\React App\IntelliCam\android" "C:\Users\User\Desktop\React App\IntelliCam\ios" .expo dist web-build`
+
+    Exclude only the app-root generated `android` and `ios` folders. Do not use `/XD android ios` without full paths: that also excludes `modules\media-trash\android` and the native folders of other local modules. The release APK then cannot move photos to the recycle bin even after a successful rebuild.
+
+    After copying, verify `C:\ICBuild\modules\media-trash\android\src\main\java\expo\modules\mediatrash\MediaTrashModule.kt` exists. If it does not, stop before prebuild and correct the copy step.
 
 2. Update the generated project
     cd C:\ICBuild
