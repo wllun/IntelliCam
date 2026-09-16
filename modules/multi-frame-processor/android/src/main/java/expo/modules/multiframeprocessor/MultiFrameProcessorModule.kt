@@ -26,6 +26,10 @@ class MultiFrameProcessorModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("MultiFrameProcessor")
 
+    AsyncFunction("measureAsync") Coroutine { sourceUri: String ->
+      withContext(Dispatchers.Default) { measureFrame(sourceUri) }
+    }
+
     AsyncFunction("processAsync") Coroutine {
         sourceUris: List<String>,
         mode: String,
@@ -33,6 +37,43 @@ class MultiFrameProcessorModule : Module() {
       withContext(Dispatchers.Default) {
         processFrames(sourceUris, mode, jpegQuality.coerceIn(80, 100))
       }
+    }
+  }
+
+  private fun measureFrame(sourceUri: String): Map<String, Any> {
+    val path = filePath(sourceUri)
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Invalid scene image." }
+    val orientation = ExifInterface(path).getAttributeInt(
+      ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL,
+    )
+    val rotated = orientation in listOf(
+      ExifInterface.ORIENTATION_TRANSPOSE, ExifInterface.ORIENTATION_ROTATE_90,
+      ExifInterface.ORIENTATION_TRANSVERSE, ExifInterface.ORIENTATION_ROTATE_270,
+    )
+    val sourceWidth = if (rotated) bounds.outHeight else bounds.outWidth
+    val sourceHeight = if (rotated) bounds.outWidth else bounds.outHeight
+    val outputScale = min(1.0, MAX_OUTPUT_EDGE.toDouble() / max(sourceWidth, sourceHeight))
+    val bitmap = decodeOrientedBitmap(path, ANALYSIS_EDGE)
+      ?: throw IllegalArgumentException("The scene image could not be decoded.")
+    val sampled = scaleDown(bitmap, ANALYSIS_EDGE)
+    if (sampled !== bitmap) bitmap.recycle()
+    try {
+      val pixels = IntArray(sampled.width * sampled.height)
+      sampled.getPixels(pixels, 0, sampled.width, 0, 0, sampled.width, sampled.height)
+      val clipped = pixels.count { color ->
+        max(max(color shr 16 and 0xff, color shr 8 and 0xff), color and 0xff) >= 250
+      }
+      return mapOf(
+        "width" to max(1, (sourceWidth * outputScale).roundToInt()),
+        "height" to max(1, (sourceHeight * outputScale).roundToInt()),
+        "highlightClippingFraction" to clipped.toDouble() / pixels.size,
+        "highlightSampleCount" to pixels.size,
+        "highlightThreshold" to 250,
+      )
+    } finally {
+      sampled.recycle()
     }
   }
 
@@ -103,8 +144,10 @@ class MultiFrameProcessorModule : Module() {
           width,
           height,
         )
-        alignments += alignmentMap(frameIndex, offsetX, offsetY, motionScore, accepted)
-        if (!accepted) return@forEachIndexed
+        if (!accepted) {
+          alignments += alignmentMap(frameIndex, offsetX, offsetY, motionScore, false)
+          return@forEachIndexed
+        }
 
         val candidatePixels = IntArray(width * height)
         preparedCandidate.getPixels(candidatePixels, 0, width, 0, 0, width, height)
@@ -123,8 +166,9 @@ class MultiFrameProcessorModule : Module() {
         cropTop = max(cropTop, max(0, -offsetY))
         cropRight = min(cropRight, min(width, width - offsetX))
         cropBottom = min(cropBottom, min(height, height - offsetY))
+        alignments += alignmentMap(frameIndex, offsetX, offsetY, motionScore, true)
       } catch (_: Throwable) {
-        alignments += alignmentMap(frameIndex, 0, 0, 1.0, false)
+        alignments += alignmentMap(frameIndex, 0, 0, 1.0, false, false)
       } finally {
         candidate?.let { if (!it.isRecycled) it.recycle() }
       }
@@ -378,12 +422,14 @@ class MultiFrameProcessorModule : Module() {
     offsetY: Int,
     motionScore: Double,
     accepted: Boolean,
+    registrationSucceeded: Boolean = true,
   ) = mapOf(
     "index" to index,
     "offsetX" to offsetX,
     "offsetY" to offsetY,
     "motionScore" to motionScore,
     "accepted" to accepted,
+    "registrationSucceeded" to registrationSucceeded,
   )
 
   private fun resultMap(
@@ -408,8 +454,17 @@ class MultiFrameProcessorModule : Module() {
     return path
   }
 
-  private fun decodeOrientedBitmap(path: String): Bitmap? {
-    val decoded = BitmapFactory.decodeFile(path) ?: return null
+  private fun decodeOrientedBitmap(path: String, sampleEdge: Int? = null): Bitmap? {
+    val options = BitmapFactory.Options().apply { inSampleSize = 1 }
+    if (sampleEdge != null) {
+      options.inJustDecodeBounds = true
+      BitmapFactory.decodeFile(path, options)
+      options.inJustDecodeBounds = false
+      while (max(options.outWidth, options.outHeight) / (options.inSampleSize * 2) >= sampleEdge) {
+        options.inSampleSize *= 2
+      }
+    }
+    val decoded = BitmapFactory.decodeFile(path, options) ?: return null
     val orientation = ExifInterface(path).getAttributeInt(
       ExifInterface.TAG_ORIENTATION,
       ExifInterface.ORIENTATION_NORMAL,

@@ -6,13 +6,14 @@ const cameraScreenSource = await readFile(
   new URL('../app/index.tsx', import.meta.url),
   'utf8',
 );
+const preparationSource = await readFile(new URL('../hooks/use-capture-preparation.ts', import.meta.url), 'utf8');
 
 test('disables HDR when the selected camera does not support native photo HDR', () => {
   assert.match(cameraScreenSource, /disabled=\{!supportsNativeHdr\}/);
   assert.match(cameraScreenSource, /disabled: !supportsNativeHdr/);
   assert.match(cameraScreenSource, />\s*Unavailable\s*</);
   assert.match(
-    cameraScreenSource,
+    preparationSource,
     /const nativeHdrRequested = hdrEnabled && supportsNativeHdr/,
   );
   assert.doesNotMatch(
@@ -21,15 +22,17 @@ test('disables HDR when the selected camera does not support native photo HDR', 
   );
 });
 
-test('records HDR only after the supported camera session confirms it', () => {
+test('records HDR only after the supported camera session confirms it', async () => {
   assert.match(
     cameraScreenSource,
     /setHdrSessionConfirmed\(\s*nativeHdrRequested && config\.isPhotoHDREnabled/,
   );
   assert.match(
     cameraScreenSource,
-    /hdr: nativeHdrRequested && hdrSessionConfirmed/,
+    /hdrConfirmed: nativeHdrRequested && hdrSessionConfirmed/,
   );
+  const metadataSource = await readFile(new URL('../services/capture-metadata.ts', import.meta.url), 'utf8');
+  assert.match(metadataSource, /hdr: settings\.hdr && context\.hdrConfirmed/);
   assert.doesNotMatch(
     cameraScreenSource,
     /supportsNativeHdr \? config\.isPhotoHDREnabled : true/,

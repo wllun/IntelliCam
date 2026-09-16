@@ -1,4 +1,5 @@
 import type * as MediaLibrary from 'expo-media-library';
+import type { CapturePlan } from '@/types/adaptive-capture';
 
 import PhotoMetadata, {
   type EmbeddedPhotoMetadata,
@@ -29,6 +30,7 @@ export interface CapturePhotoMetadata {
   inputFrameCount?: number;
   acceptedFrameCount?: number;
   rejectedFrameCount?: number;
+  capturePlan?: CapturePlan;
 }
 
 export interface CaptureLocation {
@@ -137,6 +139,9 @@ export async function getPhotoInformation(
     altitude: embedded.altitude,
   };
   const custom = parseCustomMetadata(embedded.customMetadata);
+  const plan = custom?.capturePlan?.version === 1 ? custom.capturePlan : undefined;
+  const clipped = plan?.scene?.highlightClipping?.fraction;
+  const displacement = plan?.scene?.stability?.displacementFraction;
   const capturedAt = custom?.capturedAt
     ? new Date(custom.capturedAt)
     : new Date(asset.creationTime);
@@ -167,7 +172,7 @@ export async function getPhotoInformation(
         row('Camera', custom?.cameraName ?? custom?.cameraType),
         row('Facing', custom ? custom.facing[0].toUpperCase() + custom.facing.slice(1) : undefined),
         row('Flash', custom ? custom.flash[0].toUpperCase() + custom.flash.slice(1) : undefined),
-        row('HDR', custom ? custom.hdr ? 'Applied' : 'Off' : undefined),
+        row('HDR', custom ? custom.hdr ? 'Applied' : plan?.requested?.hdr ? 'Not applied' : 'Off' : undefined),
         row('Portrait effect', custom?.portraitEffectRequested
           ? custom.portraitEffectApplied ? 'Applied' : 'Not applied'
           : custom ? 'Off' : undefined),
@@ -183,6 +188,27 @@ export async function getPhotoInformation(
         row('Exposure compensation', custom ? `${custom.exposureCompensation >= 0 ? '+' : ''}${custom.exposureCompensation.toFixed(1)} EV` : undefined),
         row('Focus / exposure lock', custom ? custom.focusExposureLocked ? 'Locked' : 'Automatic' : undefined),
         row('Timer', custom ? custom.timerSeconds ? `${custom.timerSeconds} s` : 'Off' : undefined),
+      ]),
+    },
+    {
+      title: 'Capture engine',
+      rows: rows([
+        row('Requested HDR', plan?.requested ? plan.requested.hdr ? 'On' : 'Off' : undefined),
+        row('Resolved processing', plan?.resolved?.processing),
+        row('Applied processing', plan?.applied?.processing),
+        row('Planned frames', plan?.resolved?.frameCount),
+        row('Applied frames', plan?.applied?.frameCount),
+        row('Native zoom at shutter', plan?.applied?.native?.zoom),
+        row('Native exposure bias', plan?.applied?.native?.exposureBias != null
+          ? `${plan.applied.native.exposureBias} ${plan.applied.native.exposureBiasUnit}` : undefined),
+        row('Highlight clipping', typeof clipped === 'number' && Number.isFinite(clipped)
+          ? `${(clipped * 100).toFixed(1)}% of sampled JPEG pixels` : plan ? 'Unknown' : undefined),
+        row('Stability', plan?.scene?.stability?.status),
+        row('Maximum displacement', typeof displacement === 'number' && Number.isFinite(displacement)
+          ? `${(displacement * 100).toFixed(2)}% of frame` : undefined),
+        ...(Array.isArray(plan?.fallbacks) ? plan.fallbacks.slice(0, 12).map((item) =>
+          row(`Fallback · ${item?.setting ?? 'capture'}`, typeof item?.reason === 'string'
+            ? item.reason.replace(/-/g, ' ') : undefined)) : []),
       ]),
     },
     {

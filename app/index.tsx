@@ -14,17 +14,13 @@ import {
 } from 'react-native';
 import {
   Camera,
-  CommonResolutions,
-  type CapturePhotoSettings,
   type CameraDevice,
   type CameraRef,
-  type Constraint,
   type FlashMode,
   type MeteringMode,
   useCameraDevice,
   useCameraDevices,
   useCameraPermission,
-  usePhotoOutput,
 } from 'react-native-vision-camera';
 import { loadImage } from 'react-native-nitro-image';
 import { Image } from 'expo-image';
@@ -80,11 +76,14 @@ import MultiFrameProcessor, {
   type MultiFrameMode,
   type MultiFrameProcessResult,
 } from '@/modules/multi-frame-processor';
-import { getMultiFrameCapturePlan } from '@/utils/multi-frame-capture.mjs';
+import { resolveCapturePlan } from '@/utils/adaptive-capture.mjs';
+import { useCapturePreparation } from '@/hooks/use-capture-preparation';
+import { getPhotoCaptureSettings, readNativeCaptureSettings } from '@/services/capture-preparation';
+import { completeCaptureMetadata, createCaptureMetadata, measureCaptureScene } from '@/services/capture-metadata';
+import type { PhotoQuality } from '@/types/adaptive-capture';
 import PortraitEffect from '@/modules/portrait-effect';
 
 const ALBUM_NAME = 'IntelliCam';
-type PhotoQuality = 'standard' | 'maximum';
 type CameraFacing = 'front' | 'back';
 type CameraRatio = CameraAspectRatio;
 
@@ -433,20 +432,10 @@ export default function CameraScreen() {
   const [hdrEnabled, setHdrEnabled] = useState(false);
   const [hdrSessionConfirmed, setHdrSessionConfirmed] = useState(false);
   const [photoQuality, setPhotoQuality] = useState<PhotoQuality>('maximum');
-  const supportsNativeHdr = cameraDevice?.supportsPhotoHDR ?? false;
-  const nativeHdrRequested = hdrEnabled && supportsNativeHdr;
-  const maximumPhotoQuality = photoQuality === 'maximum';
-  const photoOutput = usePhotoOutput({
-    targetResolution: maximumPhotoQuality
-      ? CommonResolutions.HIGHEST_4_3
-      : CommonResolutions.UHD_4_3,
-    containerFormat: 'jpeg',
-    quality: nativeHdrRequested || maximumPhotoQuality ? 1 : 0.92,
-    // Avoid CameraX zero-shutter-lag: it previously stalled the preview after
-    // zoom changes on Samsung S22/S23 devices running Android 16.
-    qualityPrioritization: nativeHdrRequested || maximumPhotoQuality ? 'quality' : 'balanced',
-  });
   const [cameraReady, setCameraReady] = useState(false);
+  const { capabilities, supportsNativeHdr, nativeHdrRequested, photoOutput, cameraOutputs, cameraConstraints } = useCapturePreparation(
+    cameraDevice, cameraRef, cameraReady, photoQuality, hdrEnabled,
+  );
   const [capturing, setCapturing] = useState(false);
   const [latestPhoto, setLatestPhoto] = useState<LatestPhoto>();
   const [cardVisible, setCardVisible] = useState(true);
@@ -523,12 +512,16 @@ export default function CameraScreen() {
         const referenceFilePath = sourceFilePaths[0];
         let processingSourceUri = `file://${referenceFilePath}`;
         let multiFrameResult: MultiFrameProcessResult | undefined;
-        let multiFrameFailureMessage: string | undefined;
+        let multiFrameFailureMessage: string | undefined = metadata.capturePlan?.fallbacks
+          .some((item) => item.reason === 'multi-frame-module-unavailable')
+          ? 'Multi-frame processing requires a rebuilt IntelliCam app.' : undefined;
+        let multiFrameFailureReason: string | undefined;
         if (multiFrameMode) {
           if (!MultiFrameProcessor || sourceFilePaths.length < 2) {
             multiFrameFailureMessage = MultiFrameProcessor
               ? 'Not enough usable frames were captured. The reference photo was saved.'
               : 'Multi-frame processing requires a rebuilt IntelliCam app.';
+            multiFrameFailureReason = MultiFrameProcessor ? 'insufficient-frames' : 'multi-frame-module-unavailable';
           } else {
             try {
               multiFrameResult = await MultiFrameProcessor.processAsync(
@@ -540,10 +533,12 @@ export default function CameraScreen() {
                 processingSourceUri = multiFrameResult.uri;
               } else {
                 multiFrameFailureMessage = 'Camera motion was too strong. The reference frame was saved.';
+                multiFrameFailureReason = 'alignment-rejected';
               }
             } catch (multiFrameError) {
               console.warn('Could not process aligned multi-frame capture:', multiFrameError);
               multiFrameFailureMessage = 'Frame alignment failed. The reference photo was saved.';
+              multiFrameFailureReason = 'alignment-failed';
             }
           }
         }
@@ -555,10 +550,14 @@ export default function CameraScreen() {
         );
         let finalUri = processedUri;
         let portraitApplied = false;
-        let portraitFailureMessage: string | undefined;
+        let portraitFailureMessage: string | undefined = metadata.capturePlan?.fallbacks
+          .some((item) => item.reason === 'portrait-module-unavailable')
+          ? 'Portrait processing requires a rebuilt IntelliCam app.' : undefined;
+        let portraitFailureReason: string | undefined;
         if (applyPortraitEffect) {
           if (!PortraitEffect) {
             portraitFailureMessage = 'Portrait processing requires a rebuilt IntelliCam app.';
+            portraitFailureReason = 'portrait-module-unavailable';
           } else {
             try {
               const result = await PortraitEffect.applyAsync(processedUri, jpegQuality);
@@ -566,24 +565,20 @@ export default function CameraScreen() {
               portraitApplied = result.applied;
               if (!result.applied) {
                 portraitFailureMessage = 'No clear person was detected. The original photo was saved.';
+                portraitFailureReason = 'person-not-detected';
               }
             } catch (portraitError) {
               console.warn('Could not apply portrait effect:', portraitError);
               portraitFailureMessage = 'Portrait processing failed. The original photo was saved.';
+              portraitFailureReason = 'portrait-processing-failed';
             }
           }
         }
-        const finalMetadata: CapturePhotoMetadata = {
-          ...metadata,
-          portraitEffectRequested: applyPortraitEffect,
-          portraitEffectApplied: portraitApplied,
-          multiFrameRequested: Boolean(multiFrameMode),
-          multiFrameApplied: multiFrameResult?.applied ?? false,
-          inputFrameCount: multiFrameResult?.inputFrameCount ?? sourceFilePaths.length,
-          acceptedFrameCount: multiFrameResult?.acceptedFrameCount ?? 1,
-          rejectedFrameCount: multiFrameResult?.rejectedFrameCount
-            ?? Math.max(0, sourceFilePaths.length - 1),
-        };
+        const scene = await measureCaptureScene(`file://${referenceFilePath}`, multiFrameResult?.alignments);
+        const finalMetadata = completeCaptureMetadata(
+          metadata, sourceFilePaths.length, multiFrameResult, portraitApplied, scene,
+          multiFrameFailureReason, portraitFailureReason,
+        );
         try {
           await embedPhotoMetadata(
             `file://${referenceFilePath}`,
@@ -827,26 +822,6 @@ export default function CameraScreen() {
   }, [activeCaptureModeId, cameraDevice?.id, facing, resetMetering]);
 
   useEffect(() => {
-    if (!cameraReady || !cameraDevice) return;
-    const controller = cameraRef.current?.controller;
-    if (!controller) return;
-
-    void controller.configure({
-      enableLowLightBoost: cameraDevice.supportsLowLightBoost
-        ? maximumPhotoQuality
-        : undefined,
-      enableDistortionCorrection:
-        Platform.OS === 'ios' && cameraDevice.supportsDistortionCorrection
-          ? maximumPhotoQuality
-          : undefined,
-    }).catch((error: unknown) => {
-      if (!isCameraLifecycleCancellation(error)) {
-        console.warn('Could not apply native photo quality enhancements:', error);
-      }
-    });
-  }, [cameraDevice, cameraReady, maximumPhotoQuality]);
-
-  useEffect(() => {
     if (!appActive || !screenFocused) resetMetering();
   }, [appActive, resetMetering, screenFocused]);
 
@@ -950,11 +925,6 @@ export default function CameraScreen() {
     if (cameraDevice.supportsWhiteBalanceMetering && cameraDevice.supportsWhiteBalanceLocking) modes.push('AWB');
     return modes;
   }, [cameraDevice, meteringModes]);
-  const cameraOutputs = useMemo(() => [photoOutput], [photoOutput]);
-  const cameraConstraints = useMemo<Constraint[]>(() => [
-    { photoHDR: nativeHdrRequested },
-    { resolutionBias: photoOutput },
-  ], [nativeHdrRequested, photoOutput]);
   const isLandscapeCapture = width > height;
   const previewFrame = getPreviewFrame(
     width,
@@ -1011,28 +981,6 @@ export default function CameraScreen() {
       setHdrSessionConfirmed(false);
     }
   }, [nativeHdrRequested]);
-
-  useEffect(() => {
-    const supportedFlashModes: FlashMode[] = cameraDevice?.hasFlash ? FLASH_MODES : ['off'];
-    const enableNativeEnhancements = nativeHdrRequested || maximumPhotoQuality;
-    const settings: CapturePhotoSettings[] = supportedFlashModes.flatMap((flashMode) => [
-      {
-        flashMode,
-        enableShutterSound: false,
-        enableRedEyeReduction: enableNativeEnhancements,
-        enableDistortionCorrection: enableNativeEnhancements,
-        enableVirtualDeviceFusion: enableNativeEnhancements,
-      },
-      {
-        flashMode,
-        enableShutterSound: true,
-        enableRedEyeReduction: enableNativeEnhancements,
-        enableDistortionCorrection: enableNativeEnhancements,
-        enableVirtualDeviceFusion: enableNativeEnhancements,
-      },
-    ]);
-    void photoOutput.prepareSettings(settings).catch(() => undefined);
-  }, [cameraDevice?.hasFlash, maximumPhotoQuality, nativeHdrRequested, photoOutput]);
 
   const flushDisplayedExposure = useCallback(() => {
     exposureDisplayUpdateTimerRef.current = undefined;
@@ -1607,13 +1555,24 @@ export default function CameraScreen() {
       countdownActiveRef.current = false;
       setCountdown(undefined);
 
-      const requestedMultiFramePlan = getMultiFrameCapturePlan(activeCaptureModeId);
-      const executableMultiFramePlan = MultiFrameProcessor
-        ? requestedMultiFramePlan
-        : undefined;
-      const frameCount = executableMultiFramePlan?.frameCount ?? 1;
+      const plan = resolveCapturePlan(capabilities, {
+        modeId: activeCaptureModeId,
+        photoQuality,
+        hdr: hdrEnabled,
+        flashMode: flash,
+        shutterSound: shutterSoundEnabled,
+        portraitEffect: portraitEffectEnabled,
+        aspectRatio,
+        timerSeconds,
+        zoom: displayedZoom,
+        exposureCompensation,
+        focusExposureLocked: meteringLocked,
+      });
+      const multiFrameMode = plan.resolved.processing === 'single' ? undefined : plan.resolved.processing;
+      const frameCount = plan.resolved.frameCount;
+      const nativeSettings = readNativeCaptureSettings(cameraRef.current?.controller, Platform.OS);
       const capturedFilePaths: string[] = [];
-      if (executableMultiFramePlan) {
+      if (multiFrameMode) {
         setMultiFrameProgress({ captured: 0, total: frameCount });
       }
       for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
@@ -1625,13 +1584,8 @@ export default function CameraScreen() {
         ) return;
 
         const photoFile = await photoOutput.capturePhotoToFile(
-          {
-            flashMode: cameraDevice?.hasFlash ? flash : 'off',
-            enableShutterSound: shutterSoundEnabled && frameIndex === 0,
-            enableRedEyeReduction: nativeHdrRequested || maximumPhotoQuality,
-            enableDistortionCorrection: nativeHdrRequested || maximumPhotoQuality,
-            enableVirtualDeviceFusion: nativeHdrRequested || maximumPhotoQuality,
-          },
+          getPhotoCaptureSettings(capabilities, photoQuality, plan.resolved.hdr,
+            plan.resolved.flashMode, plan.resolved.shutterSound, frameIndex),
           {},
         );
         if (
@@ -1641,7 +1595,7 @@ export default function CameraScreen() {
           || !screenFocusedRef.current
         ) return;
         capturedFilePaths.push(photoFile.filePath);
-        if (executableMultiFramePlan) {
+        if (multiFrameMode) {
           setMultiFrameProgress({ captured: frameIndex + 1, total: frameCount });
         }
       }
@@ -1651,27 +1605,16 @@ export default function CameraScreen() {
       const captureModeName = activeCaptureModeId === AUTO_CAPTURE_MODE.id
         ? AUTO_CAPTURE_MODE.name
         : preset.name;
-      const metadata: CapturePhotoMetadata = {
-        schemaVersion: 1,
-        capturedAt: new Date().toISOString(),
+      const metadata = createCaptureMetadata(plan, {
         captureMode: captureModeName,
-        captureModeId: activeCaptureModeId,
-        aspectRatio,
-        zoom: displayedZoom,
         facing,
         cameraName: cameraDevice?.localizedName,
         cameraModel: cameraDevice?.modelID,
         cameraType: cameraDevice?.type,
-        flash: cameraDevice?.hasFlash ? flash : 'off',
-        hdr: nativeHdrRequested && hdrSessionConfirmed,
-        photoQuality,
-        exposureCompensation,
-        focusExposureLocked: meteringLocked,
-        timerSeconds,
+        hdrConfirmed: nativeHdrRequested && hdrSessionConfirmed,
+        nativeSettings,
         locationSaved: locationEnabled && Boolean(captureLocationRef.current),
-        portraitEffectRequested: portraitEffectEnabled,
-        portraitEffectApplied: false,
-      };
+      });
       latestCaptureRef.current = captureSession;
       setLatestPhoto({
         key: `${captureSession}-${sourcePhotoUri}`,
@@ -1684,11 +1627,11 @@ export default function CameraScreen() {
         aspectRatio,
         width / height,
         captureSession,
-        maximumPhotoQuality ? 100 : 92,
+        plan.resolved.jpegQuality,
         metadata,
         locationEnabled ? captureLocationRef.current : undefined,
-        portraitEffectEnabled && activeCaptureModeId === AUTO_CAPTURE_MODE.id,
-        requestedMultiFramePlan?.mode,
+        plan.resolved.portraitEffect,
+        multiFrameMode,
       );
     } catch (error) {
       if (captureSessionRef.current === captureSession) {

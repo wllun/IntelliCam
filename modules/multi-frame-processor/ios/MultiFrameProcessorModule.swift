@@ -10,6 +10,10 @@ public final class MultiFrameProcessorModule: Module {
   public func definition() -> ModuleDefinition {
     Name("MultiFrameProcessor")
 
+    AsyncFunction("measureAsync") { (sourceURI: String) throws -> [String: Any] in
+      return try self.measureFrame(sourceURI)
+    }
+
     AsyncFunction("processAsync") { (sourceURIs: [String], mode: String, jpegQuality: Int) throws -> [String: Any] in
       return try self.processFrames(
         sourceURIs: sourceURIs,
@@ -17,6 +21,34 @@ public final class MultiFrameProcessorModule: Module {
         jpegQuality: min(max(jpegQuality, 80), 100)
       )
     }
+  }
+
+  private func measureFrame(_ sourceURI: String) throws -> [String: Any] {
+    let image = try preparedImage(sourceURI)
+    let referenceWidth = Int(image.extent.width.rounded(.down))
+    let referenceHeight = Int(image.extent.height.rounded(.down))
+    let scale = min(1, 256 / max(image.extent.width, image.extent.height))
+    let sampled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+    let width = max(1, Int(sampled.extent.width.rounded(.down)))
+    let height = max(1, Int(sampled.extent.height.rounded(.down)))
+    let pixels = try renderRGBA(
+      sampled, width: width, height: height,
+      context: CIContext(options: [.cacheIntermediates: false])
+    )
+    var clipped = 0
+    for pixel in 0..<(width * height) {
+      let offset = pixel * 4
+      if max(max(pixels[offset], pixels[offset + 1]), pixels[offset + 2]) >= 250 {
+        clipped += 1
+      }
+    }
+    return [
+      "width": referenceWidth,
+      "height": referenceHeight,
+      "highlightClippingFraction": Double(clipped) / Double(width * height),
+      "highlightSampleCount": width * height,
+      "highlightThreshold": 250,
+    ]
   }
 
   private func processFrames(
@@ -123,7 +155,8 @@ public final class MultiFrameProcessorModule: Module {
           offsetX: 0,
           offsetY: 0,
           motionScore: 1,
-          accepted: false
+          accepted: false,
+          registrationSucceeded: false
         ))
       }
     }
@@ -401,7 +434,8 @@ public final class MultiFrameProcessorModule: Module {
     offsetX: Int,
     offsetY: Int,
     motionScore: Double,
-    accepted: Bool
+    accepted: Bool,
+    registrationSucceeded: Bool = true
   ) -> [String: Any] {
     return [
       "index": index,
@@ -409,6 +443,7 @@ public final class MultiFrameProcessorModule: Module {
       "offsetY": offsetY,
       "motionScore": motionScore,
       "accepted": accepted,
+      "registrationSucceeded": registrationSucceeded,
     ]
   }
 

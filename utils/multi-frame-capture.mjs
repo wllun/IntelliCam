@@ -5,7 +5,7 @@ const PLANS = Object.freeze({
 });
 
 export function getMultiFrameCapturePlan(captureModeId) {
-  return PLANS[captureModeId];
+  return Object.hasOwn(PLANS, captureModeId) ? PLANS[captureModeId] : undefined;
 }
 
 export function isMultiFrameCaptureMode(captureModeId) {

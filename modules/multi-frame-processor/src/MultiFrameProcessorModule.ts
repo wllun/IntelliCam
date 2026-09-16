@@ -1,14 +1,9 @@
 import { NativeModule, requireOptionalNativeModule } from 'expo';
+import type { ComputationalMode, FrameRegistration, FrameSceneMeasurement } from '../../../types/adaptive-capture';
 
-export type MultiFrameMode = 'star' | 'light-trail' | 'waterfall';
+export type MultiFrameMode = ComputationalMode;
 
-export interface MultiFrameAlignment {
-  index: number;
-  offsetX: number;
-  offsetY: number;
-  motionScore: number;
-  accepted: boolean;
-}
+export type MultiFrameAlignment = FrameRegistration;
 
 export interface MultiFrameProcessResult {
   uri: string;
@@ -20,6 +15,7 @@ export interface MultiFrameProcessResult {
 }
 
 declare class MultiFrameProcessorModule extends NativeModule {
+  measureAsync(sourceUri: string): Promise<FrameSceneMeasurement>;
   processAsync(
     sourceUris: string[],
     mode: MultiFrameMode,

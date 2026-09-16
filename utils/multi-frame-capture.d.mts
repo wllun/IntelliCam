@@ -1,9 +1,5 @@
-import type { MultiFrameMode } from '../modules/multi-frame-processor';
-
-export interface MultiFrameCapturePlan {
-  mode: MultiFrameMode;
-  frameCount: number;
-}
+import type { MultiFrameCapturePlan } from '../types/adaptive-capture';
+export type { MultiFrameCapturePlan } from '../types/adaptive-capture';
 
 export function getMultiFrameCapturePlan(
   captureModeId: string,

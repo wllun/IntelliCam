@@ -95,6 +95,16 @@ confirm the actual settings. See
 
 ## Image processing and native modules
 
+Capture preparation is owned by `hooks/use-capture-preparation.ts` and
+`services/capture-preparation.ts`. Shared engine types live in
+`types/adaptive-capture.ts`; the resolver wraps the existing mode strategies
+rather than duplicating them. `services/capture-metadata.ts` consistently stores
+requested, resolved, confirmed applied, and reason-coded fallback settings.
+Captured-reference JPEG highlight clipping and normalized burst-registration
+stability are measured on-device; absent measurements remain unknown. These
+are not live pre-shutter measurements. See
+[`ADAPTIVE_CAPTURE_ENGINE.md`](ADAPTIVE_CAPTURE_ENGINE.md).
+
 The shared post-capture pipeline crops the source JPEG to the selected aspect
 ratio, embeds portable IntelliCam metadata, saves it into the IntelliCam album,
 and refreshes the latest-photo thumbnail.
@@ -151,8 +161,9 @@ must not be introduced as part of core camera work.
 
 1. **Capture reliability** — physical-device validation of the honest HDR
    state, remaining photo-quality persistence, and failure recovery.
-2. **Adaptive capture** — normalized capabilities, scene measurements,
-   executable mode plans, and accurate applied metadata.
+2. **Adaptive capture** — extend the consolidated types/plans/outcome records
+   with live scene sensing and measurement-driven decisions; confirm remaining
+   manual controls against the session/EXIF.
 3. **Computational modes** — physically tune the first aligned Star, Light
    Trail, and Waterfall pipeline; add rotation/perspective registration where
    justified; then implement HDR bracketing.

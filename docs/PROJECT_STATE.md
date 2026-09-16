@@ -35,6 +35,12 @@ Every mode shares one camera screen, shutter, post-processing queue, metadata
 pipeline, and save path. New mode strategies must extend this engine rather
 than create separate camera screens.
 
+The adaptive engine now shares plain-data capabilities, scene measurements,
+and capture-plan types. Native capture preparation lives outside the screen.
+New photo metadata consistently records requested, resolved, confirmed applied,
+and fallback outcomes, with captured-JPEG clipping and burst-registration
+stability diagnostics. See [`ADAPTIVE_CAPTURE_ENGINE.md`](ADAPTIVE_CAPTURE_ENGINE.md).
+
 Related design documents:
 
 - [`proposals/ADAPTIVE_CAPTURE_PROPOSAL.md`](proposals/ADAPTIVE_CAPTURE_PROPOSAL.md)
@@ -60,6 +66,9 @@ Related design documents:
 - [x] Functional Auto Portrait effect with native Android/iOS person segmentation and safe original fallback
 - [x] Cancellable Star, Light Trail, and Waterfall bursts with native frame alignment, whole-frame motion rejection, common-overlap cropping, and mode-aware compositing
 - [x] Multi-frame applied/accepted/rejected details stored in portable JPEG information
+- [x] Consolidated adaptive types and plan resolution reusing the existing per-mode burst plans
+- [x] Extracted native capture preparation, capability adaptation, and capture-metadata assembly from the camera screen
+- [x] Captured-reference highlight-clipping and burst-stability measurements with explicit unknown values and reason-coded portable fallback records
 - [x] One shared camera and save engine for Auto and every selected special mode
 - [x] Photographic 3D cover-flow mode selector with draft selection, Apply, tapping, swiping, snapping, dots, haptics, accessibility actions, and reduced-motion handling
 - [x] IntelliCam-only gallery with newest-first ordering, pagination, full-screen viewing, and recoverable deletion
@@ -72,7 +81,7 @@ Related design documents:
 
 - [ ] Persist the photo-quality preference
 - [ ] Add capture review and save-failure recovery without discarding the cached source image
-- [ ] Implement the adaptive capture foundation: shared capability types, scene measurements, resolved capture plans, and requested/applied/actual metadata
+- [ ] Extend the consolidated engine with live timestamped scene sensing and measurement-driven capture decisions; confirm remaining manual settings against the session/EXIF rather than restarting the foundation
 - [ ] Connect Portrait, Beauty, and Product modes to executable capture strategies and replace the remaining guidance-only technical values with confirmed controls
 - [ ] Physically tune multi-frame registration and rejection thresholds for low-texture, low-light, moving-water, and moving-light scenes; evaluate rotation/perspective alignment after translation alignment is validated
 - [ ] Add physical-device validation for exposure, focus lock, tap focus, zoom, HDR, Portrait boundaries, multi-frame modes, selector motion, memory use, and release-build capture latency
@@ -116,5 +125,7 @@ settings are listed above.
 - Multi-frame processing currently corrects translation between frames. Large
   rotation, perspective changes, or insufficient scene detail can reject a
   frame; when fewer than two frames remain, the reference JPEG is saved.
+- Clipping/stability are captured-image diagnostics, not live pre-shutter
+  sensing. Single-frame stability and unavailable measurements remain unknown.
 - SQLite and backend services are planned, not installed.
 - Photos remain on-device; the project has no cloud photo storage.
