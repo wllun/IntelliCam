@@ -543,7 +543,8 @@ Only after the earlier stages:
 Do these in separate Git commits so every exercise is easy to undo.
 
 1. Persist the gridline preference with a safe default.
-2. Disable HDR honestly when the active camera does not support it.
+2. Add a device test that verifies supported HDR session confirmation and the
+   unsupported `Unavailable` state.
 3. Extract the permission screen into a component with typed props.
 4. Extract one camera settings row into a reusable component.
 5. Add a test for an unsupported-camera fallback.

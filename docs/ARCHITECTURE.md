@@ -136,8 +136,8 @@ must not be introduced as part of core camera work.
 
 ## Roadmap
 
-1. **Capture reliability** — honest HDR state, persistent camera settings,
-   physical-device validation, and failure recovery.
+1. **Capture reliability** — persistent camera settings, physical-device
+   validation of the honest HDR state, and failure recovery.
 2. **Adaptive capture** — normalized capabilities, scene measurements,
    executable mode plans, and accurate applied metadata.
 3. **Computational modes** — aligned multi-frame stacking, motion rejection,

@@ -9,7 +9,7 @@ review.
 | Control | Status | Current behavior and findings | Device verification |
 | --- | --- | --- | --- |
 | Exposure control | Partially good | Provides a `-2` to `+2` display range in `0.2` steps and maps it to the camera's supported native exposure range. Dragging currently sends state changes from the UI runtime to React on every frame, and Android rounds the result to hardware exposure indexes. Several displayed steps can therefore produce the same native value. See [`app/index.tsx`](../app/index.tsx). | Pending physical-device comparison at minimum, zero, and maximum exposure. |
-| HDR | Needs correction | Real HDR is requested only when the camera reports `supportsPhotoHDR`. When native HDR is unavailable, the control can still highlight and the session callback can mark it applied even though only quality/fusion enhancements were requested. Fusion is not equivalent to HDR. See [`app/index.tsx`](../app/index.tsx). | Disable or mark the control unavailable when unsupported. Confirm `isPhotoHDREnabled` and compare a backlit scene with HDR off/on. |
+| HDR | Implemented, needs physical verification | HDR is disabled and labelled `Unavailable` when the selected camera does not report `supportsPhotoHDR`. An enabled request is recorded as applied only after the active session reports `isPhotoHDREnabled`; quality and fusion enhancements are never counted as HDR. See [`app/index.tsx`](../app/index.tsx). | Compare a backlit scene with HDR off/on on a supported physical device and confirm the saved info matches the session result. |
 | 0.5x zoom | Approximate, hardware-dependent | The 0.5x option is shown only when an integrated or dedicated ultrawide camera is available. It maps the displayed value to the closest supported camera zoom and switches devices when a separate ultrawide lens is required. A Galaxy S22 previously reported a native minimum of `0.6x`, so the displayed `0.5x` used that closest hardware value. | Previously reached the S22 camera's `0.6x` minimum without freezing; framing still needs comparison with Samsung Camera. |
 | Focus lock | Implemented, needs physical verification | After a focus point is selected, the lock action requests locked AF/AE/AWB metering with no automatic reset. Unlocking resets automatic behavior. Android intentionally relies on CameraX's metering lock action because individual capability flags may report unsupported. | Pending near/far-subject testing while moving the phone after locking. |
 | Touch gesture to zoom | Implemented | Two-finger pinch and one-finger ruler dragging share the same zoom state. Native requests are quantized, serialized, and limited to the latest target to reduce camera pressure. Gestures are intentionally limited to Auto mode. | A Galaxy S22 check confirmed a live preview at 2x and above after disabling Android zero-shutter-lag. Pinch responsiveness still needs hands-on testing. |
@@ -20,13 +20,12 @@ review.
 
 ## Recommended follow-up order
 
-1. Correct the HDR fallback so the UI never labels a non-HDR capture as HDR.
-2. Quantize and throttle exposure updates according to the device's native
+1. Quantize and throttle exposure updates according to the device's native
    exposure indexes.
-3. Verify 0.5x framing, pinch zoom, tap focus, focus lock, and capture-mode
+2. Verify 0.5x framing, pinch zoom, tap focus, focus lock, HDR, and capture-mode
    swiping on the physical Galaxy S22.
-4. Add visible focus-result feedback if the camera API exposes a reliable
+3. Add visible focus-result feedback if the camera API exposes a reliable
    success signal.
-5. Test Portrait segmentation boundaries and original-photo fallback.
-6. Measure shutter response and shot-to-shot delay in a release build,
+4. Test Portrait segmentation boundaries and original-photo fallback.
+5. Measure shutter response and shot-to-shot delay in a release build,
    separating Standard, Maximum, HDR, flash, and Portrait captures.

@@ -51,7 +51,7 @@ Related design documents:
 - [x] Gridlines and centered `4:3`, `1:1`, `16:9`, or `Full` output framing
 - [x] Off, 3-second, 5-second, 10-second, and 30-second cancellable timer with haptics
 - [x] Timer cancellation on shutter retap, backgrounding, screen exit, remount, or camera unavailability
-- [x] Supported native Photo HDR request and session-state reporting
+- [x] Honest native Photo HDR: disabled as `Unavailable` on unsupported cameras and recorded only after session confirmation
 - [x] Functional Auto Portrait effect with native Android/iOS person segmentation and safe original fallback
 - [x] One shared camera and save engine for Auto and every selected special mode
 - [x] Photographic 3D cover-flow mode selector with draft selection, Apply, tapping, swiping, snapping, dots, haptics, accessibility actions, and reduced-motion handling
@@ -63,7 +63,6 @@ Related design documents:
 
 ## Next implementation priorities
 
-- [ ] Make HDR behavior honest on unsupported cameras: disable the control or mark it unavailable, and never report HDR as applied unless the selected camera session confirms it
 - [ ] Quantize and throttle exposure updates to the active device's native exposure indexes
 - [ ] Persist photo quality, gridlines, aspect ratio, timer, shutter sound, and HDR preferences
 - [ ] Add capture review and save-failure recovery without discarding the cached source image
@@ -82,9 +81,9 @@ The three-dot camera panel currently contains:
 
 - **Gridlines:** rule-of-thirds overlay. Default: off.
 - **Shutter sound:** controls the native capture sound. Default: off.
-- **HDR:** requests native Photo HDR when the active camera reports support.
-  The current unsupported-camera fallback is misleading and is the highest
-  priority correction.
+- **HDR:** requests native Photo HDR only when the active camera reports
+  support. Unsupported cameras show a disabled `Unavailable` control, and
+  photo information records HDR only after the active session confirms it.
 - **Photo location:** optionally embeds coordinates in new JPEGs. Default: off;
   permission is requested only after enabling it.
 - **Photo quality:** Standard uses balanced capture and a smaller JPEG; Maximum
