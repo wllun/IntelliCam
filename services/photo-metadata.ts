@@ -24,6 +24,11 @@ export interface CapturePhotoMetadata {
   locationSaved: boolean;
   portraitEffectRequested?: boolean;
   portraitEffectApplied?: boolean;
+  multiFrameRequested?: boolean;
+  multiFrameApplied?: boolean;
+  inputFrameCount?: number;
+  acceptedFrameCount?: number;
+  rejectedFrameCount?: number;
 }
 
 export interface CaptureLocation {
@@ -166,6 +171,15 @@ export async function getPhotoInformation(
         row('Portrait effect', custom?.portraitEffectRequested
           ? custom.portraitEffectApplied ? 'Applied' : 'Not applied'
           : custom ? 'Off' : undefined),
+        row('Multi-frame processing', custom?.multiFrameRequested
+          ? custom.multiFrameApplied ? 'Applied' : 'Not applied'
+          : custom ? 'Off' : undefined),
+        row('Frames used', custom?.multiFrameRequested && custom.inputFrameCount !== undefined
+          ? `${custom.acceptedFrameCount ?? 1} of ${custom.inputFrameCount}`
+          : undefined),
+        row('Frames rejected', custom?.multiFrameRequested && custom.rejectedFrameCount
+          ? custom.rejectedFrameCount
+          : undefined),
         row('Exposure compensation', custom ? `${custom.exposureCompensation >= 0 ? '+' : ''}${custom.exposureCompensation.toFixed(1)} EV` : undefined),
         row('Focus / exposure lock', custom ? custom.focusExposureLocked ? 'Locked' : 'Automatic' : undefined),
         row('Timer', custom ? custom.timerSeconds ? `${custom.timerSeconds} s` : 'Off' : undefined),

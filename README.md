@@ -3,9 +3,10 @@
 Smart camera app built around a reliable Auto camera and guided photography
 modes for Star, Light Trail, Waterfall, Portrait, Beauty, and Product shots.
 Auto capture and the optional computational Portrait effect are functional.
-The guided modes currently provide framing and settings guidance; applying
-their ISO, shutter, focus, RAW, and multi-frame strategies is the next capture
-engine milestone.
+Star, Light Trail, and Waterfall capture aligned, motion-screened bursts with
+mode-aware compositing. Their displayed ISO, shutter, focus, and RAW values are
+still guidance until the native camera session can confirm those controls.
+Portrait, Beauty, and Product remain guided modes.
 
 MVP is rule-based presets. Premium adds AI scene detection and a natural-language photography assistant.
 
@@ -33,7 +34,7 @@ This project uses [file-based routing](https://docs.expo.dev/router/introduction
 - React Native Vision Camera 5 for preview, capture, focus, metering, and zoom
 - Expo MediaLibrary for the on-device IntelliCam album
 - Local Expo native modules for portable JPEG metadata, recoverable Android
-  deletion, and the computational Portrait effect
+  deletion, the computational Portrait effect, and aligned multi-frame capture
 - AsyncStorage for camera preferences and the forced-update policy cache
 - SQLite, editing history, backend services, and cloud sync are planned, not
   currently installed

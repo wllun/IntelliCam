@@ -18,11 +18,12 @@ Local native processing modules
 Expo MediaLibrary IntelliCam album + portable JPEG metadata
 ```
 
-IntelliCam is local-first. Auto mode provides reliable everyday capture. The
-mode selector offers Star, Light Trail, Waterfall, Portrait, Beauty, and Product
-guidance, but those preset values do not yet control capture. Every mode uses
-the same camera screen and will extend the same capture engine rather than open
-a separate camera implementation.
+IntelliCam is local-first. Auto mode provides reliable everyday capture. Star,
+Light Trail, and Waterfall extend the same camera engine with aligned,
+motion-screened bursts and mode-aware compositing. Portrait, Beauty, and
+Product still provide guidance only. Displayed ISO, shutter, white-balance,
+focus, and RAW values are not treated as applied unless the native camera
+session confirms them. No mode opens a separate camera implementation.
 
 ## Application layer
 
@@ -83,9 +84,13 @@ and must not infer support from the phone model name.
 by the 3D cover-flow selector. Browsing changes only a draft selection; pressing
 Apply commits the active mode.
 
-At present, special-mode ISO, shutter, white-balance, focus, and RAW values are
-guidance only. They must not be described as applied until a resolved capture
-plan and the native backend confirm the actual settings. See
+Star captures six frames, Light Trail captures eight, and Waterfall captures
+six. The user can cancel the burst from the shutter, and lifecycle/session
+checks prevent further frames after the camera becomes unavailable. The other
+special modes remain single-frame guidance. All special-mode ISO, shutter,
+white-balance, focus, and RAW values are guidance only. They must not be
+described as applied until a resolved capture plan and the native backend
+confirm the actual settings. See
 [`proposals/ADAPTIVE_CAPTURE_PROPOSAL.md`](proposals/ADAPTIVE_CAPTURE_PROPOSAL.md).
 
 ## Image processing and native modules
@@ -100,12 +105,17 @@ Local Expo modules currently provide:
 | --- | --- |
 | `photo-metadata` | Copies camera EXIF and embeds IntelliCam capture information and optional GPS coordinates into the final JPEG |
 | `portrait-effect` | Uses ML Kit on Android and Vision/Core Image on iOS to keep a detected person sharp and blur the background |
+| `multi-frame-processor` | Aligns burst JPEGs by translation, rejects frames with excessive residual motion or displacement, crops to the common overlap, and composites Star, Light Trail, and Waterfall results |
 | `media-trash` | Uses Android's recoverable system trash flow instead of permanent deletion |
 
 If Portrait processing cannot identify a clear person or fails, the original
-capture is saved. Multi-frame alignment, motion rejection, HDR merging, light
-trail compositing, water smoothing, RAW processing, and advanced noise
-reduction remain future work.
+capture is saved. Android uses grayscale correlation for translation alignment;
+iOS uses Vision translational registration. Star rejects locally changed pixels
+before averaging, Light Trail uses lighten compositing, and Waterfall uses
+temporal averaging. When alignment leaves fewer than two usable frames, the
+reference JPEG is saved and the app reports that multi-frame processing was not
+applied. Rotation/perspective registration, exposure-bracketed HDR merging,
+RAW processing, and advanced noise reduction remain future work.
 
 ## Storage
 
@@ -143,8 +153,9 @@ must not be introduced as part of core camera work.
    state, remaining photo-quality persistence, and failure recovery.
 2. **Adaptive capture** — normalized capabilities, scene measurements,
    executable mode plans, and accurate applied metadata.
-3. **Computational modes** — aligned multi-frame stacking, motion rejection,
-   light-trail compositing, water smoothing, and HDR bracketing.
+3. **Computational modes** — physically tune the first aligned Star, Light
+   Trail, and Waterfall pipeline; add rotation/perspective registration where
+   justified; then implement HDR bracketing.
 4. **Local organization and editing** — SQLite metadata, custom presets, and
    non-destructive editing.
 5. **Smart assistance and premium** — on-device recommendations first; cloud

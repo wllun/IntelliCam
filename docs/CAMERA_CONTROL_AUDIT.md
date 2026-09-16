@@ -16,6 +16,7 @@ review.
 | Tap-to-focus | Implemented, needs physical verification | A preview tap converts view coordinates into a camera metering point and requests supported AF/AE/AWB modes. Automatic metering resumes after five seconds unless locked. The reticle does not distinguish confirmed autofocus success from an unresolved attempt. | Pending close, distant, low-light, and edge-of-frame tests. |
 | Portrait effect | Implemented, needs physical verification | Auto mode can process the final JPEG with ML Kit on Android or Vision/Core Image on iOS. A failed segmentation keeps the original. The effect is post-capture and is not a hardware depth-map Portrait mode. | Test hair, glasses, hands, multiple people, cluttered backgrounds, front camera, and low light. |
 | Capture mode selector | Implemented, needs physical verification | The selector uses bundled photographic cards, cover-flow perspective, UI-thread dragging and snapping, a separate draft selection, Apply, reduced-motion handling, and accessibility increment/decrement actions. | Pending slow drag, fast flick, reversal, interrupted drag, edge resistance, dismiss/reopen, Android Back, and TalkBack checks. |
+| Star / Light Trail / Waterfall processing | Implemented, needs physical tuning | Each mode captures a cancellable burst, aligns frames by translation, rejects excessive displacement/residual motion, crops the common overlap, and applies mode-specific compositing. Android uses grayscale correlation; iOS uses Vision registration. The original reference frame is saved when fewer than two frames remain. Applied and rejected counts are stored in photo information. | Test handheld and tripod captures across low-texture darkness, stars, traffic trails, waterfalls, moving people, camera shake, and memory-constrained devices. Compare sharpness and ghosting against a single-frame reference and tune thresholds per platform. |
 | Capture quality and speed | Implemented, needs measurement | Maximum is the default and requests the highest supported 4:3 resolution, maximum JPEG quality, native quality prioritization, supported low-light boost, and Apple fusion/distortion correction. Standard uses UHD 4:3, balanced prioritization, and lower JPEG quality. Capture settings are prewarmed and crop/save work is queued after the shutter is re-enabled. | Compare Standard and Maximum detail, noise, shutter latency, and shot-to-shot time in a release build. |
 
 ## Recommended follow-up order
@@ -26,5 +27,7 @@ review.
 2. Add visible focus-result feedback if the camera API exposes a reliable
    success signal.
 3. Test Portrait segmentation boundaries and original-photo fallback.
-4. Measure shutter response and shot-to-shot delay in a release build,
+4. Tune multi-frame alignment/rejection against real Star, Light Trail, and
+   Waterfall scenes, including cancellation and fallback behavior.
+5. Measure shutter response and shot-to-shot delay in a release build,
    separating Standard, Maximum, HDR, flash, and Portrait captures.

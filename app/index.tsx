@@ -76,6 +76,11 @@ import {
   findNearestExposureStepIndex,
   formatExposureValue,
 } from '@/utils/exposure-control.mjs';
+import MultiFrameProcessor, {
+  type MultiFrameMode,
+  type MultiFrameProcessResult,
+} from '@/modules/multi-frame-processor';
+import { getMultiFrameCapturePlan } from '@/utils/multi-frame-capture.mjs';
 import PortraitEffect from '@/modules/portrait-effect';
 
 const ALBUM_NAME = 'IntelliCam';
@@ -116,8 +121,19 @@ interface LatestPhoto {
   uri: string;
 }
 
+interface MultiFrameProgress {
+  captured: number;
+  total: number;
+}
+
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function localFilePath(uriOrPath: string) {
+  return uriOrPath.startsWith('file://')
+    ? decodeURIComponent(uriOrPath.slice('file://'.length))
+    : uriOrPath;
 }
 
 function getActiveCameraZoom(
@@ -451,6 +467,7 @@ export default function CameraScreen() {
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [captureLocation, setCaptureLocation] = useState<CaptureLocation>();
   const [countdown, setCountdown] = useState<number>();
+  const [multiFrameProgress, setMultiFrameProgress] = useState<MultiFrameProgress>();
   const [focusPoint, setFocusPoint] = useState<FocusPoint>();
   const [exposureCompensation, setExposureCompensation] = useState(0);
   const [meteringLocked, setMeteringLocked] = useState(false);
@@ -490,7 +507,7 @@ export default function CameraScreen() {
   const rulerDragStartZoom = useSharedValue(1);
 
   const enqueuePhotoSave = useCallback((
-    sourceFilePath: string,
+    sourceFilePaths: string[],
     ratio: CameraRatio,
     fullScreenRatio: number,
     captureId: number,
@@ -498,12 +515,40 @@ export default function CameraScreen() {
     metadata: CapturePhotoMetadata,
     location?: CaptureLocation,
     applyPortraitEffect = false,
+    multiFrameMode?: MultiFrameMode,
   ) => {
     photoSaveQueueRef.current = photoSaveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
+        const referenceFilePath = sourceFilePaths[0];
+        let processingSourceUri = `file://${referenceFilePath}`;
+        let multiFrameResult: MultiFrameProcessResult | undefined;
+        let multiFrameFailureMessage: string | undefined;
+        if (multiFrameMode) {
+          if (!MultiFrameProcessor || sourceFilePaths.length < 2) {
+            multiFrameFailureMessage = MultiFrameProcessor
+              ? 'Not enough usable frames were captured. The reference photo was saved.'
+              : 'Multi-frame processing requires a rebuilt IntelliCam app.';
+          } else {
+            try {
+              multiFrameResult = await MultiFrameProcessor.processAsync(
+                sourceFilePaths.map((filePath) => `file://${filePath}`),
+                multiFrameMode,
+                jpegQuality,
+              );
+              if (multiFrameResult.applied) {
+                processingSourceUri = multiFrameResult.uri;
+              } else {
+                multiFrameFailureMessage = 'Camera motion was too strong. The reference frame was saved.';
+              }
+            } catch (multiFrameError) {
+              console.warn('Could not process aligned multi-frame capture:', multiFrameError);
+              multiFrameFailureMessage = 'Frame alignment failed. The reference photo was saved.';
+            }
+          }
+        }
         const processedUri = await cropPhotoForAspectRatio(
-          sourceFilePath,
+          localFilePath(processingSourceUri),
           ratio,
           fullScreenRatio,
           jpegQuality,
@@ -532,10 +577,16 @@ export default function CameraScreen() {
           ...metadata,
           portraitEffectRequested: applyPortraitEffect,
           portraitEffectApplied: portraitApplied,
+          multiFrameRequested: Boolean(multiFrameMode),
+          multiFrameApplied: multiFrameResult?.applied ?? false,
+          inputFrameCount: multiFrameResult?.inputFrameCount ?? sourceFilePaths.length,
+          acceptedFrameCount: multiFrameResult?.acceptedFrameCount ?? 1,
+          rejectedFrameCount: multiFrameResult?.rejectedFrameCount
+            ?? Math.max(0, sourceFilePaths.length - 1),
         };
         try {
           await embedPhotoMetadata(
-            `file://${sourceFilePath}`,
+            `file://${referenceFilePath}`,
             finalUri,
             finalMetadata,
             location,
@@ -548,12 +599,15 @@ export default function CameraScreen() {
           setLatestPhoto(savedPhoto);
         }
         if (
-          portraitFailureMessage
+          (portraitFailureMessage || multiFrameFailureMessage)
           && latestCaptureRef.current === captureId
           && appActiveRef.current
           && screenFocusedRef.current
         ) {
-          Alert.alert('Portrait effect not applied', portraitFailureMessage);
+          Alert.alert(
+            multiFrameFailureMessage ? 'Multi-frame processing not applied' : 'Portrait effect not applied',
+            multiFrameFailureMessage ?? portraitFailureMessage,
+          );
         }
       })
       .catch((error: unknown) => {
@@ -647,6 +701,7 @@ export default function CameraScreen() {
     resolveCountdown?.();
 
     setCountdown(undefined);
+    setMultiFrameProgress(undefined);
     setCapturing(false);
     if (wasCountingDown && withHapticFeedback) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -1552,17 +1607,47 @@ export default function CameraScreen() {
       countdownActiveRef.current = false;
       setCountdown(undefined);
 
-      const photoFile = await photoOutput.capturePhotoToFile(
-        {
-          flashMode: cameraDevice?.hasFlash ? flash : 'off',
-          enableShutterSound: shutterSoundEnabled,
-          enableRedEyeReduction: nativeHdrRequested || maximumPhotoQuality,
-          enableDistortionCorrection: nativeHdrRequested || maximumPhotoQuality,
-          enableVirtualDeviceFusion: nativeHdrRequested || maximumPhotoQuality,
-        },
-        {},
-      );
-      const sourcePhotoUri = `file://${photoFile.filePath}`;
+      const requestedMultiFramePlan = getMultiFrameCapturePlan(activeCaptureModeId);
+      const executableMultiFramePlan = MultiFrameProcessor
+        ? requestedMultiFramePlan
+        : undefined;
+      const frameCount = executableMultiFramePlan?.frameCount ?? 1;
+      const capturedFilePaths: string[] = [];
+      if (executableMultiFramePlan) {
+        setMultiFrameProgress({ captured: 0, total: frameCount });
+      }
+      for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+        if (
+          captureSessionRef.current !== captureSession
+          || !cameraReadyRef.current
+          || !appActiveRef.current
+          || !screenFocusedRef.current
+        ) return;
+
+        const photoFile = await photoOutput.capturePhotoToFile(
+          {
+            flashMode: cameraDevice?.hasFlash ? flash : 'off',
+            enableShutterSound: shutterSoundEnabled && frameIndex === 0,
+            enableRedEyeReduction: nativeHdrRequested || maximumPhotoQuality,
+            enableDistortionCorrection: nativeHdrRequested || maximumPhotoQuality,
+            enableVirtualDeviceFusion: nativeHdrRequested || maximumPhotoQuality,
+          },
+          {},
+        );
+        if (
+          captureSessionRef.current !== captureSession
+          || !cameraReadyRef.current
+          || !appActiveRef.current
+          || !screenFocusedRef.current
+        ) return;
+        capturedFilePaths.push(photoFile.filePath);
+        if (executableMultiFramePlan) {
+          setMultiFrameProgress({ captured: frameIndex + 1, total: frameCount });
+        }
+      }
+      setMultiFrameProgress(undefined);
+      const referenceFilePath = capturedFilePaths[0];
+      const sourcePhotoUri = `file://${referenceFilePath}`;
       const captureModeName = activeCaptureModeId === AUTO_CAPTURE_MODE.id
         ? AUTO_CAPTURE_MODE.name
         : preset.name;
@@ -1595,14 +1680,15 @@ export default function CameraScreen() {
       setCapturing(false);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       enqueuePhotoSave(
-        photoFile.filePath,
+        capturedFilePaths,
         aspectRatio,
         width / height,
         captureSession,
         maximumPhotoQuality ? 100 : 92,
         metadata,
         locationEnabled ? captureLocationRef.current : undefined,
-        portraitEffectEnabled,
+        portraitEffectEnabled && activeCaptureModeId === AUTO_CAPTURE_MODE.id,
+        requestedMultiFramePlan?.mode,
       );
     } catch (error) {
       if (captureSessionRef.current === captureSession) {
@@ -1612,10 +1698,13 @@ export default function CameraScreen() {
       if (captureSessionRef.current === captureSession) {
         countdownActiveRef.current = false;
         setCountdown(undefined);
+        setMultiFrameProgress(undefined);
         setCapturing(false);
       }
     }
   };
+
+  const captureCanBeCancelled = countdown !== undefined || multiFrameProgress !== undefined;
 
   return (
     <GestureDetector gesture={cameraGesture}>
@@ -1700,6 +1789,23 @@ export default function CameraScreen() {
               <Text style={styles.countdownText}>{countdown}</Text>
             </View>
             <Text style={styles.countdownHint}>Tap shutter to cancel</Text>
+          </Animated.View>
+        )}
+
+        {multiFrameProgress !== undefined && (
+          <Animated.View
+            accessible
+            accessibilityLabel={`Capturing frame ${multiFrameProgress.captured} of ${multiFrameProgress.total}. Keep the camera steady. Tap the shutter to cancel.`}
+            accessibilityLiveRegion="polite"
+            entering={FadeIn.duration(140)}
+            exiting={FadeOut.duration(140)}
+            pointerEvents="none"
+            style={styles.multiFrameProgress}>
+            <Text style={styles.multiFrameProgressTitle}>Keep steady</Text>
+            <Text style={styles.multiFrameProgressCount}>
+              {multiFrameProgress.captured} / {multiFrameProgress.total}
+            </Text>
+            <Text style={styles.multiFrameProgressHint}>Tap shutter to cancel</Text>
           </Animated.View>
         )}
 
@@ -1982,24 +2088,24 @@ export default function CameraScreen() {
           </Pressable>
 
           <Pressable
-            accessibilityLabel={countdown !== undefined ? 'Cancel photo timer' : 'Take picture'}
-            accessibilityHint={countdown !== undefined ? 'Stops the countdown without taking a photo' : undefined}
+            accessibilityLabel={captureCanBeCancelled ? 'Cancel photo capture' : 'Take picture'}
+            accessibilityHint={captureCanBeCancelled ? 'Stops the active capture without saving another photo' : undefined}
             accessibilityRole="button"
-            accessibilityState={{ disabled: !cameraReady || (capturing && countdown === undefined) }}
+            accessibilityState={{ disabled: !cameraReady || (capturing && !captureCanBeCancelled) }}
             style={[
               styles.shutter,
-              countdown !== undefined && styles.shutterCancelling,
-              capturing && countdown === undefined && styles.shutterDisabled,
+              captureCanBeCancelled && styles.shutterCancelling,
+              capturing && !captureCanBeCancelled && styles.shutterDisabled,
             ]}
-            disabled={!cameraReady || (capturing && countdown === undefined)}
-            onPress={countdown !== undefined ? () => cancelPendingCapture(true) : capture}>
+            disabled={!cameraReady || (capturing && !captureCanBeCancelled)}
+            onPress={captureCanBeCancelled ? () => cancelPendingCapture(true) : capture}>
             <View
               style={[
                 styles.shutterInner,
                 { borderColor: preset.tint },
-                countdown !== undefined && styles.shutterInnerCancelling,
+                captureCanBeCancelled && styles.shutterInnerCancelling,
               ]}>
-              {countdown !== undefined && <Ionicons name="close" size={30} color="white" />}
+              {captureCanBeCancelled && <Ionicons name="close" size={30} color="white" />}
             </View>
           </Pressable>
 
@@ -2654,6 +2760,35 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 12,
     fontWeight: '700',
+  },
+  multiFrameProgress: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: '42%',
+    minWidth: 166,
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 18,
+    backgroundColor: 'rgba(10,10,10,0.78)',
+    borderWidth: 1,
+    borderColor: 'rgba(159,225,203,0.58)',
+  },
+  multiFrameProgressTitle: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  multiFrameProgressCount: {
+    color: '#9FE1CB',
+    fontSize: 22,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  multiFrameProgressHint: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 11,
   },
   meteringControl: {
     position: 'absolute',

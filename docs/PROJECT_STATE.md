@@ -23,9 +23,13 @@ found, IntelliCam saves the original capture.
 
 The photographic 3D cover-flow selector is implemented for Auto, Star, Light
 Trail, Waterfall, Portrait, Beauty (`美顔`), and Product. Browsing changes a draft
-selection; Apply commits it. The six special modes currently display guidance
-and example technical settings only. Their ISO, shutter, focus, white-balance,
-RAW, and multi-frame strategies do not yet change capture.
+selection; Apply commits it. Star, Light Trail, and Waterfall now run bounded,
+cancellable bursts through a native alignment and motion-rejection pipeline.
+Accepted frames are cropped to their common aligned area and composited using
+star-safe averaging, lighten blending, or temporal averaging respectively.
+Their displayed ISO, shutter, focus, white-balance, and RAW values remain
+guidance rather than confirmed camera controls. Portrait, Beauty, and Product
+remain guidance-only modes; Auto's separate Portrait toggle is functional.
 
 Every mode shares one camera screen, shutter, post-processing queue, metadata
 pipeline, and save path. New mode strategies must extend this engine rather
@@ -54,6 +58,8 @@ Related design documents:
 - [x] Honest native Photo HDR: disabled as `Unavailable` on unsupported cameras and recorded only after session confirmation
 - [x] AsyncStorage persistence for gridlines, aspect ratio, timer, shutter sound, and HDR preference with validated defaults
 - [x] Functional Auto Portrait effect with native Android/iOS person segmentation and safe original fallback
+- [x] Cancellable Star, Light Trail, and Waterfall bursts with native frame alignment, whole-frame motion rejection, common-overlap cropping, and mode-aware compositing
+- [x] Multi-frame applied/accepted/rejected details stored in portable JPEG information
 - [x] One shared camera and save engine for Auto and every selected special mode
 - [x] Photographic 3D cover-flow mode selector with draft selection, Apply, tapping, swiping, snapping, dots, haptics, accessibility actions, and reduced-motion handling
 - [x] IntelliCam-only gallery with newest-first ordering, pagination, full-screen viewing, and recoverable deletion
@@ -67,9 +73,9 @@ Related design documents:
 - [ ] Persist the photo-quality preference
 - [ ] Add capture review and save-failure recovery without discarding the cached source image
 - [ ] Implement the adaptive capture foundation: shared capability types, scene measurements, resolved capture plans, and requested/applied/actual metadata
-- [ ] Connect Star, Light Trail, Waterfall, Portrait, Beauty, and Product modes to executable capture strategies
-- [ ] Add cancellable multi-frame capture, alignment, motion rejection, stacking, temporal averaging, and light-trail compositing
-- [ ] Add physical-device validation for exposure, focus lock, tap focus, zoom, HDR, Portrait boundaries, selector motion, and release-build capture latency
+- [ ] Connect Portrait, Beauty, and Product modes to executable capture strategies and replace the remaining guidance-only technical values with confirmed controls
+- [ ] Physically tune multi-frame registration and rejection thresholds for low-texture, low-light, moving-water, and moving-light scenes; evaluate rotation/perspective alignment after translation alignment is validated
+- [ ] Add physical-device validation for exposure, focus lock, tap focus, zoom, HDR, Portrait boundaries, multi-frame modes, selector motion, memory use, and release-build capture latency
 - [ ] Add SQLite `photos`, `camera_presets`, `edit_history`, and `capture_sessions` tables when relational features begin
 - [ ] Add custom presets and non-destructive editing
 - [ ] Add on-device smart assistance only after the rule-based adaptive engine is dependable
@@ -107,5 +113,8 @@ settings are listed above.
   development build or standalone APK.
 - Special-mode technical chips are guidance, not proof that those settings were
   applied.
+- Multi-frame processing currently corrects translation between frames. Large
+  rotation, perspective changes, or insufficient scene detail can reject a
+  frame; when fewer than two frames remain, the reference JPEG is saved.
 - SQLite and backend services are planned, not installed.
 - Photos remain on-device; the project has no cloud photo storage.
