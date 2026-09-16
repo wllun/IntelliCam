@@ -34,7 +34,7 @@ This project uses [file-based routing](https://docs.expo.dev/router/introduction
 - Expo MediaLibrary for the on-device IntelliCam album
 - Local Expo native modules for portable JPEG metadata, recoverable Android
   deletion, and the computational Portrait effect
-- AsyncStorage for the forced-update policy cache
+- AsyncStorage for camera preferences and the forced-update policy cache
 - SQLite, editing history, backend services, and cloud sync are planned, not
   currently installed
 

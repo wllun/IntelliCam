@@ -13,6 +13,10 @@ test('disables HDR when the selected camera does not support native photo HDR', 
   assert.match(cameraScreenSource, />\s*Unavailable\s*</);
   assert.match(
     cameraScreenSource,
+    /const nativeHdrRequested = hdrEnabled && supportsNativeHdr/,
+  );
+  assert.doesNotMatch(
+    cameraScreenSource,
     /if \(!supportsNativeHdr\) \{\s*setHdrEnabled\(false\);\s*\}/,
   );
 });

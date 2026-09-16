@@ -61,17 +61,24 @@ import {
   type CaptureLocation,
   type CapturePhotoMetadata,
 } from '@/services/photo-metadata';
+import {
+  loadCameraPreferences,
+  saveCameraPreferences,
+} from '@/services/camera-preferences';
+import {
+  CAMERA_ASPECT_RATIOS,
+  CAMERA_TIMER_SECONDS,
+  type CameraAspectRatio,
+  type CameraTimerSeconds,
+} from '@/utils/camera-preferences.mjs';
 import PortraitEffect from '@/modules/portrait-effect';
 
 const ALBUM_NAME = 'IntelliCam';
-type TimerSeconds = 0 | 3 | 5 | 10 | 30;
 type PhotoQuality = 'standard' | 'maximum';
 type CameraFacing = 'front' | 'back';
-type CameraRatio = '4:3' | '1:1' | '16:9' | 'Full';
+type CameraRatio = CameraAspectRatio;
 
 const FLASH_MODES: FlashMode[] = ['off', 'auto', 'on'];
-const ASPECT_RATIOS: CameraRatio[] = ['4:3', '1:1', '16:9', 'Full'];
-const TIMER_OPTIONS: TimerSeconds[] = [0, 3, 5, 10, 30];
 const PHOTO_QUALITY_OPTIONS: { label: string; value: PhotoQuality }[] = [
   { label: 'Standard', value: 'standard' },
   { label: 'Maximum', value: 'maximum' },
@@ -450,9 +457,10 @@ export default function CameraScreen() {
   const [displayedZoom, setDisplayedZoom] = useState(1);
   const [cameraZoomProp, setCameraZoomProp] = useState(1);
   const [gridLines, setGridLines] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState<CameraRatio>('4:3');
-  const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
+  const [aspectRatio, setAspectRatio] = useState<CameraAspectRatio>('4:3');
+  const [timerSeconds, setTimerSeconds] = useState<CameraTimerSeconds>(0);
   const [shutterSoundEnabled, setShutterSoundEnabled] = useState(false);
+  const [cameraPreferencesHydrated, setCameraPreferencesHydrated] = useState(false);
   const [portraitEffectEnabled, setPortraitEffectEnabled] = useState(false);
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [captureLocation, setCaptureLocation] = useState<CaptureLocation>();
@@ -472,6 +480,7 @@ export default function CameraScreen() {
   const captureSessionRef = useRef(0);
   const latestCaptureRef = useRef(0);
   const photoSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const cameraPreferencesSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const appActiveRef = useRef(AppState.currentState === 'active');
   const screenFocusedRef = useRef(true);
   const cameraReadyRef = useRef(false);
@@ -902,10 +911,46 @@ export default function CameraScreen() {
   );
 
   useEffect(() => {
+    let active = true;
+
+    void loadCameraPreferences().then((preferences) => {
+      if (!active) return;
+      setGridLines(preferences.gridLines);
+      setAspectRatio(preferences.aspectRatio);
+      setTimerSeconds(preferences.timerSeconds);
+      setShutterSoundEnabled(preferences.shutterSoundEnabled);
+      setHdrEnabled(preferences.hdrEnabled);
+      setCameraPreferencesHydrated(true);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!cameraPreferencesHydrated) return;
+
+    const preferences = {
+      gridLines,
+      aspectRatio,
+      timerSeconds,
+      shutterSoundEnabled,
+      hdrEnabled,
+    };
+    cameraPreferencesSaveQueueRef.current = cameraPreferencesSaveQueueRef.current
+      .then(() => saveCameraPreferences(preferences));
+  }, [
+    aspectRatio,
+    cameraPreferencesHydrated,
+    gridLines,
+    hdrEnabled,
+    shutterSoundEnabled,
+    timerSeconds,
+  ]);
+
+  useEffect(() => {
     setHdrSessionConfirmed(false);
-    if (!supportsNativeHdr) {
-      setHdrEnabled(false);
-    }
   }, [cameraDevice?.id, supportsNativeHdr]);
 
   useEffect(() => {
@@ -2044,7 +2089,7 @@ export default function CameraScreen() {
                 <Text style={styles.settingLabel}>Aspect ratio</Text>
               </View>
               <View style={styles.segmented}>
-                {ASPECT_RATIOS.map((ratio) => (
+                {CAMERA_ASPECT_RATIOS.map((ratio) => (
                   <Pressable
                     key={ratio}
                     accessibilityRole="radio"
@@ -2068,7 +2113,7 @@ export default function CameraScreen() {
                 <Text style={styles.settingLabel}>Timer</Text>
               </View>
               <View style={styles.segmented}>
-                {TIMER_OPTIONS.map((seconds) => (
+                {CAMERA_TIMER_SECONDS.map((seconds) => (
                   <Pressable
                     key={seconds}
                     accessibilityRole="radio"

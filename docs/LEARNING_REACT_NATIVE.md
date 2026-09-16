@@ -542,7 +542,7 @@ Only after the earlier stages:
 
 Do these in separate Git commits so every exercise is easy to undo.
 
-1. Persist the gridline preference with a safe default.
+1. Persist the photo-quality preference with a safe default.
 2. Add a device test that verifies supported HDR session confirmation and the
    unsupported `Unavailable` state.
 3. Extract the permission screen into a component with typed props.

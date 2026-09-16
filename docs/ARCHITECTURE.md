@@ -30,7 +30,8 @@ a separate camera implementation.
 - UI state: React state, refs, effects, and memoized values
 - Motion and gestures: React Native Reanimated, Gesture Handler, and Worklets
 - Images: `expo-image`, `expo-image-manipulator`, and Nitro Image
-- Lifecycle cache: AsyncStorage for the forced-update policy
+- Lifecycle storage: AsyncStorage for the forced-update policy cache and simple
+  camera preferences
 
 No global state library or SQLite database is currently installed. Add those
 only when their corresponding roadmap features require them.
@@ -113,6 +114,8 @@ Current storage is local and file-based:
 - Camera EXIF and IntelliCam capture settings travel inside the JPEG where the
   platform permits it.
 - The gallery queries only that album and displays newest photos first.
+- Gridlines, aspect ratio, timer, shutter sound, and HDR preference are stored
+  as a validated AsyncStorage value with safe defaults.
 - There is no cloud photo storage and no local SQLite database yet.
 
 Planned SQLite tables:
@@ -121,7 +124,6 @@ Planned SQLite tables:
 | --- | --- |
 | `photos` | Local file reference, capture mode, and searchable metadata |
 | `camera_presets` | Built-in and future custom preset definitions |
-| `user_settings` | Persistent camera and application preferences |
 | `edit_history` | Non-destructive adjustment history; never image blobs |
 | `capture_sessions` | Multi-frame plan, frame count, duration, and result |
 
@@ -136,8 +138,8 @@ must not be introduced as part of core camera work.
 
 ## Roadmap
 
-1. **Capture reliability** — persistent camera settings, physical-device
-   validation of the honest HDR state, and failure recovery.
+1. **Capture reliability** — physical-device validation of the honest HDR
+   state, remaining photo-quality persistence, and failure recovery.
 2. **Adaptive capture** — normalized capabilities, scene measurements,
    executable mode plans, and accurate applied metadata.
 3. **Computational modes** — aligned multi-frame stacking, motion rejection,

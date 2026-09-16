@@ -52,6 +52,7 @@ Related design documents:
 - [x] Off, 3-second, 5-second, 10-second, and 30-second cancellable timer with haptics
 - [x] Timer cancellation on shutter retap, backgrounding, screen exit, remount, or camera unavailability
 - [x] Honest native Photo HDR: disabled as `Unavailable` on unsupported cameras and recorded only after session confirmation
+- [x] AsyncStorage persistence for gridlines, aspect ratio, timer, shutter sound, and HDR preference with validated defaults
 - [x] Functional Auto Portrait effect with native Android/iOS person segmentation and safe original fallback
 - [x] One shared camera and save engine for Auto and every selected special mode
 - [x] Photographic 3D cover-flow mode selector with draft selection, Apply, tapping, swiping, snapping, dots, haptics, accessibility actions, and reduced-motion handling
@@ -64,13 +65,13 @@ Related design documents:
 ## Next implementation priorities
 
 - [ ] Quantize and throttle exposure updates to the active device's native exposure indexes
-- [ ] Persist photo quality, gridlines, aspect ratio, timer, shutter sound, and HDR preferences
+- [ ] Persist the photo-quality preference
 - [ ] Add capture review and save-failure recovery without discarding the cached source image
 - [ ] Implement the adaptive capture foundation: shared capability types, scene measurements, resolved capture plans, and requested/applied/actual metadata
 - [ ] Connect Star, Light Trail, Waterfall, Portrait, Beauty, and Product modes to executable capture strategies
 - [ ] Add cancellable multi-frame capture, alignment, motion rejection, stacking, temporal averaging, and light-trail compositing
 - [ ] Add physical-device validation for exposure, focus lock, tap focus, zoom, HDR, Portrait boundaries, selector motion, and release-build capture latency
-- [ ] Add SQLite `photos`, `camera_presets`, `user_settings`, `edit_history`, and `capture_sessions` tables when relational features begin
+- [ ] Add SQLite `photos`, `camera_presets`, `edit_history`, and `capture_sessions` tables when relational features begin
 - [ ] Add custom presets and non-destructive editing
 - [ ] Add on-device smart assistance only after the rule-based adaptive engine is dependable
 - [ ] Defer backend, Supabase, cloud AI, accounts, and subscriptions until explicitly approved
@@ -78,6 +79,10 @@ Related design documents:
 ## Camera settings
 
 The three-dot camera panel currently contains:
+
+Gridlines, aspect ratio, timer, shutter sound, and the user's HDR preference are
+restored from AsyncStorage. Invalid or unreadable stored values fall back to the
+defaults below. SQLite is not used for these simple preferences.
 
 - **Gridlines:** rule-of-thirds overlay. Default: off.
 - **Shutter sound:** controls the native capture sound. Default: off.
