@@ -56,7 +56,7 @@ state.
 It includes:
 
 - Opening the selector from the right-side Mode control.
-- Browsing Auto, Star, Light Trail, Waterfall, Portrait, 美顔, and Product.
+- Browsing Auto, Star, Light Trail, Waterfall, Portrait, Beauty, and Product.
 - Drafting a selection without immediately changing the active camera mode.
 - Applying or dismissing the draft selection.
 - Updating the camera UI after Apply.

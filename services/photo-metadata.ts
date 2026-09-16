@@ -31,6 +31,27 @@ export interface CapturePhotoMetadata {
   acceptedFrameCount?: number;
   rejectedFrameCount?: number;
   capturePlan?: CapturePlan;
+  beautyEffectRequested?: boolean;
+  beautyEffectApplied?: boolean;
+  captureStrategy?:
+    | 'manual-long-exposure'
+    | 'manual-slow-exposure'
+    | 'automatic-frame-stack'
+    | 'automatic-lighten-composite'
+    | 'automatic-temporal-average'
+    | 'natural-beauty-processing'
+    | 'locked-detail-capture'
+    | 'automatic-detail-capture'
+    | 'automatic-low-light';
+  captureFrameCount?: number;
+  manualExposureApplied?: boolean;
+  appliedExposureSeconds?: number;
+  appliedIso?: number;
+  appliedWhiteBalanceKelvin?: number;
+  focusStrategy?: 'infinity-locked' | 'automatic-locked';
+  whiteBalanceStrategy?: 'manual-kelvin' | 'automatic-locked';
+  processingOperations?: string[];
+  captureFallbackReason?: string;
 }
 
 export interface CaptureLocation {
@@ -81,13 +102,38 @@ function parseCustomMetadata(value: string | undefined): CapturePhotoMetadata | 
   }
 }
 
-function rows(values: Array<PhotoInfoRow | undefined>) {
+function rows(values: (PhotoInfoRow | undefined)[]) {
   return values.filter((row): row is PhotoInfoRow => Boolean(row?.value));
 }
 
 function row(label: string, value: unknown): PhotoInfoRow | undefined {
   const normalized = text(value);
   return normalized ? { label, value: normalized } : undefined;
+}
+
+function formatCaptureStrategy(value: CapturePhotoMetadata['captureStrategy']) {
+  switch (value) {
+    case 'manual-long-exposure':
+      return 'Manual long exposure';
+    case 'manual-slow-exposure':
+      return 'Manual slow exposure';
+    case 'automatic-frame-stack':
+      return 'Automatic frame stack';
+    case 'automatic-lighten-composite':
+      return 'Automatic light trail composite';
+    case 'automatic-temporal-average':
+      return 'Automatic temporal average';
+    case 'natural-beauty-processing':
+      return 'Natural beauty processing';
+    case 'locked-detail-capture':
+      return 'Locked detail capture';
+    case 'automatic-detail-capture':
+      return 'Automatic detail capture';
+    case 'automatic-low-light':
+      return 'Automatic low light';
+    default:
+      return undefined;
+  }
 }
 
 export async function embedPhotoMetadata(
@@ -166,6 +212,21 @@ export async function getPhotoInformation(
       title: 'IntelliCam',
       rows: rows([
         row('Capture mode', custom?.captureMode),
+        row('Capture strategy', formatCaptureStrategy(custom?.captureStrategy)),
+        row('Frames combined', custom?.captureFrameCount && custom.captureFrameCount > 1
+          ? custom.captureFrameCount
+          : undefined),
+        row('Manual exposure', custom?.manualExposureApplied && custom.appliedExposureSeconds
+          ? `${custom.appliedExposureSeconds.toFixed(1)} s at ISO ${custom.appliedIso}`
+          : undefined),
+        row('White balance', custom?.appliedWhiteBalanceKelvin
+          ? `${custom.appliedWhiteBalanceKelvin} K`
+          : custom?.whiteBalanceStrategy === 'automatic-locked' ? 'Automatic locked' : undefined),
+        row('Capture focus', custom?.focusStrategy === 'infinity-locked'
+          ? 'Infinity locked'
+          : custom?.focusStrategy === 'automatic-locked' ? 'Automatic metering lock' : undefined),
+        row('Processing', custom?.processingOperations?.join(', ')),
+        row('Fallback', custom?.captureFallbackReason),
         row('Aspect ratio', custom?.aspectRatio),
         row('Zoom', custom ? `${custom.zoom.toFixed(1)}×` : undefined),
         row('Photo quality', custom?.photoQuality === 'maximum' ? 'Maximum' : custom?.photoQuality === 'standard' ? 'Standard' : undefined),
@@ -184,6 +245,9 @@ export async function getPhotoInformation(
           : undefined),
         row('Frames rejected', custom?.multiFrameRequested && custom.rejectedFrameCount
           ? custom.rejectedFrameCount
+          : undefined),
+        row('Beauty effect', custom?.beautyEffectRequested
+          ? custom.beautyEffectApplied ? 'Applied' : 'Not applied'
           : undefined),
         row('Exposure compensation', custom ? `${custom.exposureCompensation >= 0 ? '+' : ''}${custom.exposureCompensation.toFixed(1)} EV` : undefined),
         row('Focus / exposure lock', custom ? custom.focusExposureLocked ? 'Locked' : 'Automatic' : undefined),

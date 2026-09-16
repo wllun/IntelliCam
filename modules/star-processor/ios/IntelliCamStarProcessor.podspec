@@ -1,8 +1,8 @@
 Pod::Spec.new do |s|
-  s.name             = 'IntelliCamPortraitEffect'
+  s.name             = 'IntelliCamStarProcessor'
   s.version          = '1.0.0'
-  s.summary          = 'Native focus-based portrait background blur for IntelliCam.'
-  s.description      = 'A local Expo module that keeps any selected subject area sharp and blurs the surrounding photo.'
+  s.summary          = 'Combines IntelliCam long-capture frames.'
+  s.description      = 'A local Expo module for Star averaging and Light Trail highlight compositing.'
   s.license          = { :type => 'MIT' }
   s.author           = 'IntelliCam'
   s.homepage         = 'https://example.invalid/intellicam'
@@ -10,6 +10,7 @@ Pod::Spec.new do |s|
   s.source           = { :git => 'https://github.com/expo/expo.git' }
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
+  s.frameworks = 'CoreImage'
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
   s.source_files = '**/*.swift'
 end

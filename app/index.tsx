@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -24,6 +24,7 @@ import {
 } from 'react-native-vision-camera';
 import { loadImage } from 'react-native-nitro-image';
 import { Image } from 'expo-image';
+import { requireOptionalNativeModule } from 'expo';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
@@ -80,18 +81,51 @@ import { resolveCapturePlan } from '@/utils/adaptive-capture.mjs';
 import { useCapturePreparation } from '@/hooks/use-capture-preparation';
 import { getPhotoCaptureSettings, readNativeCaptureSettings } from '@/services/capture-preparation';
 import { completeCaptureMetadata, createCaptureMetadata, measureCaptureScene } from '@/services/capture-metadata';
-import type { PhotoQuality } from '@/types/adaptive-capture';
 import PortraitEffect from '@/modules/portrait-effect';
+import {
+  getStarPlanLabel,
+  resolveStarCapturePlan,
+  type StarCapturePlan,
+} from '@/services/star-capture';
+import {
+  getLightTrailPlanLabel,
+  LIGHT_TRAIL_FRAME_INTERVAL_MS,
+  resolveLightTrailCapturePlan,
+  type LightTrailCapturePlan,
+} from '@/services/light-trail-capture';
+import {
+  getWaterfallPlanLabel,
+  resolveWaterfallCapturePlan,
+  WATERFALL_FRAME_INTERVAL_MS,
+  type WaterfallCapturePlan,
+} from '@/services/waterfall-capture';
+import {
+  getProductPlanLabel,
+  resolveProductCapturePlan,
+  type ProductCapturePlan,
+} from '@/services/product-capture';
 
 const ALBUM_NAME = 'IntelliCam';
+const PortraitPreviewBlur = lazy(async () => {
+  const module = await import('@/components/portrait-preview-blur');
+  return { default: module.PortraitPreviewBlur };
+});
 type CameraFacing = 'front' | 'back';
 type CameraRatio = CameraAspectRatio;
+type PostCaptureEffect = 'portrait' | 'beauty';
+
+interface BeautyCapturePlan {
+  strategy: 'natural-beauty-processing';
+  frameCount: 1;
+  exposureCompensation: number;
+  guidance: string;
+  fallbackReason?: string;
+  exposureSeconds?: undefined;
+  iso?: undefined;
+  whiteBalanceKelvin?: undefined;
+}
 
 const FLASH_MODES: FlashMode[] = ['off', 'auto', 'on'];
-const PHOTO_QUALITY_OPTIONS: { label: string; value: PhotoQuality }[] = [
-  { label: 'Standard', value: 'standard' },
-  { label: 'Maximum', value: 'maximum' },
-];
 const METERING_RESET_MS = 5000;
 const EXPOSURE_DISPLAY_LIMIT = 2;
 const EXPOSURE_TRACK_HEIGHT = 72;
@@ -104,8 +138,8 @@ const ZOOM_RULER_TICK_STEP = 0.1;
 const ZOOM_RULER_TICK_SPACING = 8;
 const ZOOM_RULER_PIXELS_PER_ZOOM = ZOOM_RULER_TICK_SPACING / ZOOM_RULER_TICK_STEP;
 const ZOOM_RULER_LABEL_WIDTH = 48;
-const ZOOM_NATIVE_UPDATE_STEPS = 72;
-const ZOOM_NATIVE_UPDATE_INTERVAL_MS = 32;
+const ZOOM_NATIVE_UPDATE_STEPS = 128;
+const ZOOM_NATIVE_UPDATE_INTERVAL_MS = 24;
 const ZOOM_EASING = Easing.bezier(0.23, 1, 0.32, 1);
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
 interface FocusPoint {
@@ -113,6 +147,11 @@ interface FocusPoint {
   screenY: number;
   viewX: number;
   viewY: number;
+}
+
+interface PortraitTarget {
+  x: number;
+  y: number;
 }
 
 interface LatestPhoto {
@@ -177,6 +216,22 @@ function createZoomRulerTicks(minimum: number, maximum: number) {
     { length: Math.max(0, lastTick - firstTick + 1) },
     (_, index) => Number(((firstTick + index) * ZOOM_RULER_TICK_STEP).toFixed(2)),
   );
+}
+
+// Use the same device detents for special-mode preparation and the exposure UI.
+function getNativeExposureBias(
+  displayValue: number,
+  displayMinimum: number,
+  displayMaximum: number,
+  deviceMinimum: number,
+  deviceMaximum: number,
+) {
+  const steps = createExposureSteps({
+    platform: Platform.OS, supported: true,
+    deviceMinimum, deviceMaximum,
+    displayLimit: Math.max(Math.abs(displayMinimum), Math.abs(displayMaximum)),
+  });
+  return steps[findNearestExposureStepIndex(steps, displayValue)].nativeValue;
 }
 
 function getRatioValue(
@@ -431,17 +486,17 @@ export default function CameraScreen() {
     : frontDevice;
   const [hdrEnabled, setHdrEnabled] = useState(false);
   const [hdrSessionConfirmed, setHdrSessionConfirmed] = useState(false);
-  const [photoQuality, setPhotoQuality] = useState<PhotoQuality>('maximum');
   const [cameraReady, setCameraReady] = useState(false);
-  const { capabilities, supportsNativeHdr, nativeHdrRequested, photoOutput, cameraOutputs, cameraConstraints } = useCapturePreparation(
-    cameraDevice, cameraRef, cameraReady, photoQuality, hdrEnabled,
-  );
   const [capturing, setCapturing] = useState(false);
   const [latestPhoto, setLatestPhoto] = useState<LatestPhoto>();
   const [cardVisible, setCardVisible] = useState(true);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const [screenFocused, setScreenFocused] = useState(true);
   const [activeCaptureModeId, setActiveCaptureModeId] = useState(DEFAULT_CAPTURE_MODE_ID);
+  const specialModeDisablesHdr = ['star', 'light-trail', 'waterfall'].includes(activeCaptureModeId);
+  const { capabilities, supportsNativeHdr, nativeHdrRequested, photoOutput, cameraOutputs, cameraConstraints } = useCapturePreparation(
+    cameraDevice, cameraRef, cameraReady, 'maximum', hdrEnabled && !specialModeDisablesHdr,
+  );
   const [modeMenuVisible, setModeMenuVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [flash, setFlash] = useState<FlashMode>('off');
@@ -453,9 +508,11 @@ export default function CameraScreen() {
   const [shutterSoundEnabled, setShutterSoundEnabled] = useState(false);
   const [cameraPreferencesHydrated, setCameraPreferencesHydrated] = useState(false);
   const [portraitEffectEnabled, setPortraitEffectEnabled] = useState(false);
+  const [portraitTarget, setPortraitTarget] = useState<PortraitTarget>({ x: 0.5, y: 0.5 });
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [captureLocation, setCaptureLocation] = useState<CaptureLocation>();
   const [countdown, setCountdown] = useState<number>();
+  const [captureStatus, setCaptureStatus] = useState<string>();
   const [multiFrameProgress, setMultiFrameProgress] = useState<MultiFrameProgress>();
   const [focusPoint, setFocusPoint] = useState<FocusPoint>();
   const [exposureCompensation, setExposureCompensation] = useState(0);
@@ -503,7 +560,9 @@ export default function CameraScreen() {
     jpegQuality: number,
     metadata: CapturePhotoMetadata,
     location?: CaptureLocation,
-    applyPortraitEffect = false,
+    postCaptureEffect?: PostCaptureEffect,
+    metadataSourceFilePath = sourceFilePaths[0],
+    portraitFocus: PortraitTarget = { x: 0.5, y: 0.5 },
     multiFrameMode?: MultiFrameMode,
   ) => {
     photoSaveQueueRef.current = photoSaveQueueRef.current
@@ -549,39 +608,82 @@ export default function CameraScreen() {
           jpegQuality,
         );
         let finalUri = processedUri;
+        const applyPortraitEffect = postCaptureEffect === 'portrait';
+        const applyBeautyEffect = postCaptureEffect === 'beauty';
         let portraitApplied = false;
-        let portraitFailureMessage: string | undefined = metadata.capturePlan?.fallbacks
-          .some((item) => item.reason === 'portrait-module-unavailable')
-          ? 'Portrait processing requires a rebuilt IntelliCam app.' : undefined;
-        let portraitFailureReason: string | undefined;
+        let beautyApplied = false;
+        let effectFailureTitle: string | undefined;
+        let effectFailureMessage: string | undefined;
         if (applyPortraitEffect) {
           if (!PortraitEffect) {
-            portraitFailureMessage = 'Portrait processing requires a rebuilt IntelliCam app.';
-            portraitFailureReason = 'portrait-module-unavailable';
+            effectFailureTitle = 'Portrait effect not applied';
+            effectFailureMessage = 'Portrait processing requires a rebuilt IntelliCam app.';
           } else {
             try {
-              const result = await PortraitEffect.applyAsync(processedUri, jpegQuality);
+              const result = await PortraitEffect.applyAsync(
+                processedUri,
+                jpegQuality,
+                portraitFocus.x,
+                portraitFocus.y,
+              );
               finalUri = result.uri;
               portraitApplied = result.applied;
               if (!result.applied) {
-                portraitFailureMessage = 'No clear person was detected. The original photo was saved.';
-                portraitFailureReason = 'person-not-detected';
+                effectFailureTitle = 'Portrait effect not applied';
+                effectFailureMessage = 'The background blur could not be applied. The original photo was saved.';
               }
             } catch (portraitError) {
               console.warn('Could not apply portrait effect:', portraitError);
-              portraitFailureMessage = 'Portrait processing failed. The original photo was saved.';
-              portraitFailureReason = 'portrait-processing-failed';
+              effectFailureTitle = 'Portrait effect not applied';
+              effectFailureMessage = 'Portrait processing failed. The original photo was saved.';
+            }
+          }
+        } else if (applyBeautyEffect) {
+          if (!PortraitEffect?.applyBeautyAsync) {
+            effectFailureTitle = 'Beauty effect not applied';
+            effectFailureMessage = 'Beauty processing requires a rebuilt IntelliCam app.';
+          } else {
+            try {
+              const result = await PortraitEffect.applyBeautyAsync(processedUri, jpegQuality);
+              finalUri = result.uri;
+              beautyApplied = result.applied;
+              if (!result.applied) {
+                effectFailureTitle = 'Beauty effect not applied';
+                effectFailureMessage = 'No clear face or person was detected. The original photo was saved.';
+              }
+            } catch (beautyError) {
+              console.warn('Could not apply Beauty effect:', beautyError);
+              effectFailureTitle = 'Beauty effect not applied';
+              effectFailureMessage = 'Beauty processing failed. The original photo was saved.';
             }
           }
         }
         const scene = await measureCaptureScene(`file://${referenceFilePath}`, multiFrameResult?.alignments);
-        const finalMetadata = completeCaptureMetadata(
+        const completedMetadata = completeCaptureMetadata(
           metadata, sourceFilePaths.length, multiFrameResult, portraitApplied, scene,
-          multiFrameFailureReason, portraitFailureReason,
+          multiFrameFailureReason, effectFailureMessage ? 'portrait-not-applied' : undefined,
         );
+        const finalMetadata: CapturePhotoMetadata = {
+          ...completedMetadata,
+          captureFrameCount: multiFrameMode ? completedMetadata.acceptedFrameCount : metadata.captureFrameCount,
+          captureStrategy: multiFrameMode && !multiFrameResult?.applied
+            ? 'automatic-low-light' : metadata.captureStrategy,
+          captureFallbackReason: multiFrameFailureMessage ?? metadata.captureFallbackReason,
+          portraitEffectRequested: applyPortraitEffect,
+          portraitEffectApplied: portraitApplied,
+          beautyEffectRequested: applyBeautyEffect,
+          beautyEffectApplied: beautyApplied,
+          processingOperations: [
+            ...(multiFrameResult?.applied ? [multiFrameMode === 'light-trail'
+              ? 'lighten blend trail composite' : multiFrameMode === 'waterfall'
+                ? 'temporal average water smoothing' : 'frame-average noise reduction',
+              'frame alignment and motion rejection'] : metadata.processingOperations ?? []),
+            ...(beautyApplied ? ['natural skin smoothing'] : []),
+          ],
+        };
         try {
           await embedPhotoMetadata(
-            `file://${referenceFilePath}`,
+            `file://${metadataSourceFilePath}`,
             finalUri,
             finalMetadata,
             location,
@@ -594,15 +696,12 @@ export default function CameraScreen() {
           setLatestPhoto(savedPhoto);
         }
         if (
-          (portraitFailureMessage || multiFrameFailureMessage)
+          (effectFailureMessage || multiFrameFailureMessage)
           && latestCaptureRef.current === captureId
           && appActiveRef.current
           && screenFocusedRef.current
         ) {
-          Alert.alert(
-            multiFrameFailureMessage ? 'Multi-frame processing not applied' : 'Portrait effect not applied',
-            multiFrameFailureMessage ?? portraitFailureMessage,
-          );
+          Alert.alert(effectFailureTitle ?? 'Multi-frame processing not applied', effectFailureMessage ?? multiFrameFailureMessage);
         }
       })
       .catch((error: unknown) => {
@@ -696,6 +795,7 @@ export default function CameraScreen() {
     resolveCountdown?.();
 
     setCountdown(undefined);
+    setCaptureStatus(undefined);
     setMultiFrameProgress(undefined);
     setCapturing(false);
     if (wasCountingDown && withHapticFeedback) {
@@ -821,6 +921,15 @@ export default function CameraScreen() {
     resetMetering();
   }, [activeCaptureModeId, cameraDevice?.id, facing, resetMetering]);
 
+  const isStarMode = activeCaptureModeId === 'star';
+  const isLightTrailMode = activeCaptureModeId === 'light-trail';
+  const isWaterfallMode = activeCaptureModeId === 'waterfall';
+  const isBeautyMode = activeCaptureModeId === 'beauty';
+  const isProductMode = activeCaptureModeId === 'product';
+  const isLongCaptureMode = isStarMode || isLightTrailMode || isWaterfallMode;
+  const isMotionCompositeMode = isLightTrailMode || isWaterfallMode;
+  const isFlashDisabledForMode = isLongCaptureMode || isBeautyMode || isProductMode;
+
   useEffect(() => {
     if (!appActive || !screenFocused) resetMetering();
   }, [appActive, resetMetering, screenFocused]);
@@ -832,6 +941,77 @@ export default function CameraScreen() {
     PRESETS.findIndex((item) => item.id === activeCaptureModeId),
   );
   const preset = PRESETS[presetIndex];
+  const starController = cameraRef.current?.controller;
+  const supportsNativeLightTrailCompositing =
+    Boolean(MultiFrameProcessor);
+  const supportsNativeTemporalAveraging =
+    Boolean(MultiFrameProcessor);
+  const starCapturePlan = resolveStarCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: Boolean(cameraDevice?.supportsExposureLocking),
+    supportsManualFocus: Boolean(cameraDevice?.supportsFocusLocking),
+    supportsManualWhiteBalance: Boolean(cameraDevice?.supportsWhiteBalanceLocking),
+    supportsFrameStacking: Boolean(MultiFrameProcessor),
+    exposureSecondsRange: starController && starController.maxExposureDuration > 0
+      ? {
+          min: starController.minExposureDuration,
+          max: starController.maxExposureDuration,
+        }
+      : undefined,
+    isoRange: starController && starController.maxISO > 0
+      ? { min: starController.minISO, max: starController.maxISO }
+      : undefined,
+  });
+  const lightTrailCapturePlan = resolveLightTrailCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: Boolean(cameraDevice?.supportsExposureLocking),
+    supportsManualWhiteBalance: Boolean(cameraDevice?.supportsWhiteBalanceLocking),
+    supportsLightenCompositing: supportsNativeLightTrailCompositing,
+    exposureSecondsRange: starController && starController.maxExposureDuration > 0
+      ? {
+          min: starController.minExposureDuration,
+          max: starController.maxExposureDuration,
+        }
+      : undefined,
+    isoRange: starController && starController.maxISO > 0
+      ? { min: starController.minISO, max: starController.maxISO }
+      : undefined,
+  });
+  const waterfallCapturePlan = resolveWaterfallCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: Boolean(cameraDevice?.supportsExposureLocking),
+    supportsManualWhiteBalance: Boolean(cameraDevice?.supportsWhiteBalanceLocking),
+    supportsTemporalAveraging: supportsNativeTemporalAveraging,
+    exposureSecondsRange: starController && starController.maxExposureDuration > 0
+      ? {
+          min: starController.minExposureDuration,
+          max: starController.maxExposureDuration,
+        }
+      : undefined,
+    isoRange: starController && starController.maxISO > 0
+      ? { min: starController.minISO, max: starController.maxISO }
+      : undefined,
+  });
+  const productCapturePlan = resolveProductCapturePlan({
+    supportsFocusLock: Boolean(
+      cameraDevice?.supportsFocusMetering
+      && (Platform.OS === 'android' || cameraDevice.supportsFocusLocking),
+    ),
+    supportsExposureLock: Boolean(
+      cameraDevice?.supportsExposureMetering
+      && (Platform.OS === 'android' || cameraDevice.supportsExposureLocking),
+    ),
+    supportsWhiteBalanceLock: Boolean(
+      cameraDevice?.supportsWhiteBalanceMetering
+      && (Platform.OS === 'android' || cameraDevice.supportsWhiteBalanceLocking),
+    ),
+  });
+  const beautyCapturePlan: BeautyCapturePlan = {
+    strategy: 'natural-beauty-processing',
+    frameCount: 1,
+    exposureCompensation: 0.2,
+    guidance: 'Use soft, even light and keep the face unobstructed.',
+  };
   const neutralZoom = getNeutralZoom(cameraDevice);
   const minZoom = cameraDevice?.minZoom ?? neutralZoom;
   const maxZoom = cameraDevice?.maxZoom ?? neutralZoom;
@@ -854,6 +1034,16 @@ export default function CameraScreen() {
       ZOOM_RULER_MAX,
       zoomRangeDevice ? zoomRangeDevice.maxZoom / zoomRangeNeutralZoom : 1,
     ),
+  );
+  // Quantize live updates over the reachable ruler range, not the camera's
+  // often much larger native maxZoom (which made small moves look stepped).
+  const nativeGestureMinZoom = getActiveCameraZoom(
+    rulerMinZoom, rulerMinZoom, rulerMaxZoom, minZoom, maxZoom, neutralZoom,
+    usingDedicatedUltraWide, primaryBackHasIntegratedUltraWide,
+  );
+  const nativeGestureMaxZoom = getActiveCameraZoom(
+    rulerMaxZoom, rulerMinZoom, rulerMaxZoom, minZoom, maxZoom, neutralZoom,
+    usingDedicatedUltraWide, primaryBackHasIntegratedUltraWide,
   );
   const getRulerZoomOption = (requestedDisplayZoom: number) => {
     const displayZoom = clamp(requestedDisplayZoom, rulerMinZoom, rulerMaxZoom);
@@ -935,7 +1125,6 @@ export default function CameraScreen() {
 
   useEffect(() => {
     let active = true;
-
     void loadCameraPreferences().then((preferences) => {
       if (!active) return;
       setGridLines(preferences.gridLines);
@@ -945,42 +1134,19 @@ export default function CameraScreen() {
       setHdrEnabled(preferences.hdrEnabled);
       setCameraPreferencesHydrated(true);
     });
-
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
     if (!cameraPreferencesHydrated) return;
-
-    const preferences = {
-      gridLines,
-      aspectRatio,
-      timerSeconds,
-      shutterSoundEnabled,
-      hdrEnabled,
-    };
+    const preferences = { gridLines, aspectRatio, timerSeconds, shutterSoundEnabled, hdrEnabled };
     cameraPreferencesSaveQueueRef.current = cameraPreferencesSaveQueueRef.current
       .then(() => saveCameraPreferences(preferences));
-  }, [
-    aspectRatio,
-    cameraPreferencesHydrated,
-    gridLines,
-    hdrEnabled,
-    shutterSoundEnabled,
-    timerSeconds,
-  ]);
+  }, [aspectRatio, cameraPreferencesHydrated, gridLines, hdrEnabled, shutterSoundEnabled, timerSeconds]);
 
   useEffect(() => {
     setHdrSessionConfirmed(false);
-  }, [cameraDevice?.id, supportsNativeHdr]);
-
-  useEffect(() => {
-    if (!nativeHdrRequested) {
-      setHdrSessionConfirmed(false);
-    }
-  }, [nativeHdrRequested]);
+  }, [cameraDevice?.id, nativeHdrRequested]);
 
   const flushDisplayedExposure = useCallback(() => {
     exposureDisplayUpdateTimerRef.current = undefined;
@@ -1094,18 +1260,21 @@ export default function CameraScreen() {
   useAnimatedReaction(
     () => {
       if (!zoomGestureActive.get()) return null;
-      const range = maxZoom - minZoom;
-      if (range <= 0) return minZoom;
+      const range = nativeGestureMaxZoom - nativeGestureMinZoom;
+      if (range <= 0) return nativeGestureMinZoom;
 
       const step = range / ZOOM_NATIVE_UPDATE_STEPS;
-      const bucket = Math.round((cameraZoom.get() - minZoom) / step);
-      return Math.max(minZoom, Math.min(maxZoom, minZoom + bucket * step));
+      const bucket = Math.round((cameraZoom.get() - nativeGestureMinZoom) / step);
+      return Math.max(
+        nativeGestureMinZoom,
+        Math.min(nativeGestureMaxZoom, nativeGestureMinZoom + bucket * step),
+      );
     },
     (nextZoom, previousZoom) => {
       if (nextZoom === null || nextZoom === previousZoom) return;
       scheduleOnRN(updateCameraZoom, nextZoom);
     },
-    [maxZoom, minZoom, updateCameraZoom],
+    [nativeGestureMaxZoom, nativeGestureMinZoom, updateCameraZoom],
   );
 
   useAnimatedReaction(
@@ -1204,6 +1373,7 @@ export default function CameraScreen() {
   useEffect(() => () => cancelExposureUpdates(), [cancelExposureUpdates]);
 
   const changePreset = (direction: 1 | -1) => {
+    if (capturing) return;
     const nextPresetIndex = (presetIndex + direction + PRESETS.length) % PRESETS.length;
     setActiveCaptureModeId(PRESETS[nextPresetIndex].id);
     setCardVisible(true);
@@ -1232,7 +1402,10 @@ export default function CameraScreen() {
     } else if (animated) {
       cancelZoomAnimations();
       cancelNativeZoomAnimation();
-      void cameraRef.current?.startZoomAnimation(option.targetZoom, 4).catch((error) => {
+      // CameraX treats `rate` as milliseconds, while AVFoundation treats it as
+      // zoom factors per second. A value of 4 was effectively instant on Android.
+      const nativeZoomRate = Platform.OS === 'android' ? ZOOM_TRANSITION_MS : 4;
+      void cameraRef.current?.startZoomAnimation(option.targetZoom, nativeZoomRate).catch((error) => {
         if (!isCameraLifecycleCancellation(error)) {
           console.warn('Could not animate camera zoom:', error);
         }
@@ -1271,7 +1444,7 @@ export default function CameraScreen() {
   };
 
   const swipe = Gesture.Pan()
-    .enabled(!isAutoMode)
+    .enabled(!isAutoMode && !capturing)
     .activeOffsetX([-30, 30])
     .onEnd((e) => {
       if (Math.abs(e.translationX) > 50) {
@@ -1364,6 +1537,12 @@ export default function CameraScreen() {
   const focusAt = async (event: GestureResponderEvent) => {
     if (!isAutoMode || settingsVisible || modeMenuVisible) return;
     const { locationX, locationY } = event.nativeEvent;
+    if (portraitEffectEnabled) {
+      setPortraitTarget({
+        x: clamp(locationX / previewFrame.width, 0, 1),
+        y: clamp(locationY / previewFrame.height, 0, 1),
+      });
+    }
     const camera = cameraRef.current;
     if (!camera || meteringModes.length === 0) {
       Alert.alert('Focus unavailable', 'This camera does not support point focus or metering.');
@@ -1471,6 +1650,7 @@ export default function CameraScreen() {
   };
 
   const applyCaptureMode = (modeId: string) => {
+    if (capturing) return;
     if (modeId === AUTO_CAPTURE_MODE.id) {
       setActiveCaptureModeId(AUTO_CAPTURE_MODE.id);
       setCardVisible(false);
@@ -1483,6 +1663,441 @@ export default function CameraScreen() {
     }
     setModeMenuVisible(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const getAutomaticStarPlan = (): StarCapturePlan => resolveStarCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: false,
+    supportsManualFocus: false,
+    supportsManualWhiteBalance: false,
+    supportsFrameStacking: Boolean(MultiFrameProcessor),
+  });
+
+  const prepareStarCapture = async (requestedPlan: StarCapturePlan) => {
+    const camera = cameraRef.current;
+    const controller = camera?.controller;
+    if (!camera || !controller) {
+      throw new Error('The camera is not ready for Star capture.');
+    }
+
+    await camera.resetFocus().catch(() => undefined);
+    if (requestedPlan.strategy === 'manual-long-exposure') {
+      let focusApplied = false;
+      let whiteBalanceApplied = false;
+      if (requestedPlan.lockFocusAtInfinity) {
+        try {
+          await controller.setFocusLocked(1);
+          focusApplied = true;
+        } catch (error) {
+          console.warn('Could not lock Star focus at infinity:', error);
+        }
+      }
+      if (requestedPlan.whiteBalanceKelvin !== undefined) {
+        try {
+          const gains = controller.convertWhiteBalanceTemperatureAndTintValues({
+            temperature: requestedPlan.whiteBalanceKelvin,
+            tint: 0,
+          });
+          await controller.setWhiteBalanceLocked(gains);
+          whiteBalanceApplied = true;
+        } catch (error) {
+          console.warn('Could not lock Star white balance:', error);
+        }
+      }
+      try {
+        await controller.setExposureLocked(
+          requestedPlan.exposureSeconds!,
+          requestedPlan.iso!,
+        );
+        return {
+          plan: requestedPlan,
+          manualExposureApplied: true,
+          focusApplied,
+          whiteBalanceApplied,
+          automaticMeteringApplied: false,
+        };
+      } catch (error) {
+        console.warn('Could not apply manual Star exposure; using automatic fallback:', error);
+        await camera.resetFocus().catch(() => undefined);
+      }
+    }
+
+    const fallbackPlan = requestedPlan.strategy === 'manual-long-exposure'
+      ? getAutomaticStarPlan()
+      : requestedPlan;
+    if (supportsExposure) {
+      const starBias = getNativeExposureBias(
+        Math.min(1, exposureMax),
+        exposureMin,
+        exposureMax,
+        deviceExposureMin,
+        deviceExposureMax,
+      );
+      await controller.setExposureBias(starBias).catch((error: unknown) => {
+        console.warn('Could not brighten the automatic Star exposure:', error);
+      });
+    }
+    let automaticMeteringApplied = false;
+    if (meteringModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: lockModes.length > 0 ? lockModes : meteringModes,
+            responsiveness: 'steady',
+            adaptiveness: 'locked',
+            autoResetAfter: null,
+          },
+        );
+        automaticMeteringApplied = true;
+      } catch (error) {
+        console.warn('Could not lock automatic Star metering:', error);
+      }
+    }
+    return {
+      plan: fallbackPlan,
+      manualExposureApplied: false,
+      focusApplied: false,
+      whiteBalanceApplied: false,
+      automaticMeteringApplied,
+    };
+  };
+
+  const getAutomaticLightTrailPlan = (): LightTrailCapturePlan => resolveLightTrailCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: false,
+    supportsManualWhiteBalance: false,
+    supportsLightenCompositing: supportsNativeLightTrailCompositing,
+  });
+
+  const prepareLightTrailCapture = async (requestedPlan: LightTrailCapturePlan) => {
+    const camera = cameraRef.current;
+    const controller = camera?.controller;
+    if (!camera || !controller) {
+      throw new Error('The camera is not ready for Light Trail capture.');
+    }
+
+    await camera.resetFocus().catch(() => undefined);
+    let automaticMeteringApplied = false;
+    if (meteringModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: lockModes.length > 0 ? lockModes : meteringModes,
+            responsiveness: 'steady',
+            adaptiveness: 'locked',
+            autoResetAfter: null,
+          },
+        );
+        automaticMeteringApplied = true;
+      } catch (error) {
+        console.warn('Could not lock Light Trail focus and metering:', error);
+      }
+    }
+
+    if (requestedPlan.strategy === 'manual-long-exposure') {
+      let whiteBalanceApplied = false;
+      if (requestedPlan.whiteBalanceKelvin !== undefined) {
+        try {
+          const gains = controller.convertWhiteBalanceTemperatureAndTintValues({
+            temperature: requestedPlan.whiteBalanceKelvin,
+            tint: 0,
+          });
+          await controller.setWhiteBalanceLocked(gains);
+          whiteBalanceApplied = true;
+        } catch (error) {
+          console.warn('Could not lock Light Trail white balance:', error);
+        }
+      }
+      try {
+        await controller.setExposureLocked(
+          requestedPlan.exposureSeconds!,
+          requestedPlan.iso!,
+        );
+        return {
+          plan: requestedPlan,
+          manualExposureApplied: true,
+          focusApplied: automaticMeteringApplied,
+          whiteBalanceApplied,
+          automaticMeteringApplied,
+        };
+      } catch (error) {
+        console.warn('Could not apply manual Light Trail exposure; using automatic fallback:', error);
+        await camera.resetFocus().catch(() => undefined);
+        automaticMeteringApplied = false;
+      }
+    }
+
+    const fallbackPlan = requestedPlan.strategy === 'manual-long-exposure'
+      ? getAutomaticLightTrailPlan()
+      : requestedPlan;
+    if (supportsExposure) {
+      const highlightProtectingBias = getNativeExposureBias(
+        Math.max(-1, exposureMin),
+        exposureMin,
+        exposureMax,
+        deviceExposureMin,
+        deviceExposureMax,
+      );
+      await controller.setExposureBias(highlightProtectingBias).catch((error: unknown) => {
+        console.warn('Could not protect Light Trail highlights:', error);
+      });
+    }
+    if (!automaticMeteringApplied && meteringModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: lockModes.length > 0 ? lockModes : meteringModes,
+            responsiveness: 'steady',
+            adaptiveness: 'locked',
+            autoResetAfter: null,
+          },
+        );
+        automaticMeteringApplied = true;
+      } catch (error) {
+        console.warn('Could not lock automatic Light Trail metering:', error);
+      }
+    }
+    return {
+      plan: fallbackPlan,
+      manualExposureApplied: false,
+      focusApplied: automaticMeteringApplied,
+      whiteBalanceApplied: false,
+      automaticMeteringApplied,
+    };
+  };
+
+  const getAutomaticWaterfallPlan = (): WaterfallCapturePlan => resolveWaterfallCapturePlan({
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web',
+    supportsManualExposure: false,
+    supportsManualWhiteBalance: false,
+    supportsTemporalAveraging: supportsNativeTemporalAveraging,
+  });
+
+  const prepareWaterfallCapture = async (requestedPlan: WaterfallCapturePlan) => {
+    const camera = cameraRef.current;
+    const controller = camera?.controller;
+    if (!camera || !controller) {
+      throw new Error('The camera is not ready for Waterfall capture.');
+    }
+
+    await camera.resetFocus().catch(() => undefined);
+    let automaticMeteringApplied = false;
+    if (meteringModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: lockModes.length > 0 ? lockModes : meteringModes,
+            responsiveness: 'steady',
+            adaptiveness: 'locked',
+            autoResetAfter: null,
+          },
+        );
+        automaticMeteringApplied = true;
+      } catch (error) {
+        console.warn('Could not lock Waterfall focus and metering:', error);
+      }
+    }
+
+    if (requestedPlan.strategy === 'manual-slow-exposure') {
+      let whiteBalanceApplied = false;
+      if (requestedPlan.whiteBalanceKelvin !== undefined) {
+        try {
+          const gains = controller.convertWhiteBalanceTemperatureAndTintValues({
+            temperature: requestedPlan.whiteBalanceKelvin,
+            tint: 0,
+          });
+          await controller.setWhiteBalanceLocked(gains);
+          whiteBalanceApplied = true;
+        } catch (error) {
+          console.warn('Could not lock Waterfall white balance:', error);
+        }
+      }
+      try {
+        await controller.setExposureLocked(
+          requestedPlan.exposureSeconds!,
+          requestedPlan.iso!,
+        );
+        return {
+          plan: requestedPlan,
+          manualExposureApplied: true,
+          focusApplied: automaticMeteringApplied,
+          whiteBalanceApplied,
+          automaticMeteringApplied,
+        };
+      } catch (error) {
+        console.warn('Could not apply manual Waterfall exposure; using automatic fallback:', error);
+        await camera.resetFocus().catch(() => undefined);
+        automaticMeteringApplied = false;
+      }
+    }
+
+    const fallbackPlan = requestedPlan.strategy === 'manual-slow-exposure'
+      ? getAutomaticWaterfallPlan()
+      : requestedPlan;
+    if (supportsExposure) {
+      const highlightProtectingBias = getNativeExposureBias(
+        Math.max(-0.7, exposureMin),
+        exposureMin,
+        exposureMax,
+        deviceExposureMin,
+        deviceExposureMax,
+      );
+      await controller.setExposureBias(highlightProtectingBias).catch((error: unknown) => {
+        console.warn('Could not protect Waterfall highlights:', error);
+      });
+    }
+    if (!automaticMeteringApplied && meteringModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: lockModes.length > 0 ? lockModes : meteringModes,
+            responsiveness: 'steady',
+            adaptiveness: 'locked',
+            autoResetAfter: null,
+          },
+        );
+        automaticMeteringApplied = true;
+      } catch (error) {
+        console.warn('Could not lock automatic Waterfall metering:', error);
+      }
+    }
+    return {
+      plan: fallbackPlan,
+      manualExposureApplied: false,
+      focusApplied: automaticMeteringApplied,
+      whiteBalanceApplied: false,
+      automaticMeteringApplied,
+    };
+  };
+
+  const getAutomaticProductPlan = (): ProductCapturePlan => resolveProductCapturePlan({
+    supportsFocusLock: false,
+    supportsExposureLock: false,
+    supportsWhiteBalanceLock: false,
+  });
+
+  const prepareBeautyCapture = async (requestedPlan: BeautyCapturePlan) => {
+    const camera = cameraRef.current;
+    const controller = camera?.controller;
+    if (!camera || !controller) {
+      throw new Error('The camera is not ready for Beauty capture.');
+    }
+
+    await camera.resetFocus().catch(() => undefined);
+    if (supportsExposure) {
+      const beautyBias = getNativeExposureBias(
+        requestedPlan.exposureCompensation,
+        exposureMin,
+        exposureMax,
+        deviceExposureMin,
+        deviceExposureMax,
+      );
+      await controller.setExposureBias(beautyBias).catch((error: unknown) => {
+        console.warn('Could not apply Beauty exposure:', error);
+      });
+    }
+
+    if (meteringModes.length > 0) {
+      await camera.focusTo(
+        { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+        {
+          modes: meteringModes,
+          responsiveness: 'snappy',
+          adaptiveness: 'continuous',
+          autoResetAfter: 3,
+        },
+      ).catch((error: unknown) => {
+        console.warn('Could not apply Beauty face-area metering:', error);
+      });
+    }
+
+    return {
+      plan: requestedPlan,
+      manualExposureApplied: false,
+      focusApplied: false,
+      whiteBalanceApplied: false,
+      automaticMeteringApplied: false,
+    };
+  };
+
+  const prepareProductCapture = async (requestedPlan: ProductCapturePlan) => {
+    const camera = cameraRef.current;
+    const controller = camera?.controller;
+    if (!camera || !controller) {
+      throw new Error('The camera is not ready for Product capture.');
+    }
+
+    await camera.resetFocus().catch(() => undefined);
+    if (supportsExposure) {
+      const productBias = getNativeExposureBias(
+        requestedPlan.exposureCompensation,
+        exposureMin,
+        exposureMax,
+        deviceExposureMin,
+        deviceExposureMax,
+      );
+      await controller.setExposureBias(productBias).catch((error: unknown) => {
+        console.warn('Could not protect Product highlights:', error);
+      });
+    }
+
+    const useLockedMetering = requestedPlan.strategy === 'locked-detail-capture'
+      && lockModes.length > 0;
+    const requestedModes = useLockedMetering ? lockModes : meteringModes;
+    if (requestedModes.length > 0) {
+      try {
+        await camera.focusTo(
+          { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+          {
+            modes: requestedModes,
+            responsiveness: 'snappy',
+            adaptiveness: useLockedMetering ? 'locked' : 'continuous',
+            autoResetAfter: useLockedMetering ? null : 3,
+          },
+        );
+        return {
+          plan: requestedPlan,
+          manualExposureApplied: false,
+          focusApplied: useLockedMetering && requestedModes.includes('AF'),
+          whiteBalanceApplied: useLockedMetering && requestedModes.includes('AWB'),
+          automaticMeteringApplied: useLockedMetering,
+        };
+      } catch (error) {
+        console.warn('Could not apply locked Product metering; using automatic focus:', error);
+      }
+    }
+
+    const fallbackPlan = {
+      ...getAutomaticProductPlan(),
+      fallbackReason: useLockedMetering
+        ? 'Metering lock failed; using center-weighted automatic detail capture.'
+        : requestedPlan.fallbackReason,
+    };
+    if (meteringModes.length > 0 && requestedModes !== meteringModes) {
+      await camera.focusTo(
+        { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+        {
+          modes: meteringModes,
+          responsiveness: 'snappy',
+          adaptiveness: 'continuous',
+          autoResetAfter: 3,
+        },
+      ).catch((error: unknown) => {
+        console.warn('Could not apply automatic Product metering:', error);
+      });
+    }
+    return {
+      plan: fallbackPlan,
+      manualExposureApplied: false,
+      focusApplied: false,
+      whiteBalanceApplied: false,
+      automaticMeteringApplied: false,
+    };
   };
 
   if (!hasCameraPermission || !hasMediaPermission) {
@@ -1554,27 +2169,86 @@ export default function CameraScreen() {
 
       countdownActiveRef.current = false;
       setCountdown(undefined);
+      // Do not let a throttled Auto exposure write overwrite mode preparation.
+      if (isFlashDisabledForMode) cancelExposureUpdates();
+
+      let appliedCapturePlan:
+        | StarCapturePlan
+        | LightTrailCapturePlan
+        | WaterfallCapturePlan
+        | BeautyCapturePlan
+        | ProductCapturePlan
+        | undefined;
+      let manualExposureApplied = false;
+      let captureFocusApplied = false;
+      let captureWhiteBalanceApplied = false;
+      let captureAutomaticMeteringApplied = false;
+      if (isStarMode) {
+        setCaptureStatus('Preparing night capture…');
+        const prepared = await prepareStarCapture(starCapturePlan);
+        appliedCapturePlan = prepared.plan;
+        manualExposureApplied = prepared.manualExposureApplied;
+        captureFocusApplied = prepared.focusApplied;
+        captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
+        captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
+      } else if (isLightTrailMode) {
+        setCaptureStatus('Preparing light trails…');
+        const prepared = await prepareLightTrailCapture(lightTrailCapturePlan);
+        appliedCapturePlan = prepared.plan;
+        manualExposureApplied = prepared.manualExposureApplied;
+        captureFocusApplied = prepared.focusApplied;
+        captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
+        captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
+      } else if (isWaterfallMode) {
+        setCaptureStatus('Preparing waterfall capture…');
+        const prepared = await prepareWaterfallCapture(waterfallCapturePlan);
+        appliedCapturePlan = prepared.plan;
+        manualExposureApplied = prepared.manualExposureApplied;
+        captureFocusApplied = prepared.focusApplied;
+        captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
+        captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
+      } else if (isBeautyMode) {
+        setCaptureStatus('Preparing Beauty capture…');
+        const prepared = await prepareBeautyCapture(beautyCapturePlan);
+        appliedCapturePlan = prepared.plan;
+        manualExposureApplied = prepared.manualExposureApplied;
+        captureFocusApplied = prepared.focusApplied;
+        captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
+        captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
+      } else if (isProductMode) {
+        setCaptureStatus('Preparing product detail…');
+        const prepared = await prepareProductCapture(productCapturePlan);
+        appliedCapturePlan = prepared.plan;
+        manualExposureApplied = prepared.manualExposureApplied;
+        captureFocusApplied = prepared.focusApplied;
+        captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
+        captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
+      }
 
       const plan = resolveCapturePlan(capabilities, {
-        modeId: activeCaptureModeId,
-        photoQuality,
-        hdr: hdrEnabled,
-        flashMode: flash,
-        shutterSound: shutterSoundEnabled,
-        portraitEffect: portraitEffectEnabled,
-        aspectRatio,
-        timerSeconds,
-        zoom: displayedZoom,
-        exposureCompensation,
+        modeId: activeCaptureModeId, photoQuality: 'maximum',
+        hdr: hdrEnabled, flashMode: flash, shutterSound: shutterSoundEnabled,
+        portraitEffect: isAutoMode && portraitEffectEnabled,
+        aspectRatio, timerSeconds, zoom: displayedZoom, exposureCompensation,
         focusExposureLocked: meteringLocked,
       });
-      const multiFrameMode = plan.resolved.processing === 'single' ? undefined : plan.resolved.processing;
-      const frameCount = plan.resolved.frameCount;
-      const nativeSettings = readNativeCaptureSettings(cameraRef.current?.controller, Platform.OS);
-      const capturedFilePaths: string[] = [];
-      if (multiFrameMode) {
-        setMultiFrameProgress({ captured: 0, total: frameCount });
+      plan.resolved.hdr = nativeHdrRequested;
+      plan.resolved.focusExposureLocked = meteringLocked || captureAutomaticMeteringApplied;
+      plan.resolved.flashMode = isFlashDisabledForMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off';
+      if (isFlashDisabledForMode && flash !== 'off' && capabilities.flash) {
+        plan.fallbacks.push({ setting: 'flashMode', requested: flash, resolved: 'off', reason: 'mode-flash-disabled' });
       }
+      plan.resolved.processing = appliedCapturePlan && appliedCapturePlan.frameCount > 1
+        ? isStarMode ? 'star' : isLightTrailMode ? 'light-trail' : 'waterfall' : 'single';
+      plan.resolved.frameCount = appliedCapturePlan?.frameCount ?? 1;
+      if (manualExposureApplied) plan.fallbacks = plan.fallbacks.filter((item) => item.setting !== 'processing');
+      if (hdrEnabled && specialModeDisablesHdr && supportsNativeHdr) {
+        plan.fallbacks.push({ setting: 'hdr', requested: true, resolved: false, reason: 'mode-hdr-disabled' });
+      }
+      const nativeSettings = readNativeCaptureSettings(cameraRef.current?.controller, Platform.OS);
+      const frameCount = plan.resolved.frameCount;
+      if (frameCount > 1) setMultiFrameProgress({ captured: 0, total: frameCount });
+      const capturedFramePaths: string[] = [];
       for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
         if (
           captureSessionRef.current !== captureSession
@@ -1582,39 +2256,104 @@ export default function CameraScreen() {
           || !appActiveRef.current
           || !screenFocusedRef.current
         ) return;
-
+        if (isStarMode) {
+          setCaptureStatus(
+            frameCount === 1
+              ? 'Capturing stars… Keep still'
+              : `Capturing stars ${frameIndex + 1} of ${frameCount}… Keep still`,
+          );
+        } else if (isLightTrailMode) {
+          setCaptureStatus(
+            frameCount === 1
+              ? 'Capturing light trail… Keep still'
+              : `Capturing light trails ${frameIndex + 1} of ${frameCount}… Keep still`,
+          );
+        } else if (isWaterfallMode) {
+          setCaptureStatus(
+            frameCount === 1
+              ? 'Smoothing waterfall… Keep still'
+              : `Smoothing waterfall ${frameIndex + 1} of ${frameCount}… Keep still`,
+          );
+        } else if (isBeautyMode) {
+          setCaptureStatus('Capturing Beauty photo… Hold steady');
+        } else if (isProductMode) {
+          setCaptureStatus('Capturing product detail… Hold steady');
+        }
         const photoFile = await photoOutput.capturePhotoToFile(
-          getPhotoCaptureSettings(capabilities, photoQuality, plan.resolved.hdr,
-            plan.resolved.flashMode, plan.resolved.shutterSound, frameIndex),
+          {
+            ...getPhotoCaptureSettings(capabilities, 'maximum', nativeHdrRequested,
+              plan.resolved.flashMode, shutterSoundEnabled, frameIndex),
+            enableRedEyeReduction: !isFlashDisabledForMode,
+            enableVirtualDeviceFusion: capabilities.virtualDeviceFusion && !isMotionCompositeMode,
+          },
           {},
         );
         if (
-          captureSessionRef.current !== captureSession
-          || !cameraReadyRef.current
-          || !appActiveRef.current
-          || !screenFocusedRef.current
+          captureSessionRef.current !== captureSession || !cameraReadyRef.current
+          || !appActiveRef.current || !screenFocusedRef.current
         ) return;
-        capturedFilePaths.push(photoFile.filePath);
-        if (multiFrameMode) {
-          setMultiFrameProgress({ captured: frameIndex + 1, total: frameCount });
+        capturedFramePaths.push(photoFile.filePath);
+        if (frameCount > 1) setMultiFrameProgress({ captured: frameIndex + 1, total: frameCount });
+        if (
+          appliedCapturePlan?.strategy === 'automatic-lighten-composite'
+          && frameIndex < frameCount - 1
+        ) {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, LIGHT_TRAIL_FRAME_INTERVAL_MS);
+          });
+        } else if (
+          appliedCapturePlan?.strategy === 'automatic-temporal-average'
+          && frameIndex < frameCount - 1
+        ) {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, WATERFALL_FRAME_INTERVAL_MS);
+          });
         }
       }
-      setMultiFrameProgress(undefined);
-      const referenceFilePath = capturedFilePaths[0];
-      const sourcePhotoUri = `file://${referenceFilePath}`;
+
+      const metadataSourceFilePath = capturedFramePaths[0];
+      const outputFilePath = metadataSourceFilePath;
+      const captureFallbackReason = appliedCapturePlan?.fallbackReason;
+      if (
+        captureSessionRef.current !== captureSession
+        || !cameraReadyRef.current
+        || !appActiveRef.current
+        || !screenFocusedRef.current
+      ) return;
+
+      const sourcePhotoUri = `file://${outputFilePath}`;
       const captureModeName = activeCaptureModeId === AUTO_CAPTURE_MODE.id
         ? AUTO_CAPTURE_MODE.name
         : preset.name;
-      const metadata = createCaptureMetadata(plan, {
-        captureMode: captureModeName,
-        facing,
-        cameraName: cameraDevice?.localizedName,
-        cameraModel: cameraDevice?.modelID,
-        cameraType: cameraDevice?.type,
-        hdrConfirmed: nativeHdrRequested && hdrSessionConfirmed,
-        nativeSettings,
-        locationSaved: locationEnabled && Boolean(captureLocationRef.current),
-      });
+      const metadata: CapturePhotoMetadata = {
+        ...createCaptureMetadata(plan, {
+          captureMode: captureModeName, facing,
+          cameraName: cameraDevice?.localizedName, cameraModel: cameraDevice?.modelID,
+          cameraType: cameraDevice?.type,
+          locationSaved: locationEnabled && Boolean(captureLocationRef.current),
+          hdrConfirmed: nativeHdrRequested && hdrSessionConfirmed, nativeSettings,
+        }),
+        beautyEffectRequested: isBeautyMode,
+        beautyEffectApplied: false,
+        captureStrategy: appliedCapturePlan?.strategy,
+        captureFrameCount: appliedCapturePlan?.frameCount,
+        manualExposureApplied: appliedCapturePlan ? manualExposureApplied : undefined,
+        appliedExposureSeconds: manualExposureApplied ? appliedCapturePlan?.exposureSeconds : undefined,
+        appliedIso: manualExposureApplied ? appliedCapturePlan?.iso : undefined,
+        appliedWhiteBalanceKelvin: captureWhiteBalanceApplied
+          ? appliedCapturePlan?.whiteBalanceKelvin
+          : undefined,
+        whiteBalanceStrategy: captureWhiteBalanceApplied
+          ? isProductMode ? 'automatic-locked' : 'manual-kelvin'
+          : undefined,
+        focusStrategy: appliedCapturePlan
+          ? isStarMode && captureFocusApplied
+            ? 'infinity-locked'
+            : captureAutomaticMeteringApplied ? 'automatic-locked' : undefined
+          : undefined,
+        processingOperations: undefined,
+        captureFallbackReason,
+      };
       latestCaptureRef.current = captureSession;
       setLatestPhoto({
         key: `${captureSession}-${sourcePhotoUri}`,
@@ -1623,15 +2362,17 @@ export default function CameraScreen() {
       setCapturing(false);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       enqueuePhotoSave(
-        capturedFilePaths,
+        capturedFramePaths,
         aspectRatio,
         width / height,
         captureSession,
         plan.resolved.jpegQuality,
         metadata,
         locationEnabled ? captureLocationRef.current : undefined,
-        plan.resolved.portraitEffect,
-        multiFrameMode,
+        isBeautyMode ? 'beauty' : isAutoMode && portraitEffectEnabled ? 'portrait' : undefined,
+        metadataSourceFilePath,
+        portraitTarget,
+        plan.resolved.processing === 'single' ? undefined : plan.resolved.processing,
       );
     } catch (error) {
       if (captureSessionRef.current === captureSession) {
@@ -1641,13 +2382,22 @@ export default function CameraScreen() {
       if (captureSessionRef.current === captureSession) {
         countdownActiveRef.current = false;
         setCountdown(undefined);
+        setCaptureStatus(undefined);
         setMultiFrameProgress(undefined);
         setCapturing(false);
+        if (isLongCaptureMode || isBeautyMode || isProductMode) {
+          void cameraRef.current?.resetFocus().catch(() => undefined);
+          const controller = cameraRef.current?.controller;
+          if (supportsExposure && controller) {
+            void controller.setExposureBias(nativeExposureBias).catch(() => undefined);
+          }
+        }
       }
     }
   };
 
-  const captureCanBeCancelled = countdown !== undefined || multiFrameProgress !== undefined;
+  const captureCanBeCancelled = countdown !== undefined || multiFrameProgress !== undefined
+    || (capturing && isLongCaptureMode && captureStatus !== undefined);
 
   return (
     <GestureDetector gesture={cameraGesture}>
@@ -1666,6 +2416,7 @@ export default function CameraScreen() {
               mirrorMode="auto"
               orientationSource="device"
               resizeMode="cover"
+              implementationMode={isAutoMode && portraitEffectEnabled ? 'compatible' : 'performance'}
               onSessionConfigSelected={(config) => {
                 setHdrSessionConfirmed(
                   nativeHdrRequested && config.isPhotoHDREnabled,
@@ -1682,12 +2433,16 @@ export default function CameraScreen() {
                 }
               }}
               onPreviewStopped={() => {
+                setHdrSessionConfirmed(false);
                 cameraReadyRef.current = false;
                 setCameraReady(false);
+                cancelPendingCapture();
               }}
               onStopped={() => {
+                setHdrSessionConfirmed(false);
                 cameraReadyRef.current = false;
                 setCameraReady(false);
+                cancelPendingCapture();
               }}
               onError={(error) => {
                 if (isCameraLifecycleCancellation(error)) return;
@@ -1695,9 +2450,21 @@ export default function CameraScreen() {
                 cameraReadyRef.current = false;
                 setCameraReady(false);
                 cancelPendingCapture();
+                setHdrSessionConfirmed(false);
                 Alert.alert('Camera unavailable', getCameraErrorMessage(error));
               }}
             />
+          )}
+
+          {appActive && screenFocused && cameraDevice && cameraReady && isAutoMode && portraitEffectEnabled && (
+            <Suspense fallback={null}>
+              <PortraitPreviewBlur
+                width={previewFrame.width}
+                height={previewFrame.height}
+                focusX={portraitTarget.x}
+                focusY={portraitTarget.y}
+              />
+            </Suspense>
           )}
 
           {isAutoMode && (
@@ -1735,21 +2502,16 @@ export default function CameraScreen() {
           </Animated.View>
         )}
 
-        {multiFrameProgress !== undefined && (
-          <Animated.View
+        {captureStatus && countdown === undefined && (
+          <View
             accessible
-            accessibilityLabel={`Capturing frame ${multiFrameProgress.captured} of ${multiFrameProgress.total}. Keep the camera steady. Tap the shutter to cancel.`}
+            accessibilityLabel={captureStatus}
             accessibilityLiveRegion="polite"
-            entering={FadeIn.duration(140)}
-            exiting={FadeOut.duration(140)}
             pointerEvents="none"
-            style={styles.multiFrameProgress}>
-            <Text style={styles.multiFrameProgressTitle}>Keep steady</Text>
-            <Text style={styles.multiFrameProgressCount}>
-              {multiFrameProgress.captured} / {multiFrameProgress.total}
-            </Text>
-            <Text style={styles.multiFrameProgressHint}>Tap shutter to cancel</Text>
-          </Animated.View>
+            style={[styles.captureStatus, { bottom: insets.bottom + 160 }]}>
+            <Ionicons name={preset.icon} size={16} color={preset.tint} />
+            <Text style={styles.captureStatusText}>{captureStatus}</Text>
+          </View>
         )}
 
         {isAutoMode && focusPoint && (
@@ -1820,15 +2582,86 @@ export default function CameraScreen() {
                 <Ionicons name={preset.icon} size={20} color={preset.tint} />
                 <Text style={styles.cardTitle}>{preset.name}</Text>
               </View>
+              <Text style={styles.cardStatusLabel}>
+                {isLongCaptureMode || isBeautyMode || isProductMode
+                  ? 'CAPTURE PLAN'
+                  : 'SUGGESTED STARTING POINT'}
+              </Text>
               <View style={styles.chips}>
-                <Text style={styles.chip}>ISO {preset.iso}</Text>
-                <Text style={styles.chip}>{preset.shutter}</Text>
-                <Text style={styles.chip}>{preset.whiteBalance}K</Text>
-                {preset.raw && <Text style={styles.chip}>RAW</Text>}
+                {isStarMode ? (
+                  <>
+                    <Text style={styles.chip}>{getStarPlanLabel(starCapturePlan)}</Text>
+                    {starCapturePlan.exposureSeconds !== undefined && (
+                      <Text style={styles.chip}>{starCapturePlan.exposureSeconds.toFixed(1)}s</Text>
+                    )}
+                    {starCapturePlan.iso !== undefined && (
+                      <Text style={styles.chip}>ISO {starCapturePlan.iso}</Text>
+                    )}
+                    <Text style={styles.chip}>Flash off</Text>
+                  </>
+                ) : isLightTrailMode ? (
+                  <>
+                    <Text style={styles.chip}>{getLightTrailPlanLabel(lightTrailCapturePlan)}</Text>
+                    {lightTrailCapturePlan.exposureSeconds !== undefined && (
+                      <Text style={styles.chip}>{lightTrailCapturePlan.exposureSeconds.toFixed(1)}s</Text>
+                    )}
+                    {lightTrailCapturePlan.iso !== undefined && (
+                      <Text style={styles.chip}>ISO {lightTrailCapturePlan.iso}</Text>
+                    )}
+                    <Text style={styles.chip}>Flash off</Text>
+                  </>
+                ) : isWaterfallMode ? (
+                  <>
+                    <Text style={styles.chip}>{getWaterfallPlanLabel(waterfallCapturePlan)}</Text>
+                    {waterfallCapturePlan.exposureSeconds !== undefined && (
+                      <Text style={styles.chip}>{waterfallCapturePlan.exposureSeconds.toFixed(2)}s</Text>
+                    )}
+                    {waterfallCapturePlan.iso !== undefined && (
+                      <Text style={styles.chip}>ISO {waterfallCapturePlan.iso}</Text>
+                    )}
+                    <Text style={styles.chip}>Flash off</Text>
+                  </>
+                ) : isBeautyMode ? (
+                  <>
+                    <Text style={styles.chip}>Natural retouch</Text>
+                    <Text style={styles.chip}>Skin smoothing</Text>
+                    <Text style={styles.chip}>Detail preserved</Text>
+                    <Text style={styles.chip}>Flash off</Text>
+                  </>
+                ) : isProductMode ? (
+                  <>
+                    <Text style={styles.chip}>{getProductPlanLabel(productCapturePlan)}</Text>
+                    <Text style={styles.chip}>Center focus</Text>
+                    <Text style={styles.chip}>
+                      {productCapturePlan.exposureCompensation.toFixed(1)} EV
+                    </Text>
+                    <Text style={styles.chip}>
+                      {productCapturePlan.lockWhiteBalance ? 'WB lock' : 'Auto WB'}
+                    </Text>
+                    <Text style={styles.chip}>Flash off</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.chip}>ISO {preset.iso}</Text>
+                    <Text style={styles.chip}>{preset.shutter}</Text>
+                    <Text style={styles.chip}>{preset.whiteBalance}K</Text>
+                    {preset.raw && <Text style={styles.chip}>RAW</Text>}
+                  </>
+                )}
               </View>
               <View style={styles.tipRow}>
                 <Ionicons name="information-circle-outline" size={13} color={preset.tint} />
-                <Text style={[styles.tip, { color: preset.tint }]}>{preset.tip}</Text>
+                <Text style={[styles.tip, { color: preset.tint }]}>
+                  {isStarMode
+                    ? starCapturePlan.guidance
+                    : isLightTrailMode
+                      ? lightTrailCapturePlan.guidance
+                      : isWaterfallMode
+                        ? waterfallCapturePlan.guidance
+                        : isBeautyMode
+                          ? beautyCapturePlan.guidance
+                          : isProductMode ? productCapturePlan.guidance : preset.tip}
+                </Text>
               </View>
             </Pressable>
           </Animated.View>
@@ -1845,13 +2678,15 @@ export default function CameraScreen() {
 
         <Pressable
           accessibilityLabel="Camera settings"
-          accessibilityHint="Change photo quality, location, gridlines, aspect ratio, timer, shutter sound, and HDR"
+          accessibilityHint="Change photo location, gridlines, aspect ratio, timer, shutter sound, and HDR"
           accessibilityRole="button"
+          accessibilityState={{ disabled: capturing }}
+          disabled={capturing}
           onPress={() => {
             setModeMenuVisible(false);
             setSettingsVisible((visible) => !visible);
           }}
-          style={[styles.settingsButton, { top: insets.top + 16 }]}>
+          style={[styles.settingsButton, capturing && styles.controlDisabled, { top: insets.top + 16 }]}>
           <Ionicons name="ellipsis-horizontal" size={24} color="white" />
         </Pressable>
 
@@ -1870,15 +2705,15 @@ export default function CameraScreen() {
               {flash === 'auto' && <Text style={styles.flashAuto}>A</Text>}
             </Pressable>
             <Pressable
-              accessibilityHint="Keeps a detected person sharp and blurs the background after capture"
+              accessibilityHint="Blurs the live background around the focus area and applies the effect to photos of any subject. Tap the preview to move the sharp area."
               accessibilityLabel="Portrait effect"
               accessibilityRole="switch"
               accessibilityState={{ checked: portraitEffectEnabled }}
               onPress={() => {
-                if (!PortraitEffect) {
+                if (!PortraitEffect || !requireOptionalNativeModule('ExpoBlurView')) {
                   Alert.alert(
                     'Rebuild required',
-                    'Portrait processing uses a native module. Rebuild and reinstall IntelliCam to enable it.',
+                    'Live Portrait preview and photo processing use native modules. Rebuild and reinstall IntelliCam to enable them.',
                   );
                   return;
                 }
@@ -1890,7 +2725,7 @@ export default function CameraScreen() {
                 portraitEffectEnabled && styles.roundControlActive,
               ]}>
               <Ionicons
-                name="person-outline"
+                name="aperture-outline"
                 size={21}
                 color={portraitEffectEnabled ? '#FFD400' : 'white'}
               />
@@ -2008,8 +2843,10 @@ export default function CameraScreen() {
             accessibilityLabel="View IntelliCam photos"
             accessibilityHint="Opens photos saved in the IntelliCam album"
             accessibilityRole="button"
+            accessibilityState={{ disabled: capturing }}
+            disabled={capturing}
             onPress={() => router.push('/gallery' as Href)}
-            style={styles.secondaryControl}>
+            style={[styles.secondaryControl, capturing && styles.controlDisabled]}>
             {latestPhoto ? (
               <Animated.View
                 key={latestPhoto.key}
@@ -2056,11 +2893,13 @@ export default function CameraScreen() {
             accessibilityLabel="Change capture mode"
             accessibilityHint="Opens the swipeable capture mode selector"
             accessibilityRole="button"
+            accessibilityState={{ disabled: capturing }}
+            disabled={capturing}
             onPress={() => {
               setSettingsVisible(false);
               setModeMenuVisible(true);
             }}
-            style={styles.secondaryControl}>
+            style={[styles.secondaryControl, capturing && styles.controlDisabled]}>
             <View style={styles.modeControlIcon}>
               <Ionicons
                 name="albums-outline"
@@ -2091,7 +2930,7 @@ export default function CameraScreen() {
           <Animated.View
             entering={FadeIn.duration(160)}
             exiting={FadeOut.duration(120)}
-            style={[styles.settingsSheet, { top: insets.top + 68 }]}>
+            style={[styles.settingsSheet, { top: insets.top + 68, width: Math.min(310, width - 36) }]}>
             <ScrollView
               contentContainerStyle={styles.settingsContent}
               showsVerticalScrollIndicator={false}>
@@ -2170,81 +3009,29 @@ export default function CameraScreen() {
                     HDR
                   </Text>
                 </View>
-                {!supportsNativeHdr && (
-                  <Text allowFontScaling={false} style={styles.hdrUnavailableText}>
-                    Unavailable
-                  </Text>
-                )}
+                {!supportsNativeHdr && <Text style={styles.hdrUnavailableText}>Unavailable</Text>}
               </Pressable>
-            </View>
-
-            <View style={styles.settingRow}>
-              <View style={styles.settingHeading}>
-                <Ionicons name="location-outline" size={18} color="#bbb" />
-                <View style={styles.settingLabelGroup}>
-                  <Text style={styles.settingLabel}>Photo location</Text>
-                  <Text style={styles.settingDescription}>
-                    {locationEnabled
-                      ? captureLocation ? 'Ready to embed coordinates' : 'Finding your location…'
-                      : 'Off by default for privacy'}
-                  </Text>
-                </View>
-              </View>
               <Pressable
-                accessibilityHint="Controls whether coordinates are embedded in newly captured photos"
-                accessibilityLabel="Save photo location"
+                accessibilityLabel="Photo location"
+                accessibilityHint={locationEnabled
+                  ? captureLocation
+                    ? 'Coordinates are ready for new photos. Tap to stop saving location.'
+                    : 'Finding your location for new photos. Tap to stop saving location.'
+                  : 'Off for privacy. Tap to save coordinates in new photos; location permission may be requested.'}
                 accessibilityRole="switch"
-                accessibilityState={{ checked: locationEnabled }}
+                accessibilityState={{ checked: locationEnabled, busy: locationEnabled && !captureLocation }}
                 onPress={() => void toggleLocationMetadata()}
                 style={({ pressed }) => [
-                  styles.locationToggle,
-                  locationEnabled && styles.locationToggleActive,
+                  styles.iconSettingButton,
+                  locationEnabled && styles.iconSettingButtonActive,
                   pressed && styles.iconSettingButtonPressed,
                 ]}>
-                <Text style={[
-                  styles.locationToggleText,
-                  locationEnabled && styles.locationToggleTextActive,
-                ]}>
-                  {locationEnabled ? 'On' : 'Off'}
-                </Text>
+                <Ionicons
+                  name={locationEnabled ? 'location' : 'location-outline'}
+                  size={25}
+                  color={locationEnabled ? '#FFD400' : 'white'}
+                />
               </Pressable>
-            </View>
-
-            <View style={styles.settingRow}>
-              <View style={styles.settingHeading}>
-                <Ionicons name="sparkles-outline" size={18} color="#bbb" />
-                <Text style={styles.settingLabel}>Photo quality</Text>
-              </View>
-              <View style={styles.segmented}>
-                {PHOTO_QUALITY_OPTIONS.map((option) => (
-                  <Pressable
-                    key={option.value}
-                    accessibilityHint={option.value === 'maximum'
-                      ? 'Uses the highest supported resolution and native image processing. Capture may take longer.'
-                      : 'Uses balanced processing for faster capture.'}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: photoQuality === option.value }}
-                    onPress={() => {
-                      if (photoQuality === option.value) return;
-                      cameraReadyRef.current = false;
-                      setCameraReady(false);
-                      setPhotoQuality(option.value);
-                      void Haptics.selectionAsync();
-                    }}
-                    style={[
-                      styles.segment,
-                      photoQuality === option.value && styles.segmentActive,
-                    ]}>
-                    <Text
-                      style={[
-                        styles.segmentText,
-                        photoQuality === option.value && styles.segmentTextActive,
-                      ]}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
             </View>
 
             <View style={styles.settingRow}>
@@ -2357,6 +3144,13 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  cardStatusLabel: {
+    marginTop: 12,
+    color: 'rgba(255,255,255,0.52)',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.9,
   },
   chips: {
     flexDirection: 'row',
@@ -2478,7 +3272,7 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: 'rgba(12,12,12,0.82)',
+    backgroundColor: 'rgba(12,12,12,0.58)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.16)',
   },
@@ -2526,11 +3320,11 @@ const styles = StyleSheet.create({
   zoomRulerTick: {
     width: 1,
     height: 7,
-    backgroundColor: 'rgba(255,255,255,0.58)',
+    backgroundColor: 'rgba(255,255,255,0.72)',
   },
   zoomRulerTickMedium: {
     height: 11,
-    backgroundColor: 'rgba(255,255,255,0.78)',
+    backgroundColor: 'rgba(255,255,255,0.85)',
   },
   zoomRulerTickMajor: {
     width: 2,
@@ -2613,6 +3407,9 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 11,
     fontWeight: '600',
+  },
+  controlDisabled: {
+    opacity: 0.45,
   },
   shutter: {
     width: 72,
@@ -2704,34 +3501,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  multiFrameProgress: {
+  captureStatus: {
     position: 'absolute',
     alignSelf: 'center',
-    top: '42%',
-    minWidth: 166,
+    maxWidth: '82%',
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 18,
-    backgroundColor: 'rgba(10,10,10,0.78)',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: 'rgba(10,10,10,0.84)',
     borderWidth: 1,
-    borderColor: 'rgba(159,225,203,0.58)',
+    borderColor: 'rgba(159,225,203,0.42)',
   },
-  multiFrameProgressTitle: {
+  captureStatusText: {
+    flexShrink: 1,
     color: 'white',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '700',
-  },
-  multiFrameProgressCount: {
-    color: '#9FE1CB',
-    fontSize: 22,
-    fontWeight: '800',
     fontVariant: ['tabular-nums'],
-  },
-  multiFrameProgressHint: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 11,
   },
   meteringControl: {
     position: 'absolute',
@@ -2884,41 +3673,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 7,
   },
-  settingLabelGroup: {
-    flex: 1,
-    gap: 2,
-  },
   settingLabel: {
     color: '#bbb',
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
-  },
-  settingDescription: {
-    color: '#8f8f8f',
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  locationToggle: {
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  locationToggleActive: {
-    backgroundColor: 'rgba(255,212,0,0.16)',
-    borderColor: 'rgba(255,212,0,0.55)',
-  },
-  locationToggleText: {
-    color: '#bbb',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  locationToggleTextActive: {
-    color: '#FFD400',
   },
   segmented: {
     flexDirection: 'row',

@@ -10,17 +10,12 @@ const preparationSource = await readFile(new URL('../services/capture-preparatio
 const preparationHook = await readFile(new URL('../hooks/use-capture-preparation.ts', import.meta.url), 'utf8');
 const planSource = await readFile(new URL('../utils/adaptive-capture.mjs', import.meta.url), 'utf8');
 
-test('starts with maximum native photo quality', () => {
-  assert.match(
-    cameraScreenSource,
-    /useState<PhotoQuality>\(['"]maximum['"]\)/,
-  );
+test('always captures maximum quality through shared native preparation', () => {
   assert.match(cameraScreenSource, /useCapturePreparation\(/);
+  assert.match(cameraScreenSource, /cameraReady, 'maximum'/);
   assert.match(preparationSource, /CommonResolutions\.HIGHEST_4_3/);
-  assert.match(
-    preparationSource,
-    /qualityPrioritization:[^\n]*\? ['"]quality['"] : ['"]balanced['"]/,
-  );
+  assert.match(preparationSource, /qualityPrioritization:/);
+  assert.doesNotMatch(cameraScreenSource, /PHOTO_QUALITY_OPTIONS|setPhotoQuality/);
 });
 
 test('uses available native enhancement controls for maximum quality', () => {

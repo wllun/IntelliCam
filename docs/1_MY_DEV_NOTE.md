@@ -2,14 +2,9 @@
     `robocopy "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam\android" "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam\ios" .expo dist web-build`
     [Company Laptop Cmd] : `robocopy "C:\Users\User\Desktop\React App\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules "C:\Users\User\Desktop\React App\IntelliCam\android" "C:\Users\User\Desktop\React App\IntelliCam\ios" .expo dist web-build`
 
-    Use full paths for only the generated app-root `android` and `ios`
-    directories. `/XD android ios` also removes the native folders inside local
-    Expo modules and produces an incomplete release build. Before prebuild,
-    verify that these folders exist in `C:\ICBuild`:
+    Exclude only the app-root generated `android` and `ios` folders. Do not use `/XD android ios` without full paths: that also excludes `modules\media-trash\android` and the native folders of other local modules. The release APK then cannot move photos to the recycle bin even after a successful rebuild.
 
-    - `modules\media-trash\android`
-    - `modules\photo-metadata\android`
-    - `modules\portrait-effect\android`
+    After copying, verify both `C:\ICBuild\modules\media-trash\android\src\main\java\expo\modules\mediatrash\MediaTrashModule.kt` and `C:\ICBuild\modules\portrait-effect\android\src\main\java\expo\modules\portraiteffect\PortraitEffectModule.kt` exist. If either is missing, stop before prebuild and correct the copy step. Live Portrait preview also needs the new `expo-blur` dependency installed by the `npm.cmd install` step below.
 
 2. Update the generated project
     cd C:\ICBuild

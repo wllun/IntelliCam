@@ -1,7 +1,7 @@
 # Project State
 
 Last updated: 2026-09-16
-Branch reviewed: `feature/improvement`
+Branch reviewed: `feature/improvement` (merge reconciliation)
 
 ## Where we are
 
@@ -12,24 +12,27 @@ front camera when necessary.
 
 Auto is the reliable launch mode. It provides flash, device-dependent zoom and
 lens selection, pinch and ruler zoom, tap-to-focus/metering, AE/AF/AWB lock,
-exposure compensation, supported native Photo HDR, Standard/Maximum quality,
+exposure compensation, supported native Photo HDR, maximum native quality,
 gridlines, aspect-ratio cropping, a cancellable timer, shutter sound, and
 optional photo-location metadata.
 
 Auto also has a functional Portrait effect beside Flash. The post-capture
-pipeline uses ML Kit on Android or Vision/Core Image on iOS to keep a detected
-person sharp and blur the background. If processing fails or no clear person is
-found, IntelliCam saves the original capture.
+pipeline uses a selected sharp focus region with feathered background blur on
+Android/iOS, matching the focus-region preview. Beauty uses person segmentation.
+If processing fails, IntelliCam saves the original capture.
 
 The photographic 3D cover-flow selector is implemented for Auto, Star, Light
-Trail, Waterfall, Portrait, Beauty (`美顔`), and Product. Browsing changes a draft
+Trail, Waterfall, Beauty, and Product. Standalone Portrait was removed; Auto's
+Portrait toggle remains. Browsing changes a draft
 selection; Apply commits it. Star, Light Trail, and Waterfall now run bounded,
 cancellable bursts through a native alignment and motion-rejection pipeline.
 Accepted frames are cropped to their common aligned area and composited using
 star-safe averaging, lighten blending, or temporal averaging respectively.
-Their displayed ISO, shutter, focus, white-balance, and RAW values remain
-guidance rather than confirmed camera controls. Portrait, Beauty, and Product
-remain guidance-only modes; Auto's separate Portrait toggle is functional.
+Capability-resolved per-mode plans preserve manual iOS exposure/focus/white-balance
+where supported, with automatic aligned bursts otherwise: Star uses four frames,
+Light Trail and Waterfall use eight timed frames. Product applies supported
+center metering/locks and highlight protection; Beauty applies offline natural
+skin smoothing. Unsupported settings remain guidance, not confirmed controls.
 
 Every mode shares one camera screen, shutter, post-processing queue, metadata
 pipeline, and save path. New mode strategies must extend this engine rather
@@ -57,13 +60,14 @@ Related design documents:
 - [x] Tap-to-focus/metering reticle, five-second automatic reset, and icon-only AE/AF/AWB lock
 - [x] Vertical exposure control quantized to native device detents with UI-thread dragging and throttled latest-value camera updates
 - [x] Flash off/auto/on and shutter sound disabled by default
-- [x] Standard and Maximum capture-quality choices with the highest supported 4:3 Maximum output
+- [x] Always request maximum native quality and the highest supported 4:3 output; the Photo quality setting was removed
 - [x] Gridlines and centered `4:3`, `1:1`, `16:9`, or `Full` output framing
 - [x] Off, 3-second, 5-second, 10-second, and 30-second cancellable timer with haptics
 - [x] Timer cancellation on shutter retap, backgrounding, screen exit, remount, or camera unavailability
 - [x] Honest native Photo HDR: disabled as `Unavailable` on unsupported cameras and recorded only after session confirmation
 - [x] AsyncStorage persistence for gridlines, aspect ratio, timer, shutter sound, and HDR preference with validated defaults
-- [x] Functional Auto Portrait effect with native Android/iOS person segmentation and safe original fallback
+- [x] Functional Auto Portrait effect with movable focus-region preview, native background blur, and safe original fallback
+- [x] Executable Star, Light Trail, Waterfall, Beauty, and Product per-mode capture strategies
 - [x] Cancellable Star, Light Trail, and Waterfall bursts with native frame alignment, whole-frame motion rejection, common-overlap cropping, and mode-aware compositing
 - [x] Multi-frame applied/accepted/rejected details stored in portable JPEG information
 - [x] Consolidated adaptive types and plan resolution reusing the existing per-mode burst plans
@@ -79,10 +83,9 @@ Related design documents:
 
 ## Next implementation priorities
 
-- [ ] Persist the photo-quality preference
 - [ ] Add capture review and save-failure recovery without discarding the cached source image
 - [ ] Extend the consolidated engine with live timestamped scene sensing and measurement-driven capture decisions; confirm remaining manual settings against the session/EXIF rather than restarting the foundation
-- [ ] Connect Portrait, Beauty, and Product modes to executable capture strategies and replace the remaining guidance-only technical values with confirmed controls
+- [ ] Replace remaining guidance-only technical values with confirmed camera controls; validate per-mode applied settings on physical devices
 - [ ] Physically tune multi-frame registration and rejection thresholds for low-texture, low-light, moving-water, and moving-light scenes; evaluate rotation/perspective alignment after translation alignment is validated
 - [ ] Add physical-device validation for exposure, focus lock, tap focus, zoom, HDR, Portrait boundaries, multi-frame modes, selector motion, memory use, and release-build capture latency
 - [ ] Add SQLite `photos`, `camera_presets`, `edit_history`, and `capture_sessions` tables when relational features begin
@@ -98,6 +101,9 @@ Gridlines, aspect ratio, timer, shutter sound, and the user's HDR preference are
 restored from AsyncStorage. Invalid or unreadable stored values fall back to the
 defaults below. SQLite is not used for these simple preferences.
 
+Gridlines, Shutter sound, HDR, and Photo location share one icon-only row. Active
+settings are highlighted; each button retains an accessible name and state.
+
 - **Gridlines:** rule-of-thirds overlay. Default: off.
 - **Shutter sound:** controls the native capture sound. Default: off.
 - **HDR:** requests native Photo HDR only when the active camera reports
@@ -105,9 +111,8 @@ defaults below. SQLite is not used for these simple preferences.
   photo information records HDR only after the active session confirms it.
 - **Photo location:** optionally embeds coordinates in new JPEGs. Default: off;
   permission is requested only after enabling it.
-- **Photo quality:** Standard uses balanced capture and a smaller JPEG; Maximum
-  requests the highest supported 4:3 resolution, quality prioritization, and
-  available native enhancements. Default: Maximum.
+- **Photo quality:** always maximum; highest supported 4:3 resolution, quality
+  prioritization, and available native enhancements. No settings choice.
 - **Aspect ratio:** `4:3`, `1:1`, `16:9`, or `Full`. Cropping occurs after the
   full-quality source capture.
 - **Timer:** off, 3, 5, 10, or 30 seconds.

@@ -27,11 +27,15 @@ const iosModule = await readFile(
   new URL('../modules/portrait-effect/ios/PortraitEffectModule.swift', import.meta.url),
   'utf8',
 );
+const previewBlur = await readFile(
+  new URL('../components/portrait-preview-blur.tsx', import.meta.url),
+  'utf8',
+);
 
 test('Auto camera exposes an accessible Portrait effect beside Flash', () => {
   assert.match(cameraSource, /accessibilityLabel="Portrait effect"/);
   assert.match(cameraSource, /accessibilityRole="switch"/);
-  assert.match(cameraSource, /name="person-outline"/);
+  assert.match(cameraSource, /name="aperture-outline"/);
   assert.ok(
     cameraSource.indexOf('accessibilityLabel={`Flash ${flash}`}')
       < cameraSource.indexOf('accessibilityLabel="Portrait effect"'),
@@ -39,7 +43,7 @@ test('Auto camera exposes an accessible Portrait effect beside Flash', () => {
 });
 
 test('portrait processing runs before metadata embedding and save', () => {
-  const processing = cameraSource.indexOf('PortraitEffect.applyAsync(processedUri, jpegQuality)');
+  const processing = cameraSource.indexOf('PortraitEffect.applyAsync(');
   const metadata = cameraSource.indexOf('await embedPhotoMetadata(', processing);
   const save = cameraSource.indexOf('await savePhotoToAlbum(finalUri)', processing);
 
@@ -59,7 +63,21 @@ test('portrait effect has native Android and iOS implementations', () => {
   assert.match(androidBuild, /com\.google\.mlkit:segmentation-selfie:/);
   assert.match(androidModule, /SelfieSegmenterOptions/);
   assert.match(androidModule, /STREAM_MODE|SINGLE_IMAGE_MODE/);
-  assert.match(iosModule, /VNGeneratePersonSegmentationRequest/);
+  assert.match(androidModule, /blendFocusPortrait/);
+  assert.match(iosModule, /focusMask/);
   assert.match(iosModule, /CIGaussianBlur/);
   assert.match(iosModule, /CIBlendWithMask/);
+});
+
+test('Portrait uses a live focus-region blur and no longer gates photos on person detection', () => {
+  assert.match(cameraSource, /<PortraitPreviewBlur/);
+  assert.match(cameraSource, /implementationMode=\{isAutoMode && portraitEffectEnabled \? 'compatible'/);
+  assert.match(previewBlur, /BlurView/);
+  assert.match(cameraSource, /setPortraitTarget/);
+  const androidPortrait = androidModule.split('private suspend fun applyPortraitEffect(')[1]
+    .split('private suspend fun applyBeautyEffect(')[0];
+  const iosPortrait = iosModule.split('private func applyPortraitEffect(')[1]
+    .split('private func applyBeautyEffect(')[0];
+  assert.doesNotMatch(androidPortrait, /hasPerson|SelfieSegmenterOptions/);
+  assert.doesNotMatch(iosPortrait, /VNDetectHumanRectanglesRequest|VNGeneratePersonSegmentationRequest/);
 });

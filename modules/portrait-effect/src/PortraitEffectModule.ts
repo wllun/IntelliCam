@@ -6,7 +6,8 @@ export interface PortraitEffectResult {
 }
 
 declare class PortraitEffectModule extends NativeModule {
-  applyAsync(sourceUri: string, jpegQuality: number): Promise<PortraitEffectResult>;
+  applyAsync(sourceUri: string, jpegQuality: number, focusX: number, focusY: number): Promise<PortraitEffectResult>;
+  applyBeautyAsync(sourceUri: string, jpegQuality: number): Promise<PortraitEffectResult>;
 }
 
 export default requireOptionalNativeModule<PortraitEffectModule>('PortraitEffect');

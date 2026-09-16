@@ -3,8 +3,12 @@
 Last updated: 2026-09-16
 
 This extends the existing mode plans, rather than restarting the proposal's
-Phase 1. Star, Light Trail, and Waterfall retain their existing six/eight/six
-frame strategies. Auto and the remaining guidance modes retain single captures.
+Phase 1. The merged per-mode resolvers select supported manual iOS captures
+or automatic bursts: Star uses four frames, Light Trail and Waterfall use eight.
+Every automatic burst uses the alignment/motion-rejection processor, rather
+than compositing first and passing only a flattened result into alignment.
+Auto, Beauty, and Product retain single captures with their existing processing
+or native preparation. Native photo quality is always Maximum.
 
 ## Ownership
 
@@ -13,7 +17,8 @@ frame strategies. Auto and the remaining guidance modes retain single captures.
   fallback reasons, and the versioned capture-plan record.
 - `utils/adaptive-capture.mjs` wraps `getMultiFrameCapturePlan`, resolves
   capability fallbacks, normalizes measurements, and finalizes outcomes without
-  changing the original plan.
+  changing the original plan. The camera reconciles the resolved strategy and
+  frame count with the executable per-mode plan after native preparation.
 - `services/capture-preparation.ts` adapts Vision Camera capabilities and builds
   output/capture configuration with capability-gated enhancements.
 - `hooks/use-capture-preparation.ts` owns photo-output creation, constraints,
