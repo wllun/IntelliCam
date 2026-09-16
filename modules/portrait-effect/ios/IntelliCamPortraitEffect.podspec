@@ -1,8 +1,8 @@
 Pod::Spec.new do |s|
   s.name             = 'IntelliCamPortraitEffect'
   s.version          = '1.0.0'
-  s.summary          = 'Native person segmentation and portrait background blur for IntelliCam.'
-  s.description      = 'A local Expo module that applies an offline portrait effect.'
+  s.summary          = 'Native focus-based portrait background blur for IntelliCam.'
+  s.description      = 'A local Expo module that keeps any selected subject area sharp and blurs the surrounding photo.'
   s.license          = { :type => 'MIT' }
   s.author           = 'IntelliCam'
   s.homepage         = 'https://example.invalid/intellicam'

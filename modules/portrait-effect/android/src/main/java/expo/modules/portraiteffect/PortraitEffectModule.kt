@@ -21,6 +21,7 @@ import java.io.FileOutputStream
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -29,9 +30,9 @@ class PortraitEffectModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("PortraitEffect")
 
-    AsyncFunction("applyAsync") Coroutine { sourceUri: String, jpegQuality: Int ->
+    AsyncFunction("applyAsync") Coroutine { sourceUri: String, jpegQuality: Int, focusX: Double, focusY: Double ->
       withContext(Dispatchers.Default) {
-        applyPortraitEffect(sourceUri, jpegQuality.coerceIn(80, 100))
+        applyPortraitEffect(sourceUri, jpegQuality.coerceIn(80, 100), focusX, focusY)
       }
     }
 
@@ -45,6 +46,8 @@ class PortraitEffectModule : Module() {
   private suspend fun applyPortraitEffect(
     sourceUri: String,
     jpegQuality: Int,
+    focusX: Double,
+    focusY: Double,
   ): Map<String, Any> {
     val sourcePath = filePath(sourceUri)
     val sourceBitmap = decodeOrientedBitmap(sourcePath)
@@ -52,29 +55,11 @@ class PortraitEffectModule : Module() {
     val bitmap = scaleDown(sourceBitmap, MAX_OUTPUT_EDGE)
     if (bitmap !== sourceBitmap) sourceBitmap.recycle()
 
-    val segmentationBitmap = scaleDown(bitmap, SEGMENTATION_EDGE)
-    val segmenter = Segmentation.getClient(
-      SelfieSegmenterOptions.Builder()
-        .setDetectorMode(SelfieSegmenterOptions.SINGLE_IMAGE_MODE)
-        .build()
-    )
-
     try {
-      val mask = awaitMask(segmenter.process(InputImage.fromBitmap(segmentationBitmap, 0)))
-      if (segmentationBitmap !== bitmap) segmentationBitmap.recycle()
-      val confidence = readConfidenceMask(mask)
-      val hasPerson = confidence.count { it >= SUBJECT_DETECTION_THRESHOLD } >=
-        max(1, (confidence.size * MIN_SUBJECT_FRACTION).roundToInt())
-      if (!hasPerson) {
-        bitmap.recycle()
-        return mapOf("uri" to sourceUri, "applied" to false)
-      }
-
       val blurredBackground = createBlurredBackground(bitmap)
       val output = try {
-        blendPortrait(bitmap, blurredBackground, confidence, mask.width, mask.height)
+        blendFocusPortrait(bitmap, blurredBackground, focusX, focusY)
       } finally {
-        bitmap.recycle()
         blurredBackground.recycle()
       }
 
@@ -91,13 +76,9 @@ class PortraitEffectModule : Module() {
       }
       return mapOf("uri" to Uri.fromFile(outputFile).toString(), "applied" to true)
     } finally {
-      if (!segmentationBitmap.isRecycled && segmentationBitmap !== bitmap) {
-        segmentationBitmap.recycle()
-      }
       if (!bitmap.isRecycled) {
         bitmap.recycle()
       }
-      segmenter.close()
     }
   }
 
@@ -307,12 +288,11 @@ class PortraitEffectModule : Module() {
     }
   }
 
-  private fun blendPortrait(
+  private fun blendFocusPortrait(
     subject: Bitmap,
     background: Bitmap,
-    confidence: FloatArray,
-    maskWidth: Int,
-    maskHeight: Int,
+    focusX: Double,
+    focusY: Double,
   ): Bitmap {
     val output = Bitmap.createBitmap(subject.width, subject.height, Bitmap.Config.ARGB_8888)
     val subjectRow = IntArray(subject.width)
@@ -320,14 +300,21 @@ class PortraitEffectModule : Module() {
     val backgroundPixels = IntArray(background.width * background.height)
     background.getPixels(backgroundPixels, 0, background.width, 0, 0, background.width, background.height)
 
+    val centerX = focusX.coerceIn(FOCUS_WIDTH_FRACTION / 2, 1.0 - FOCUS_WIDTH_FRACTION / 2)
+    val centerY = focusY.coerceIn(FOCUS_HEIGHT_FRACTION / 2, 1.0 - FOCUS_HEIGHT_FRACTION / 2)
     for (y in 0 until subject.height) {
       subject.getPixels(subjectRow, 0, subject.width, 0, y, subject.width, 1)
       val backgroundY = min(background.height - 1, y * background.height / subject.height)
-      val maskY = min(maskHeight - 1, y * maskHeight / subject.height)
       for (x in 0 until subject.width) {
         val backgroundX = min(background.width - 1, x * background.width / subject.width)
-        val maskX = min(maskWidth - 1, x * maskWidth / subject.width)
-        val alpha = smoothSubjectAlpha(confidence[maskY * maskWidth + maskX])
+        val normalizedX = (x + 0.5) / subject.width
+        val normalizedY = (y + 0.5) / subject.height
+        val edgeDistance = max(
+          abs(normalizedX - centerX) / (FOCUS_WIDTH_FRACTION / 2),
+          abs(normalizedY - centerY) / (FOCUS_HEIGHT_FRACTION / 2),
+        )
+        val feather = ((edgeDistance - 0.82) / 0.20).coerceIn(0.0, 1.0)
+        val alpha = (1.0 - feather * feather * (3.0 - 2.0 * feather)).toFloat()
         outputRow[x] = blendColor(
           subjectRow[x],
           backgroundPixels[backgroundY * background.width + backgroundX],
@@ -418,6 +405,8 @@ class PortraitEffectModule : Module() {
   }
 
   companion object {
+    private const val FOCUS_WIDTH_FRACTION = 0.58
+    private const val FOCUS_HEIGHT_FRACTION = 0.48
     private const val MAX_OUTPUT_EDGE = 4096
     private const val SEGMENTATION_EDGE = 768
     private const val BLUR_EDGE = 640

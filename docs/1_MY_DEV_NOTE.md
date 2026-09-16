@@ -4,7 +4,7 @@
 
     Exclude only the app-root generated `android` and `ios` folders. Do not use `/XD android ios` without full paths: that also excludes `modules\media-trash\android` and the native folders of other local modules. The release APK then cannot move photos to the recycle bin even after a successful rebuild.
 
-    After copying, verify `C:\ICBuild\modules\media-trash\android\src\main\java\expo\modules\mediatrash\MediaTrashModule.kt` exists. If it does not, stop before prebuild and correct the copy step.
+    After copying, verify both `C:\ICBuild\modules\media-trash\android\src\main\java\expo\modules\mediatrash\MediaTrashModule.kt` and `C:\ICBuild\modules\portrait-effect\android\src\main\java\expo\modules\portraiteffect\PortraitEffectModule.kt` exist. If either is missing, stop before prebuild and correct the copy step. Live Portrait preview also needs the new `expo-blur` dependency installed by the `npm.cmd install` step below.
 
 2. Update the generated project
     cd C:\ICBuild

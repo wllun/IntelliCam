@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -28,6 +28,7 @@ import {
 } from 'react-native-vision-camera';
 import { loadImage } from 'react-native-nitro-image';
 import { Image } from 'expo-image';
+import { requireOptionalNativeModule } from 'expo';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
@@ -87,6 +88,10 @@ import {
 } from '@/services/product-capture';
 
 const ALBUM_NAME = 'IntelliCam';
+const PortraitPreviewBlur = lazy(async () => {
+  const module = await import('@/components/portrait-preview-blur');
+  return { default: module.PortraitPreviewBlur };
+});
 type TimerSeconds = 0 | 3 | 5 | 10 | 30;
 type CameraFacing = 'front' | 'back';
 type CameraRatio = '4:3' | '1:1' | '16:9' | 'Full';
@@ -128,6 +133,11 @@ interface FocusPoint {
   screenY: number;
   viewX: number;
   viewY: number;
+}
+
+interface PortraitTarget {
+  x: number;
+  y: number;
 }
 
 interface LatestPhoto {
@@ -479,6 +489,7 @@ export default function CameraScreen() {
   const [timerSeconds, setTimerSeconds] = useState<TimerSeconds>(0);
   const [shutterSoundEnabled, setShutterSoundEnabled] = useState(false);
   const [portraitEffectEnabled, setPortraitEffectEnabled] = useState(false);
+  const [portraitTarget, setPortraitTarget] = useState<PortraitTarget>({ x: 0.5, y: 0.5 });
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [captureLocation, setCaptureLocation] = useState<CaptureLocation>();
   const [countdown, setCountdown] = useState<number>();
@@ -522,6 +533,7 @@ export default function CameraScreen() {
     location?: CaptureLocation,
     postCaptureEffect?: PostCaptureEffect,
     metadataSourceFilePath = sourceFilePath,
+    portraitFocus: PortraitTarget = { x: 0.5, y: 0.5 },
   ) => {
     photoSaveQueueRef.current = photoSaveQueueRef.current
       .catch(() => undefined)
@@ -545,12 +557,17 @@ export default function CameraScreen() {
             effectFailureMessage = 'Portrait processing requires a rebuilt IntelliCam app.';
           } else {
             try {
-              const result = await PortraitEffect.applyAsync(processedUri, jpegQuality);
+              const result = await PortraitEffect.applyAsync(
+                processedUri,
+                jpegQuality,
+                portraitFocus.x,
+                portraitFocus.y,
+              );
               finalUri = result.uri;
               portraitApplied = result.applied;
               if (!result.applied) {
                 effectFailureTitle = 'Portrait effect not applied';
-                effectFailureMessage = 'No clear person was detected. The original photo was saved.';
+                effectFailureMessage = 'The background blur could not be applied. The original photo was saved.';
               }
             } catch (portraitError) {
               console.warn('Could not apply portrait effect:', portraitError);
@@ -1343,6 +1360,12 @@ export default function CameraScreen() {
   const focusAt = async (event: GestureResponderEvent) => {
     if (!isAutoMode || settingsVisible || modeMenuVisible) return;
     const { locationX, locationY } = event.nativeEvent;
+    if (portraitEffectEnabled) {
+      setPortraitTarget({
+        x: clamp(locationX / previewFrame.width, 0, 1),
+        y: clamp(locationY / previewFrame.height, 0, 1),
+      });
+    }
     const camera = cameraRef.current;
     if (!camera || meteringModes.length === 0) {
       Alert.alert('Focus unavailable', 'This camera does not support point focus or metering.');
@@ -2223,6 +2246,7 @@ export default function CameraScreen() {
         locationEnabled ? captureLocationRef.current : undefined,
         isBeautyMode ? 'beauty' : isAutoMode && portraitEffectEnabled ? 'portrait' : undefined,
         metadataSourceFilePath,
+        portraitTarget,
       );
     } catch (error) {
       if (captureSessionRef.current === captureSession) {
@@ -2262,6 +2286,7 @@ export default function CameraScreen() {
               mirrorMode="auto"
               orientationSource="device"
               resizeMode="cover"
+              implementationMode={isAutoMode && portraitEffectEnabled ? 'compatible' : 'performance'}
               onSessionConfigSelected={(config) => {
                 setHdrApplied(
                   hdrEnabled
@@ -2296,6 +2321,17 @@ export default function CameraScreen() {
                 Alert.alert('Camera unavailable', getCameraErrorMessage(error));
               }}
             />
+          )}
+
+          {appActive && screenFocused && cameraDevice && cameraReady && isAutoMode && portraitEffectEnabled && (
+            <Suspense fallback={null}>
+              <PortraitPreviewBlur
+                width={previewFrame.width}
+                height={previewFrame.height}
+                focusX={portraitTarget.x}
+                focusY={portraitTarget.y}
+              />
+            </Suspense>
           )}
 
           {isAutoMode && (
@@ -2536,15 +2572,15 @@ export default function CameraScreen() {
               {flash === 'auto' && <Text style={styles.flashAuto}>A</Text>}
             </Pressable>
             <Pressable
-              accessibilityHint="Keeps a detected person sharp and blurs the background after capture"
+              accessibilityHint="Blurs the live background around the focus area and applies the effect to photos of any subject. Tap the preview to move the sharp area."
               accessibilityLabel="Portrait effect"
               accessibilityRole="switch"
               accessibilityState={{ checked: portraitEffectEnabled }}
               onPress={() => {
-                if (!PortraitEffect) {
+                if (!PortraitEffect || !requireOptionalNativeModule('ExpoBlurView')) {
                   Alert.alert(
                     'Rebuild required',
-                    'Portrait processing uses a native module. Rebuild and reinstall IntelliCam to enable it.',
+                    'Live Portrait preview and photo processing use native modules. Rebuild and reinstall IntelliCam to enable them.',
                   );
                   return;
                 }
@@ -2556,7 +2592,7 @@ export default function CameraScreen() {
                 portraitEffectEnabled && styles.roundControlActive,
               ]}>
               <Ionicons
-                name="person-outline"
+                name="aperture-outline"
                 size={21}
                 color={portraitEffectEnabled ? '#FFD400' : 'white'}
               />
