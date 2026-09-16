@@ -45,7 +45,7 @@ Related design documents:
 - [x] Rear/front switching and device-dependent integrated or dedicated ultrawide selection
 - [x] `0.5x`, `1x`, `2x`, and `3x` quick zoom controls, zoom ruler, and pinch-to-zoom
 - [x] Tap-to-focus/metering reticle, five-second automatic reset, and icon-only AE/AF/AWB lock
-- [x] Vertical exposure-compensation drag control with device-range mapping
+- [x] Vertical exposure control quantized to native device detents with UI-thread dragging and throttled latest-value camera updates
 - [x] Flash off/auto/on and shutter sound disabled by default
 - [x] Standard and Maximum capture-quality choices with the highest supported 4:3 Maximum output
 - [x] Gridlines and centered `4:3`, `1:1`, `16:9`, or `Full` output framing
@@ -64,7 +64,6 @@ Related design documents:
 
 ## Next implementation priorities
 
-- [ ] Quantize and throttle exposure updates to the active device's native exposure indexes
 - [ ] Persist the photo-quality preference
 - [ ] Add capture review and save-failure recovery without discarding the cached source image
 - [ ] Implement the adaptive capture foundation: shared capability types, scene measurements, resolved capture plans, and requested/applied/actual metadata
@@ -99,8 +98,8 @@ defaults below. SQLite is not used for these simple preferences.
 - **Timer:** off, 3, 5, 10, or 30 seconds.
 
 Flash, Portrait effect, zoom, focus, exposure lock, and front/rear switching
-remain direct camera-surface controls. Settings are session-only until the
-persistence task is implemented.
+remain direct camera-surface controls and are session-only. The persisted
+settings are listed above.
 
 ## Important boundaries
 

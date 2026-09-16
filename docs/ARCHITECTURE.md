@@ -60,7 +60,8 @@ The camera screen currently provides:
 - quick zoom values, a zoom ruler, and pinch-to-zoom
 - tap-to-focus and metering with a visible reticle
 - AE/AF/AWB locking and automatic metering reset
-- exposure-compensation dragging
+- exposure dragging quantized to the device's native detents with throttled
+  latest-value controller updates
 - flash, grid, timer, aspect-ratio crop, shutter sound, and location metadata
 - supported device-native Photo HDR configuration
 

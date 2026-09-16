@@ -71,6 +71,11 @@ import {
   type CameraAspectRatio,
   type CameraTimerSeconds,
 } from '@/utils/camera-preferences.mjs';
+import {
+  createExposureSteps,
+  findNearestExposureStepIndex,
+  formatExposureValue,
+} from '@/utils/exposure-control.mjs';
 import PortraitEffect from '@/modules/portrait-effect';
 
 const ALBUM_NAME = 'IntelliCam';
@@ -84,11 +89,10 @@ const PHOTO_QUALITY_OPTIONS: { label: string; value: PhotoQuality }[] = [
   { label: 'Maximum', value: 'maximum' },
 ];
 const METERING_RESET_MS = 5000;
-const EXPOSURE_MIN = -2;
-const EXPOSURE_MAX = 2;
-const EXPOSURE_STEP = 0.2;
+const EXPOSURE_DISPLAY_LIMIT = 2;
 const EXPOSURE_TRACK_HEIGHT = 72;
-const EXPOSURE_DRAG_PIXELS_PER_EV = EXPOSURE_TRACK_HEIGHT / (EXPOSURE_MAX - EXPOSURE_MIN);
+const EXPOSURE_DISPLAY_UPDATE_INTERVAL_MS = 32;
+const EXPOSURE_NATIVE_UPDATE_INTERVAL_MS = 48;
 const ZOOM_TRANSITION_MS = 180;
 const ZOOM_RULER_MIN = 0.5;
 const ZOOM_RULER_MAX = 10;
@@ -149,24 +153,6 @@ function getActiveCameraZoom(
   }
 
   return Math.max(cameraMinimum, Math.min(cameraMaximum, targetZoom));
-}
-
-function getNativeExposureBias(
-  displayValue: number,
-  displayMinimum: number,
-  displayMaximum: number,
-  deviceMinimum: number,
-  deviceMaximum: number,
-) {
-  if (Platform.OS !== 'android') return displayValue;
-
-  if (displayValue < 0 && displayMinimum < 0) {
-    return Math.round((displayValue / displayMinimum) * deviceMinimum);
-  }
-  if (displayValue > 0 && displayMaximum > 0) {
-    return Math.round((displayValue / displayMaximum) * deviceMaximum);
-  }
-  return 0;
 }
 
 function createZoomRulerTicks(minimum: number, maximum: number) {
@@ -487,11 +473,19 @@ export default function CameraScreen() {
   const queuedCameraZoomRef = useRef<number | undefined>(undefined);
   const cameraZoomUpdateTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastCameraZoomUpdateRef = useRef(0);
+  const queuedExposureStepIndexRef = useRef<number | undefined>(undefined);
+  const exposureDisplayUpdateTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const lastExposureDisplayUpdateRef = useRef(0);
+  const queuedNativeExposureRef = useRef<number | undefined>(undefined);
+  const nativeExposureUpdateTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const lastNativeExposureUpdateRef = useRef(0);
   const captureLocationRef = useRef<CaptureLocation | undefined>(undefined);
   const cameraZoom = useSharedValue(1);
   const zoomGestureActive = useSharedValue(false);
   const pinchStartZoom = useSharedValue(0);
-  const exposureDragStart = useSharedValue(0);
+  const exposureStepPosition = useSharedValue(0);
+  const exposureDragStartIndex = useSharedValue(0);
+  const exposureGestureActive = useSharedValue(false);
   const rulerZoomValue = useSharedValue(1);
   const rulerDragStartZoom = useSharedValue(1);
 
@@ -860,23 +854,27 @@ export default function CameraScreen() {
   const supportsExposure = cameraDevice?.supportsExposureBias ?? false;
   const deviceExposureMin = cameraDevice?.minExposureBias ?? 0;
   const deviceExposureMax = cameraDevice?.maxExposureBias ?? 0;
-  const exposureMin = supportsExposure
-    ? Platform.OS === 'android'
-      ? deviceExposureMin < 0 ? EXPOSURE_MIN : 0
-      : Math.max(EXPOSURE_MIN, deviceExposureMin)
-    : 0;
-  const exposureMax = supportsExposure
-    ? Platform.OS === 'android'
-      ? deviceExposureMax > 0 ? EXPOSURE_MAX : 0
-      : Math.min(EXPOSURE_MAX, deviceExposureMax)
-    : 0;
-  const nativeExposureBias = getNativeExposureBias(
+  const exposureSteps = useMemo(() => createExposureSteps({
+    platform: Platform.OS,
+    supported: supportsExposure,
+    deviceMinimum: deviceExposureMin,
+    deviceMaximum: deviceExposureMax,
+    displayLimit: EXPOSURE_DISPLAY_LIMIT,
+  }), [deviceExposureMax, deviceExposureMin, supportsExposure]);
+  const exposureStepIndex = findNearestExposureStepIndex(
+    exposureSteps,
     exposureCompensation,
-    exposureMin,
-    exposureMax,
-    deviceExposureMin,
-    deviceExposureMax,
   );
+  const activeExposureStep = exposureSteps[exposureStepIndex];
+  const exposureMin = exposureSteps[0].displayValue;
+  const exposureMax = exposureSteps[exposureSteps.length - 1].displayValue;
+  const nativeExposureBias = activeExposureStep.nativeValue;
+  const exposureLabel = formatExposureValue(activeExposureStep.displayValue);
+  const zeroExposureStepIndex = findNearestExposureStepIndex(exposureSteps, 0);
+  const exposureZeroTop = exposureSteps.length === 1
+    ? EXPOSURE_TRACK_HEIGHT / 2
+    : ((exposureSteps.length - 1 - zeroExposureStepIndex) / (exposureSteps.length - 1))
+      * EXPOSURE_TRACK_HEIGHT;
   const meteringModes = useMemo<MeteringMode[]>(() => {
     if (!cameraDevice) return [];
     const modes: MeteringMode[] = [];
@@ -981,6 +979,82 @@ export default function CameraScreen() {
     void photoOutput.prepareSettings(settings).catch(() => undefined);
   }, [cameraDevice?.hasFlash, maximumPhotoQuality, nativeHdrRequested, photoOutput]);
 
+  const flushDisplayedExposure = useCallback(() => {
+    exposureDisplayUpdateTimerRef.current = undefined;
+    const requestedIndex = queuedExposureStepIndexRef.current;
+    queuedExposureStepIndexRef.current = undefined;
+    if (requestedIndex === undefined) return;
+
+    const index = Math.max(0, Math.min(exposureSteps.length - 1, requestedIndex));
+    lastExposureDisplayUpdateRef.current = Date.now();
+    setExposureCompensation(exposureSteps[index].displayValue);
+  }, [exposureSteps]);
+
+  const queueDisplayedExposure = useCallback((requestedIndex: number) => {
+    queuedExposureStepIndexRef.current = requestedIndex;
+    if (exposureDisplayUpdateTimerRef.current) return;
+
+    const elapsed = Date.now() - lastExposureDisplayUpdateRef.current;
+    exposureDisplayUpdateTimerRef.current = setTimeout(
+      flushDisplayedExposure,
+      Math.max(0, EXPOSURE_DISPLAY_UPDATE_INTERVAL_MS - elapsed),
+    );
+  }, [flushDisplayedExposure]);
+
+  const commitDisplayedExposure = useCallback((requestedIndex: number) => {
+    if (exposureDisplayUpdateTimerRef.current) {
+      clearTimeout(exposureDisplayUpdateTimerRef.current);
+      exposureDisplayUpdateTimerRef.current = undefined;
+    }
+    queuedExposureStepIndexRef.current = requestedIndex;
+    flushDisplayedExposure();
+  }, [flushDisplayedExposure]);
+
+  const flushNativeExposure = useCallback(() => {
+    nativeExposureUpdateTimerRef.current = undefined;
+    const exposure = queuedNativeExposureRef.current;
+    queuedNativeExposureRef.current = undefined;
+    const controller = cameraRef.current?.controller;
+    if (
+      exposure === undefined
+      || !controller
+      || !cameraReadyRef.current
+      || !appActiveRef.current
+      || !screenFocusedRef.current
+    ) return;
+
+    lastNativeExposureUpdateRef.current = Date.now();
+    void controller.setExposureBias(exposure).catch((error: unknown) => {
+      if (!isCameraLifecycleCancellation(error)) {
+        console.warn('Could not update camera exposure:', error);
+      }
+    });
+  }, []);
+
+  const queueNativeExposure = useCallback((exposure: number) => {
+    queuedNativeExposureRef.current = exposure;
+    if (nativeExposureUpdateTimerRef.current) return;
+
+    const elapsed = Date.now() - lastNativeExposureUpdateRef.current;
+    nativeExposureUpdateTimerRef.current = setTimeout(
+      flushNativeExposure,
+      Math.max(0, EXPOSURE_NATIVE_UPDATE_INTERVAL_MS - elapsed),
+    );
+  }, [flushNativeExposure]);
+
+  const cancelExposureUpdates = useCallback(() => {
+    if (exposureDisplayUpdateTimerRef.current) {
+      clearTimeout(exposureDisplayUpdateTimerRef.current);
+      exposureDisplayUpdateTimerRef.current = undefined;
+    }
+    if (nativeExposureUpdateTimerRef.current) {
+      clearTimeout(nativeExposureUpdateTimerRef.current);
+      nativeExposureUpdateTimerRef.current = undefined;
+    }
+    queuedExposureStepIndexRef.current = undefined;
+    queuedNativeExposureRef.current = undefined;
+  }, []);
+
   const zoomRulerWidth = Math.max(232, Math.min(width - 48, 320));
   const zoomRulerTicks = useMemo(
     () => createZoomRulerTicks(rulerMinZoom, rulerMaxZoom),
@@ -1031,6 +1105,26 @@ export default function CameraScreen() {
     [maxZoom, minZoom, updateCameraZoom],
   );
 
+  useAnimatedReaction(
+    () => exposureGestureActive.get()
+      ? Math.round(exposureStepPosition.get())
+      : null,
+    (nextIndex, previousIndex) => {
+      if (nextIndex === null || nextIndex === previousIndex) return;
+      scheduleOnRN(queueDisplayedExposure, nextIndex);
+    },
+    [queueDisplayedExposure],
+  );
+
+  const exposureThumbAnimatedStyle = useAnimatedStyle(() => {
+    const maximumIndex = Math.max(0, exposureSteps.length - 1);
+    const index = Math.max(0, Math.min(maximumIndex, exposureStepPosition.get()));
+    const progress = maximumIndex === 0 ? 0.5 : (maximumIndex - index) / maximumIndex;
+    return {
+      transform: [{ translateY: progress * EXPOSURE_TRACK_HEIGHT }],
+    };
+  }, [exposureSteps.length]);
+
   useEffect(() => {
     cameraReadyRef.current = false;
     setCameraReady(false);
@@ -1068,22 +1162,43 @@ export default function CameraScreen() {
   ]);
 
   useEffect(() => {
-    setExposureCompensation((current) => Math.max(exposureMin, Math.min(exposureMax, current)));
-  }, [exposureMax, exposureMin]);
+    cancelExposureUpdates();
+    const nextIndex = findNearestExposureStepIndex(exposureSteps, 0);
+    const nextValue = exposureSteps[nextIndex].displayValue;
+    exposureStepPosition.set(nextIndex);
+    setExposureCompensation((current) => current === nextValue ? current : nextValue);
+  }, [cameraDevice?.id, cancelExposureUpdates, exposureStepPosition, exposureSteps]);
 
   useEffect(() => {
-    if (!supportsExposure || !cameraReady || !appActive || !screenFocused) return;
+    if (!exposureGestureActive.get()) {
+      exposureStepPosition.set(exposureStepIndex);
+    }
+  }, [exposureGestureActive, exposureStepIndex, exposureStepPosition]);
 
-    const controller = cameraRef.current?.controller;
-    if (!controller) return;
+  useEffect(() => {
+    if (!appActive || !screenFocused) cancelExposureUpdates();
+  }, [appActive, cancelExposureUpdates, screenFocused]);
 
-    void controller.setExposureBias(nativeExposureBias).catch((error: unknown) => {
-      // CameraX cancels pending controls when the camera is stopping or reconfiguring.
-      if (!isCameraLifecycleCancellation(error)) {
-        console.warn('Could not update camera exposure:', error);
+  useEffect(() => {
+    if (!supportsExposure || !cameraReady || !appActive || !screenFocused) {
+      if (nativeExposureUpdateTimerRef.current) {
+        clearTimeout(nativeExposureUpdateTimerRef.current);
+        nativeExposureUpdateTimerRef.current = undefined;
       }
-    });
-  }, [appActive, cameraReady, nativeExposureBias, screenFocused, supportsExposure]);
+      queuedNativeExposureRef.current = undefined;
+      return;
+    }
+    queueNativeExposure(nativeExposureBias);
+  }, [
+    appActive,
+    cameraReady,
+    nativeExposureBias,
+    queueNativeExposure,
+    screenFocused,
+    supportsExposure,
+  ]);
+
+  useEffect(() => () => cancelExposureUpdates(), [cancelExposureUpdates]);
 
   const changePreset = (direction: 1 | -1) => {
     const nextPresetIndex = (presetIndex + direction + PRESETS.length) % PRESETS.length;
@@ -1280,24 +1395,19 @@ export default function CameraScreen() {
 
   const changeExposure = (direction: 1 | -1) => {
     if (!supportsExposure) return;
-    setExposureCompensation((current) =>
-      Math.max(
-        exposureMin,
-        Math.min(exposureMax, Number((current + direction * EXPOSURE_STEP).toFixed(1))),
-      ),
+    const nextIndex = Math.max(
+      0,
+      Math.min(exposureSteps.length - 1, exposureStepIndex + direction),
     );
+    if (nextIndex === exposureStepIndex) return;
+    exposureStepPosition.set(nextIndex);
+    commitDisplayedExposure(nextIndex);
     if (!meteringLocked) scheduleMeteringReset();
-    Haptics.selectionAsync();
+    void Haptics.selectionAsync();
   };
 
-  const updateExposureFromDrag = (value: number) => {
-    if (!supportsExposure) return;
-    setExposureCompensation(
-      Math.max(exposureMin, Math.min(exposureMax, Number(value.toFixed(1)))),
-    );
-  };
-
-  const finishExposureDrag = () => {
+  const finishExposureDrag = (finalIndex: number) => {
+    commitDisplayedExposure(finalIndex);
     if (!meteringLocked) scheduleMeteringReset();
     void Haptics.selectionAsync();
   };
@@ -1307,21 +1417,26 @@ export default function CameraScreen() {
     .activeOffsetY([-4, 4])
     .failOffsetX([-18, 18])
     .onBegin(() => {
-      exposureDragStart.value = exposureCompensation;
-      runOnJS(cancelMeteringReset)();
+      exposureDragStartIndex.set(exposureStepPosition.get());
+      exposureGestureActive.set(true);
+      scheduleOnRN(cancelMeteringReset);
     })
     .onUpdate((event) => {
-      const nextExposure = exposureDragStart.value
-        - event.translationY / EXPOSURE_DRAG_PIXELS_PER_EV;
-      runOnJS(updateExposureFromDrag)(nextExposure);
+      const maximumIndex = Math.max(0, exposureSteps.length - 1);
+      const pixelsPerStep = EXPOSURE_TRACK_HEIGHT / Math.max(1, maximumIndex);
+      const nextIndex = Math.max(
+        0,
+        Math.min(
+          maximumIndex,
+          Math.round(exposureDragStartIndex.get() - event.translationY / pixelsPerStep),
+        ),
+      );
+      exposureStepPosition.set(nextIndex);
     })
     .onFinalize(() => {
-      runOnJS(finishExposureDrag)();
+      exposureGestureActive.set(false);
+      scheduleOnRN(finishExposureDrag, Math.round(exposureStepPosition.get()));
     });
-
-  const exposureThumbTop =
-    (exposureMax === exposureMin ? 0.5 : (exposureMax - exposureCompensation) / (exposureMax - exposureMin))
-    * EXPOSURE_TRACK_HEIGHT;
 
   const toggleMeteringLock = async () => {
     const camera = cameraRef.current;
@@ -1602,7 +1717,7 @@ export default function CameraScreen() {
             ]}>
             <View
               accessible
-              accessibilityLabel={`Focus point. Exposure ${exposureCompensation > 0 ? 'plus ' : ''}${exposureCompensation.toFixed(1)} EV. ${meteringLocked ? 'Locked' : 'Automatic reset enabled'}`}
+              accessibilityLabel={`Focus point. Exposure ${exposureCompensation > 0 ? 'plus ' : ''}${exposureLabel} EV. ${meteringLocked ? 'Locked' : 'Automatic reset enabled'}`}
               style={[styles.focusReticle, meteringLocked && styles.focusReticleLocked]}>
               <View style={styles.focusReticleCenter} />
             </View>
@@ -1617,8 +1732,8 @@ export default function CameraScreen() {
                 accessibilityValue={{
                   min: exposureMin,
                   max: exposureMax,
-                  now: exposureCompensation,
-                  text: `${exposureCompensation > 0 ? 'plus ' : ''}${exposureCompensation.toFixed(1)} EV`,
+                  now: activeExposureStep.displayValue,
+                  text: `${activeExposureStep.displayValue > 0 ? 'plus ' : ''}${exposureLabel} EV`,
                 }}
                 onAccessibilityAction={(event) => {
                   if (event.nativeEvent.actionName === 'increment') changeExposure(1);
@@ -1627,8 +1742,8 @@ export default function CameraScreen() {
                 style={styles.exposureControl}>
                 <View style={styles.exposureTrack}>
                   <View style={styles.exposureTrackLine} />
-                  <View style={styles.exposureTrackZero} />
-                  <View style={[styles.exposureThumb, { top: exposureThumbTop - 6 }]} />
+                  <View style={[styles.exposureTrackZero, { top: exposureZeroTop }]} />
+                  <Animated.View style={[styles.exposureThumb, exposureThumbAnimatedStyle]} />
                 </View>
               </View>
             </GestureDetector>
@@ -2598,6 +2713,7 @@ const styles = StyleSheet.create({
   },
   exposureThumb: {
     position: 'absolute',
+    top: -6,
     width: 12,
     height: 12,
     borderRadius: 6,
