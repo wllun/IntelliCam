@@ -1,118 +1,108 @@
 # Project State
 
-Last updated: 2026-09-13
+Last updated: 2026-09-16
+Branch reviewed: `feature/improvement`
 
 ## Where we are
 
-Camera preview and JPEG capture work end-to-end using React Native Vision Camera 5. The app
-prefers the back camera and falls back to the front camera when necessary.
-Auto camera mode is the reliable launch default and provides working flash, zoom, front/rear camera switching,
-tap-to-focus/metering, AE/AF/AWB lock, exposure compensation, device-native
-Photo HDR, maximum-quality native capture, gridlines, aspect-ratio selection, and a capture timer. Smart Preset mode provides the
-"Focus card" UI; swipe to switch presets and view settings and tips—but
-presets do not affect capture yet.
+IntelliCam uses Expo SDK 54, Expo Router, and React Native Vision Camera 5.
+Camera preview and JPEG capture work end to end. The app prefers the rear
+multi-lens camera, can use a dedicated ultrawide camera, and falls back to the
+front camera when necessary.
 
-Auto mode also provides an optional Portrait effect beside Flash. After capture,
-the shared save pipeline detects the person locally, keeps the subject sharp,
-and blurs the background using ML Kit on Android or Vision/Core Image on iOS.
-If no clear person is found or processing fails, IntelliCam preserves and saves
-the original photo instead of losing the capture.
+Auto is the reliable launch mode. It provides flash, device-dependent zoom and
+lens selection, pinch and ruler zoom, tap-to-focus/metering, AE/AF/AWB lock,
+exposure compensation, supported native Photo HDR, Standard/Maximum quality,
+gridlines, aspect-ratio cropping, a cancellable timer, shutter sound, and
+optional photo-location metadata.
 
-Auto and every special mode share the same camera screen, preview, shutter, capture,
-processing, and save pipeline. Future mode strategies must extend this shared capture
-engine rather than introduce separate camera screens.
+Auto also has a functional Portrait effect beside Flash. The post-capture
+pipeline uses ML Kit on Android or Vision/Core Image on iOS to keep a detected
+person sharp and blur the background. If processing fails or no clear person is
+found, IntelliCam saves the original capture.
 
-The implementation proposal for adapting each mode to the current environment
-and device capabilities is documented in
-[`ADAPTIVE_CAPTURE_PROPOSAL.md`](ADAPTIVE_CAPTURE_PROPOSAL.md).
+The photographic 3D cover-flow selector is implemented for Auto, Star, Light
+Trail, Waterfall, Portrait, Beauty (`美顔`), and Product. Browsing changes a draft
+selection; Apply commits it. The six special modes currently display guidance
+and example technical settings only. Their ISO, shutter, focus, white-balance,
+RAW, and multi-frame strategies do not yet change capture.
 
-The approved redesign plan for the photographic 3D camera-mode selector is
-documented in
-[`proposal-camera-mode-selection.md`](proposal-camera-mode-selection.md). The
-reference is specifically the middle **SWIPE MOODS** screen; implementation is
-pending explicit approval.
+Every mode shares one camera screen, shutter, post-processing queue, metadata
+pipeline, and save path. New mode strategies must extend this engine rather
+than create separate camera screens.
 
-## Tasks
+Related design documents:
 
-- [x] Expo + Expo Router project scaffolded (SDK 54, TypeScript, new architecture enabled)
-- [x] Vision Camera wired: permission request -> camera preview -> silent shutter by default -> JPEG saved directly to an "IntelliCam" MediaLibrary album without a save confirmation
-- [x] EAS Build configured (`eas.json`, `preview` profile builds an installable APK via `eas build -p android --profile preview`)
-- [x] Fail-safe forced-update gate for Android/iOS native builds — reads a public per-platform JSON policy at startup/foreground, validates native build numbers and HTTPS/Android market links, caches a forced policy for at most 72 hours, and is disabled by default
-- [x] Preset data (`constants/presets.ts`) - six special modes (Star, Light Trail, Waterfall, Portrait, 美顔, Product) as plain data
-- [x] "Focus card" preset UI on camera screen - swipe left/right to switch, floating card shows ISO/shutter/WB/RAW chips + shooting tip, dot indicator, preset-tinted shutter (UI only, no capture effect)
-- [x] Camera control UI - IntelliCam gallery button left of the shutter, capture-mode button right of the shutter, and three-dot settings button at the top-right (UI only)
-- [x] Auto camera capture mode - the first-launch default for reliable automatic photo capture with flash off/auto/on, zoom controls, front/rear camera switching, gridlines, aspect ratio, and timer
-- [x] Single shared camera engine - Auto and every selected special mode use the same camera screen, preview, shutter, capture function, processing queue, and save pipeline; mode-specific strategies will plug into this engine
-- [x] Native-quality capture pass - Maximum quality is the default, selects the highest supported 4:3 photo resolution, requests native quality prioritization, enables supported low-light boost and Apple fusion/distortion correction, and preserves JPEG quality through aspect-ratio cropping
-- [x] Native Portrait effect in Auto mode - icon control beside Flash, offline person segmentation and background blur after capture, portable applied/not-applied metadata, and safe original-photo fallback (ML Kit on Android; Vision/Core Image on iOS)
-- [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Auto, Star, Light Trail, Waterfall, Portrait, 美顔, and Product; drag and snap calculations remain UI-thread worklet-safe, and selection updates the camera UI only
-- [ ] Replace the current abstract centered swiper with the approved photographic 3D cover-flow design in `proposal-camera-mode-selection.md` after explicit approval
-- [x] IntelliCam-only gallery - newest-photo-first grid ordering, pull-to-refresh, pagination, full-screen preview, and recoverable deletion through iOS Recently Deleted or the Android 11+ system recycle bin
-- [x] Portable photo information - preserve camera EXIF through aspect-ratio cropping, embed IntelliCam capture settings in each JPEG, optionally embed GPS coordinates, and show available details from the full-screen gallery three-dot menu
-- [x] Open a capture-mode selector from the mode button
-- [x] Open the camera settings panel from the three-dot button
-- [x] Camera settings panel contains Photo quality, Gridlines, Aspect Ratio, Timer, Shutter sound, and HDR; zoom, flash, and camera-facing remain camera-surface controls instead of three-dot settings
-- [x] Gridlines overlay and 3-second/10-second capture countdown
-- [x] Cancellable capture timer - tapping the shutter again cancels; backgrounding, leaving the camera screen, camera remounts, and mount failures invalidate pending capture; countdown includes animated text and per-second haptics
-- [x] Aspect-ratio selection (`4:3`, `1:1`, `16:9`) applied as a centered crop to the captured JPEG
-- [x] Upgrade camera zoom controls: add `0.5x`, keep `1x`, `2x`, and `3x`, and support hand-controlled pinch gestures to zoom smoothly in and out
-- [x] Replace exposure +/- buttons with a vertical drag control and use an icon-only focus/exposure lock button
-- [x] Connect tap focus/metering, AE/AF/AWB lock, and EV compensation to the native camera session with per-device capability/range checks
-- [x] Enable device-native multi-frame Photo HDR when the active camera supports it; keep the setting disabled on unsupported cameras
-- [ ] Persist photo quality, gridlines, aspect ratio, timer, shutter sound, and HDR choices
-- [ ] Wire presets into actual capture (apply ISO/shutter/focus/RAW to the camera before shooting)
-- [ ] Implement the adaptive capture engine defined in `ADAPTIVE_CAPTURE_PROPOSAL.md`; fixed preset values remain UI suggestions until a resolved capture plan is applied
-- [ ] Move presets to SQLite `camera_presets` table (enables custom/user presets)
-- [ ] Local SQLite `photos` table (capture metadata)
-- [ ] Local SQLite for `user_settings`, `edit_history`, `capture_sessions`
-- [ ] Editing UI / non-destructive edit history
-- [ ] Long exposure / frame stacking capture flow
-- [ ] Scene detection, AI assistant, cloud AI (Phase 2/3 - not MVP)
-- [ ] Backend / Supabase (premium accounts, subscriptions - not MVP)
+- [`proposals/ADAPTIVE_CAPTURE_PROPOSAL.md`](proposals/ADAPTIVE_CAPTURE_PROPOSAL.md)
+- [`proposals/proposal-camera-mode-selection.md`](proposals/proposal-camera-mode-selection.md)
+- [`CAMERA_CONTROL_AUDIT.md`](CAMERA_CONTROL_AUDIT.md)
+
+## Completed
+
+- [x] Expo SDK 54 + Expo Router scaffold with TypeScript and the new architecture
+- [x] React Native Vision Camera preview and JPEG capture
+- [x] Auto as the first-launch and fallback camera mode
+- [x] Rear/front switching and device-dependent integrated or dedicated ultrawide selection
+- [x] `0.5x`, `1x`, `2x`, and `3x` quick zoom controls, zoom ruler, and pinch-to-zoom
+- [x] Tap-to-focus/metering reticle, five-second automatic reset, and icon-only AE/AF/AWB lock
+- [x] Vertical exposure-compensation drag control with device-range mapping
+- [x] Flash off/auto/on and shutter sound disabled by default
+- [x] Standard and Maximum capture-quality choices with the highest supported 4:3 Maximum output
+- [x] Gridlines and centered `4:3`, `1:1`, `16:9`, or `Full` output framing
+- [x] Off, 3-second, 5-second, 10-second, and 30-second cancellable timer with haptics
+- [x] Timer cancellation on shutter retap, backgrounding, screen exit, remount, or camera unavailability
+- [x] Supported native Photo HDR request and session-state reporting
+- [x] Functional Auto Portrait effect with native Android/iOS person segmentation and safe original fallback
+- [x] One shared camera and save engine for Auto and every selected special mode
+- [x] Photographic 3D cover-flow mode selector with draft selection, Apply, tapping, swiping, snapping, dots, haptics, accessibility actions, and reduced-motion handling
+- [x] IntelliCam-only gallery with newest-first ordering, pagination, full-screen viewing, and recoverable deletion
+- [x] Latest-photo thumbnail refresh after a successful save
+- [x] Portable JPEG information: preserved EXIF, IntelliCam capture settings, optional GPS, and gallery information sheet
+- [x] Forced-update gate for native Android/iOS builds with public JSON policy, validation, foreground refresh, and a 72-hour offline cache
+- [x] EAS preview profile for an installable standalone Android APK
+
+## Next implementation priorities
+
+- [ ] Make HDR behavior honest on unsupported cameras: disable the control or mark it unavailable, and never report HDR as applied unless the selected camera session confirms it
+- [ ] Quantize and throttle exposure updates to the active device's native exposure indexes
+- [ ] Persist photo quality, gridlines, aspect ratio, timer, shutter sound, and HDR preferences
+- [ ] Add capture review and save-failure recovery without discarding the cached source image
+- [ ] Implement the adaptive capture foundation: shared capability types, scene measurements, resolved capture plans, and requested/applied/actual metadata
+- [ ] Connect Star, Light Trail, Waterfall, Portrait, Beauty, and Product modes to executable capture strategies
+- [ ] Add cancellable multi-frame capture, alignment, motion rejection, stacking, temporal averaging, and light-trail compositing
+- [ ] Add physical-device validation for exposure, focus lock, tap focus, zoom, HDR, Portrait boundaries, selector motion, and release-build capture latency
+- [ ] Add SQLite `photos`, `camera_presets`, `user_settings`, `edit_history`, and `capture_sessions` tables when relational features begin
+- [ ] Add custom presets and non-destructive editing
+- [ ] Add on-device smart assistance only after the rule-based adaptive engine is dependable
+- [ ] Defer backend, Supabase, cloud AI, accounts, and subscriptions until explicitly approved
 
 ## Camera settings
 
-The three-dot camera settings panel contains:
+The three-dot camera panel currently contains:
 
 - **Gridlines:** rule-of-thirds overlay. Default: off.
-- **Photo quality:** `Maximum` selects the highest supported 4:3 capture
-  resolution, maximum JPEG quality, native quality prioritization, and available
-  device processing enhancements. `Standard` uses UHD 4:3, balanced capture,
-  and a smaller JPEG for faster shots. Default: `Maximum`.
-- **Aspect ratio:** `4:3`, `1:1`, or `16:9`. Default: `4:3`. In portrait
-  orientation, the `4:3` camera ratio appears as 3:4 on screen.
-- **Timer:** off, 3 seconds, or 10 seconds. Default: off. During a
-  countdown, tap the shutter again to cancel. Pending timer captures are also
-  cancelled if the app is backgrounded, the camera screen closes, or the
-  camera becomes unavailable.
-- **Shutter sound:** plays the native camera shutter sound when enabled.
-  Default: off.
-- **HDR:** requests the active device's native multi-frame Photo HDR pipeline.
-  The switch is selectable only when the camera reports Photo HDR support, and
-  shows **Active** only after the negotiated camera-session configuration confirms
-  that HDR was applied. Unsupported cameras show a disabled setting.
-- **Photo location:** optionally embeds GPS coordinates in newly captured JPEGs.
-  Default: off. Permission is requested only when the setting is turned on. The
-  location and IntelliCam capture settings travel with the original JPEG, but an
-  editor, social app, screenshot, or privacy export may remove metadata.
+- **Shutter sound:** controls the native capture sound. Default: off.
+- **HDR:** requests native Photo HDR when the active camera reports support.
+  The current unsupported-camera fallback is misleading and is the highest
+  priority correction.
+- **Photo location:** optionally embeds coordinates in new JPEGs. Default: off;
+  permission is requested only after enabling it.
+- **Photo quality:** Standard uses balanced capture and a smaller JPEG; Maximum
+  requests the highest supported 4:3 resolution, quality prioritization, and
+  available native enhancements. Default: Maximum.
+- **Aspect ratio:** `4:3`, `1:1`, `16:9`, or `Full`. Cropping occurs after the
+  full-quality source capture.
+- **Timer:** off, 3, 5, 10, or 30 seconds.
 
-Flash, Portrait effect, zoom, and front/rear switching remain direct controls on
-the camera surface. Photo-size selection is no longer exposed in the settings
-panel. The Portrait capture-mode preset remains guidance-only until preset
-strategies are wired into capture; the Auto-mode Portrait effect is functional.
+Flash, Portrait effect, zoom, focus, exposure lock, and front/rear switching
+remain direct camera-surface controls. Settings are session-only until the
+persistence task is implemented.
 
-### Zoom interaction
+## Important boundaries
 
-- Provides quick lens/zoom buttons for `0.5x`, `1x`, `2x`, and `3x`.
-- Supports two-finger pinch gestures directly on the camera preview for smooth
-  zooming in and out.
-- Keeps the displayed zoom value synchronized when the user switches between
-  quick buttons and pinch gestures.
-- Clamps the requested zoom to the limits supported by the active device camera.
-- Treats `0.5x` as device-dependent: it is enabled only when an ultrawide
-  camera/lens is available.
-- Uses Vision Camera's device zoom factors for the `2x` and `3x` quick presets;
-  the active virtual camera may switch physical lenses at supported thresholds.
-
-These choices, including photo quality, are currently session-only. Persist them in the future
-`user_settings` table so they remain selected after the app restarts.
+- Expo Go cannot run this app's Vision Camera and local native modules; use a
+  development build or standalone APK.
+- Special-mode technical chips are guidance, not proof that those settings were
+  applied.
+- SQLite and backend services are planned, not installed.
+- Photos remain on-device; the project has no cloud photo storage.

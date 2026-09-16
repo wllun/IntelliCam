@@ -1,10 +1,11 @@
 # Proposal: Camera Mode Selection Redesign
 
-Status: Proposed; implementation not started  
-Created: 2026-08-31  
-Reference image: [`assets/camera-mode-selection-reference.png`](assets/camera-mode-selection-reference.png)
+Status: Implemented; physical-device acceptance testing remains
+Created: 2026-08-31
+Implemented before: 2026-09-16
+Reference image: [`../assets/camera-mode-selection-reference.png`](../assets/camera-mode-selection-reference.png)
 
-![Approved camera mode selection reference](assets/camera-mode-selection-reference.png)
+![Approved camera mode selection reference](../assets/camera-mode-selection-reference.png)
 
 ## Decision clarified
 
@@ -21,30 +22,31 @@ This means the camera mode selector must be a photographic, perspective-based
   mode into the center.
 - The selected mode is committed only after the user presses **Apply mode**.
 
-“Second one” does **not** mean the current abstract icon-card implementation,
-and it does not mean a flat horizontal list with simple scaling.
+The implementation follows this target rather than the earlier abstract
+icon-card layout or a flat horizontal list with simple scaling.
 
-## Problem with the current implementation
+## Implementation result
 
-The existing `components/capture-mode-carousel.tsx` implements some useful
-behaviour—horizontal snapping, a centered item, adjacent cards, accessibility
-actions, dots, and Apply—but its visual result does not match the approved
-middle screen.
+`components/capture-mode-carousel.tsx` now implements photographic cards,
+cover-flow depth, horizontal dragging and snapping, draft selection, Apply,
+dismissal without applying, accessibility actions, and reduced-motion
+behavior. `constants/capture-modes.ts` owns stable local artwork references and
+presentation copy.
 
-The main differences are:
+The completed mapping is:
 
-| Approved middle screen | Current implementation |
+| Approved middle screen | Implemented behavior |
 | --- | --- |
-| Photographic mood artwork fills each card | Abstract colored shapes and a large icon |
-| Tall portrait card proportions | Responsive card can become short and wide |
-| Strong cover-flow depth and overlap | Cards mostly remain in a regular horizontal row |
-| Adjacent cards visibly angle behind the center | Neighbors scale and rotate but do not create the same layered composition |
-| Camera preview remains visible behind a dark cinematic overlay | Opaque sheet visually separates the selector from the camera |
-| Mode identity lives directly on the photographic card | Mode information is split between abstract artwork and a separate details block |
-| Minimal controls: close, swipe, dots, Apply | Extra previous/next arrow buttons add visual weight |
+| Photographic mood artwork fills each card | Bundled local artwork rendered with `expo-image` |
+| Tall portrait card proportions | Responsive portrait card with capped dimensions |
+| Strong cover-flow depth and overlap | Perspective, translation, scale, opacity, and stacking order are derived from the shared position |
+| Adjacent cards angle behind the center | Neighbor cards rotate and recede on both sides |
+| Camera preview remains visible behind a dark overlay | Animated translucent scrim and bottom sheet preserve camera context |
+| Mode identity lives on the card | Icon, name, and description are anchored over a fixed image shade |
+| Minimal controls | Close, swipe stage, details, dots, hint, and Apply |
 
-The replacement should preserve the useful state and accessibility behaviour
-while changing the visual system and motion model to match the reference.
+Remaining work is hands-on release-build tuning and accessibility verification,
+not another selector rewrite.
 
 ## Scope
 
@@ -111,7 +113,7 @@ Below the card stage:
 
 - Repeat the selected mode name and short guidance only if needed for
   readability on smaller artwork.
-- Show six pagination dots with the active position visible through shape and
+- Show seven pagination dots with the active position visible through shape and
   color, not color alone.
 - Show a subtle swipe affordance for first-time discoverability.
 
@@ -153,7 +155,9 @@ draft.
 ### Card composition
 
 Each mode card uses a stable, bundled photographic image rather than a
-generated gradient or abstract icon background.
+generated gradient or abstract icon background. The current Portrait and
+Beauty cards share the portrait artwork; a dedicated Beauty asset remains an
+optional visual refinement.
 
 Proposed image direction:
 
@@ -164,6 +168,7 @@ Proposed image direction:
 | Light Trail | Vehicle light trails through a city or road |
 | Waterfall | Silky waterfall with visible surrounding detail |
 | Portrait | Naturally lit person with clear subject separation |
+| Beauty | Soft, naturally lit face with realistic skin texture |
 | Product | Refined studio product photograph with controlled highlights |
 
 All six images should share:
@@ -290,10 +295,9 @@ When system Reduce Motion is enabled:
 - Keep horizontal snapping, opacity, selection outline, and dots.
 - Use a gentle fade/scale state change so selection remains understandable.
 
-## Proposed data changes
+## Implemented data model
 
-Extend the existing mode option model with a local image source and optional
-accessibility description:
+The current mode option model contains a stable local image source:
 
 ```ts
 interface CaptureModeOption {
@@ -303,8 +307,7 @@ interface CaptureModeOption {
   icon: IconName;
   tint: string;
   tip: string;
-  artwork: ImageSource;
-  artworkAccessibilityLabel: string;
+  artwork: number;
 }
 ```
 
@@ -318,22 +321,19 @@ Maintain two pieces of selection state:
 
 Only Apply copies the draft selection into the applied selection.
 
-## Proposed implementation structure
+## Implemented structure
 
-Primary files expected to change after approval:
+Primary implementation files:
 
 - `components/capture-mode-carousel.tsx`
-  - Replace abstract artwork with photographic card rendering.
-  - Rebuild the card stage for overlapping cover-flow composition.
-  - Separate draft and applied selection behaviour.
-  - Add reduced-motion handling.
-- `constants/presets.ts` or a dedicated capture-mode presentation file
-  - Add stable artwork references and presentation copy.
+  - Renders the photographic overlapping cover-flow stage.
+  - Owns draft selection, snapping, reduced motion, and accessibility actions.
+- `constants/capture-modes.ts`
+  - Holds stable artwork references and presentation copy.
 - `app/index.tsx`
-  - Preserve the existing open/close/apply integration.
-  - Ensure dismissal does not commit draft state.
+  - Owns the applied mode and open/close/apply integration.
 - `assets/images/capture-modes/`
-  - Add the six optimized local card images.
+  - Contains the bundled local card images.
 
 The preserved design reference remains documentation-only:
 
@@ -365,20 +365,16 @@ The preserved design reference remains documentation-only:
 - Do not animate Android elevation or live blur.
 - Verify on a physical release build, not only Metro development mode.
 
-## Implementation sequence
+## Implementation record
 
-1. Prepare and approve six photographic card assets.
-2. Extend the mode presentation data with artwork references.
-3. Separate applied selection from the draft centered selection.
-4. Rebuild the carousel stage with overlapping card positioning.
-5. Implement UI-thread perspective transforms and snapping.
-6. Match the sheet, header, details, dots, and Apply layout to the middle
-   reference screen.
-7. Add reduced-motion and screen-reader alternatives.
-8. Test dismissal, reopen, tapping neighbors, fast flicks, interrupted drags,
-   and Android Back.
-9. Tune physical-device motion and spacing against the preserved image.
-10. Run TypeScript, lint, and physical-device release-build checks.
+1. [x] Add bundled photographic card assets and presentation data.
+2. [x] Separate applied mode from the centered draft selection.
+3. [x] Build the overlapping card stage and UI-thread perspective transforms.
+4. [x] Add snapping, tapping, haptics, dots, Apply, dismissal, and reopen state.
+5. [x] Add reduced-motion and screen-reader increment/decrement alternatives.
+6. [ ] Verify Android Back, TalkBack, large text, interrupted drags, and focus
+   restoration on physical devices.
+7. [ ] Tune release-build motion and spacing against the preserved reference.
 
 ## Acceptance criteria
 
@@ -402,12 +398,9 @@ The redesign is complete only when all of the following are true:
 - TypeScript and Expo lint pass.
 - The interaction remains smooth on a physical Android release build.
 
-## Approval gate
+## Completion status
 
-No production UI implementation should begin until this proposal is approved.
-The next work request should explicitly authorize:
-
-1. Preparing or choosing the six photographic card assets.
-2. Replacing the existing carousel implementation with this approved middle
-   screen design.
+The production implementation exists. Do not schedule another carousel rewrite
+from this proposal. Complete the remaining physical-device and accessibility
+acceptance checks, then record any narrowly scoped tuning changes.
 

@@ -3,10 +3,11 @@
 This guide is for a web developer who knows Laravel, Node.js, HTML, CSS, and
 vanilla JavaScript, but is starting React and React Native from zero.
 
-IntelliCam is an **Expo SDK 54** React Native app. Its current working feature is
-a camera screen that requests permissions, shows the device camera, switches
-between photography preset cards with a swipe, takes a JPEG, and saves it to an
-IntelliCam photo album.
+IntelliCam is an **Expo SDK 54** React Native app. It uses React Native Vision
+Camera 5 for preview and capture, Expo Router for navigation, and local native
+Expo modules for metadata, recoverable deletion, and Portrait processing. Its
+working flows include Auto capture, a photographic mode selector, the
+IntelliCam gallery, portable photo information, and a forced-update gate.
 
 Use the versioned [Expo SDK 54 documentation](https://docs.expo.dev/versions/v54.0.0/)
 when studying or changing this project. SDK 54 uses React Native 0.81 and React
@@ -41,8 +42,8 @@ The most important change in thinking is this:
 > function when state changes and updates the necessary native views.
 
 For example, IntelliCam does not manually find and edit a DOM element when the
-selected preset changes. `setPresetIndex(...)` changes state, React runs
-`CameraScreen()` again, and JSX describes the newly selected preset.
+applied mode changes. `setActiveCaptureModeId(...)` changes state, React runs
+`CameraScreen()` again, and JSX describes the newly applied mode.
 
 ## 1. What you must know
 
@@ -66,9 +67,9 @@ You probably know most of these from Node.js, but make sure they are comfortable
 Examples in `app/index.tsx` include:
 
 ```tsx
-const [facing, setFacing] = useState<CameraType>('back');
-const preset = PRESETS[presetIndex];
-PRESETS.map((p, i) => /* one dot per preset */);
+const [facing, setFacing] = useState<CameraFacing>('back');
+const [activeCaptureModeId, setActiveCaptureModeId] = useState('auto');
+CAPTURE_MODES.map((mode) => /* render one mode card or dot */);
 ```
 
 ### 2. TypeScript basics
@@ -79,7 +80,7 @@ This is a strict TypeScript project. Learn:
 - interfaces and type aliases
 - function parameter and return types
 - generics such as `useState<CameraType>()`
-- optional values and optional chaining: `cameraRef.current?.takePictureAsync()`
+- optional values and optional chaining: `cameraRef.current?.resetFocus()`
 - nullish coalescing: `cameraPermission?.granted ?? false`
 - importing types with `import type`
 
@@ -104,11 +105,13 @@ These are required before React Native will make sense:
 
 IntelliCam examples:
 
-- State: `facing`, `cameraReady`, `capturing`, and `presetIndex`
-- Derived values: `hasCameraPermission` and `preset`
+- State: `facing`, `cameraReady`, `capturing`, and `activeCaptureModeId`
+- Derived values: `hasCameraPermission`, `cameraDevice`, `isAutoMode`, and `preset`
 - Effect: subscribe to `AppState` and unsubscribe during cleanup
-- Ref: `cameraRef` gives imperative access to `CameraView.takePictureAsync()`
-- Conditional UI: permission screen, active camera, preset card, or collapsed pill
+- Ref: `cameraRef` gives imperative access to Vision Camera focus, zoom, and
+  metering controls
+- Conditional UI: permission screen, active camera, focus controls, preset
+  guidance, settings, or mode selector
 
 Do not interpret `useEffect` as a general "run code" tool. Use it when a
 component must synchronize with something external, such as an app lifecycle
@@ -157,8 +160,9 @@ These terms are related but not interchangeable:
 - **React** supplies components, JSX, state, effects, refs, and rendering rules.
 - **React Native** renders native mobile UI and supplies APIs such as `View`,
   `Text`, `Pressable`, `StyleSheet`, `Alert`, and `AppState`.
-- **Expo** supplies a framework, developer tooling, builds, and device APIs such
-  as Camera, MediaLibrary, Haptics, and StatusBar.
+- **Expo** supplies the framework, developer tooling, builds, and device APIs
+  such as MediaLibrary, Location, Haptics, and StatusBar. This project uses
+  React Native Vision Camera instead of `expo-camera`.
 - **Expo Router** turns files inside `app/` into navigable screens.
 - **EAS** provides Expo's cloud build and submission services.
 
@@ -205,9 +209,11 @@ configuration changes often require rebuilding the native app.
 
 In this project:
 
-- `expo-camera` connects JavaScript/React to native camera functionality.
+- `react-native-vision-camera` connects React to CameraX/Camera2 and AVFoundation.
 - `expo-media-library` connects to the device photo library.
 - `expo-haptics` triggers physical feedback.
+- local Expo modules implement portable JPEG metadata, Android system trash,
+  and computational Portrait processing.
 - `app.json` contains native-facing configuration and permission descriptions.
 - `eas.json` contains cloud build profiles.
 - `android/` is generated/native Android code; it is not the best place to begin.
@@ -223,9 +229,10 @@ As the app grows, keep these categories separate:
 - API/data access in a future `services/`, `lib/`, or similar directory
 - persistent state in SQLite, AsyncStorage, SecureStore, or a backend
 
-Avoid putting every concern into one large screen. `app/index.tsx` is currently
-small enough to study, but future camera controls, permission logic, preset
-selection, and storage logic should eventually become focused hooks/components.
+Avoid putting every concern into one large screen. `app/index.tsx` now contains
+most camera, gesture, settings, capture, processing, and save orchestration, so
+new adaptive-mode work should extract focused services, hooks, and components
+instead of making the screen larger.
 
 ## 2. What this project can teach you
 
@@ -239,12 +246,12 @@ selection, and storage logic should eventually become focused hooks/components.
 | Functional components and JSX | `app/index.tsx` | one screen described as a component function |
 | State | `app/index.tsx` | multiple `useState` calls controlling the UI |
 | Effects and cleanup | `app/index.tsx` | `AppState` subscription lifecycle |
-| Refs and native methods | `app/index.tsx` | camera ref and `takePictureAsync()` |
+| Refs and native methods | `app/index.tsx` | camera ref, controller, focus, metering, and zoom calls |
 | Permissions | `app/index.tsx`, `app.json` | runtime request versus native configuration |
 | Async device operations | `capture()` in `app/index.tsx` | capture, save, error handling, and busy state |
 | React Native styling | `StyleSheet.create()` in screen/components | Flexbox, overlays, style arrays, opacity |
-| Gestures | `app/index.tsx` | pan gesture and crossing from the UI thread with `runOnJS` |
-| Animation | `app/index.tsx` | `Animated.View`, `FadeIn`, and `FadeOut` |
+| Gestures | `app/index.tsx`, `components/capture-mode-carousel.tsx` | pinch, drag, swipe, UI-thread shared values, and controlled JS handoff |
+| Animation | camera screen and mode carousel | animated values, timing/spring motion, reduced motion, and enter/exit transitions |
 | Safe areas | `app/index.tsx` | controls offset by device insets |
 | Rendering lists | preset dot indicator | `PRESETS.map(...)` and `key` |
 | TypeScript data models | `constants/presets.ts` | interface, unions, library-derived icon type |
@@ -262,12 +269,16 @@ app/index.tsx renders
   -> permission hooks return current permission state
   -> missing permission shows "Grant access"
   -> onPress requests camera and media permissions
-  -> granted permissions allow CameraView to mount
-  -> onCameraReady enables the shutter
+  -> granted permissions allow Vision Camera's Camera component to mount
+  -> onPreviewStarted enables the shutter
   -> shutter onPress calls capture()
-  -> cameraRef.current.takePictureAsync() creates a cached photo
+  -> photoOutput.capturePhotoToFile() creates a cached JPEG
+  -> the save queue crops it to the selected aspect ratio
+  -> optional Portrait processing runs
+  -> portable EXIF/IntelliCam metadata is embedded
   -> MediaLibrary finds or creates the "IntelliCam" album
   -> photo is saved to that album
+  -> the latest-photo thumbnail updates
   -> success haptic runs
   -> errors show Alert.alert()
   -> finally clears the capturing state
@@ -279,15 +290,15 @@ transitions.
 ### Follow the preset-selection flow
 
 ```text
-GestureDetector receives a horizontal pan
-  -> Gesture.Pan().onEnd checks the swipe distance
-  -> runOnJS(changePreset) crosses back to JavaScript
-  -> setPresetIndex calculates the next circular index
-  -> React re-renders with a new preset
-  -> key={preset.id} changes
-  -> old card fades out and new card fades in
-  -> dot and shutter tint use the new preset color
-  -> selection haptic runs
+Mode button sets modeMenuVisible
+  -> CaptureModeCarousel initializes draftIndex from the applied mode
+  -> Gesture.Pan updates a shared position on the UI thread
+  -> animated card transforms create the cover-flow depth
+  -> release snaps to the nearest draft mode
+  -> one selection haptic runs when the settled draft changes
+  -> Apply calls onApply(activeMode.id)
+  -> CameraScreen updates activeCaptureModeId and closes the selector
+  -> dismissing without Apply preserves the previous active mode
 ```
 
 This teaches the relationship among gestures, state, rendering, and animations.
@@ -297,15 +308,17 @@ This teaches the relationship among gestures, state, rendering, and animations.
 Do not assume `ARCHITECTURE.md` describes the current code. It describes a
 target architecture.
 
-At the time this guide was written:
+As of 2026-09-16 on `feature/improvement`:
 
-- The executable camera uses `expo-camera`, not `react-native-vision-camera`.
+- Vision Camera preview and Auto JPEG capture are implemented.
+- Gallery, photographic mode selection, settings, metadata, force update, and
+  the Auto Portrait effect are functional.
 - SQLite is planned, but `expo-sqlite` is not currently a dependency.
-- Presets display ISO, shutter speed, white balance, focus, and RAW values, but
-  those values do **not** change the camera capture yet.
-- Gallery, Mode, and Settings controls are visual placeholders.
-- There is no Laravel/Node API or Supabase integration in this repository.
-- AI and image-processing features are future phases.
+- Special presets display ISO, shutter speed, white balance, focus, and RAW
+  values, but those values do **not** change capture yet.
+- Multi-frame special-mode processing and non-destructive editing are planned.
+- There is no Laravel/Node API, Supabase integration, cloud photo storage, or AI
+  feature in this repository.
 
 Use `PROJECT_STATE.md` as the source of truth for built versus planned work, and
 confirm it against `package.json` and the executable code.
@@ -313,11 +326,10 @@ confirm it against `package.json` and the executable code.
 ### Limits you can learn from
 
 The project also demonstrates that product requirements and available APIs must
-be compared carefully. Expo Camera supports normal preview/capture settings such
-as facing, flash, torch, zoom, and platform-specific ratios. The manual
-photography controls envisioned in `ARCHITECTURE.md` may require a different
-camera library or custom native code. A TypeScript object containing `iso: 3200`
-does not mean the native camera has applied ISO 3200.
+be compared carefully. Vision Camera exposes more control than Expo Camera, but
+manual ISO, long shutter duration, RAW, and cross-platform capture sequences
+still require capability checks and may require native extensions. A TypeScript
+object containing `iso: 3200` does not mean the native camera applied ISO 3200.
 
 ## 3. How to read through this project
 
@@ -365,6 +377,7 @@ It does **not** answer:
      presentation.
 7. Read the filenames under `app/`.
    - `index.tsx` maps to `/`.
+   - `gallery.tsx` maps to `/gallery`.
    - `modal.tsx` maps to `/modal`.
 8. Read `app/modal.tsx` first as a small screen.
    - It is a gentle example of a component, reusable components, styles, and a
@@ -372,23 +385,22 @@ It does **not** answer:
 
 #### Pass 3: Read the main feature
 
-9. Read `constants/presets.ts`.
-   - Start with the data model before reading the UI that consumes it.
+9. Read `constants/presets.ts` and `constants/capture-modes.ts`.
+   - Separate guidance/capture intent from presentation artwork and copy.
 10. Read `app/index.tsx` in this order:
     1. Imports: group each import by React, React Native, Expo, third party, local.
     2. Constants: understand `ALBUM_NAME`.
     3. Hooks: list every state variable, ref, permission hook, and effect.
-    4. Derived values: permission booleans and selected preset.
-    5. Event helpers: `changePreset`, gesture definition, and `capture`.
+    4. Derived values: selected camera, capabilities, zoom ranges, and mode.
+    5. Event helpers: focus, zoom, settings, mode selection, and `capture`.
     6. Early return: permission UI.
     7. Main JSX: camera layer, overlays, dots, and controls.
     8. Styles: connect each style name back to its JSX element.
 
-There is one source-order detail to notice: `capture` appears after the
-permission early return. That is legal in this component because the permission
-state is not expected to alternate hook calls—`capture` itself is not a hook.
-For readability, focus on the behavior rather than treating source order as an
-execution timeline.
+After the camera screen, read `components/capture-mode-carousel.tsx`,
+`app/gallery.tsx`, `services/photo-metadata.ts`, and the modules under
+`modules/`. These show the boundary between React UI, device APIs, and native
+platform work.
 
 #### Pass 4: Study reusable abstractions
 
@@ -437,7 +449,7 @@ For `CameraScreen`, make a state table:
 | `facing` | active front/back camera | mount error fallback | remounts camera using `key={facing}` |
 | `cameraReady` | preview can capture | camera callbacks | enables/disables shutter |
 | `capturing` | photo operation in progress | `capture()` | prevents double capture, dims shutter |
-| `presetIndex` | selected preset | swipe | changes card, dots, and tint |
+| `activeCaptureModeId` | applied Auto/special mode | Apply in the mode selector | changes camera controls and guidance |
 | `cardVisible` | full preset card or pill | tapping/swiping | swaps two conditional views |
 | `appActive` | app is foregrounded | `AppState` listener | mounts/unmounts camera preview |
 
@@ -485,12 +497,13 @@ Learn: effects, cleanup, refs, permissions, promises, errors, and busy states.
 
 ### Stage 4: Routing and reusable components
 
-Goal: add a real second feature without enlarging the camera screen.
+Goal: understand existing routes and extract reusable boundaries without
+enlarging the camera screen.
 
-1. Turn the existing modal into a simple settings screen.
-2. Add a `Link` or imperative router action from the settings button.
-3. Extract the preset card into `components/preset-card.tsx`.
-4. Pass the selected `preset` and callbacks as props.
+1. Trace navigation from the gallery button to `app/gallery.tsx`.
+2. Compare the in-camera settings panel with a routed settings screen.
+3. Extract one self-contained camera overlay into a typed component.
+4. Pass state and callbacks through explicit props.
 
 Learn: Expo Router, navigation presentation, component boundaries, and typed
 props.
@@ -499,16 +512,16 @@ props.
 
 Goal: implement one small roadmap item end to end.
 
-A good first feature is persisting a simple setting such as capture sound or
-the last selected preset. Start with a suitable key-value store; learn SQLite
+A good first feature is persisting a simple setting such as capture sound,
+gridlines, or aspect ratio. Start with a suitable key-value store; learn SQLite
 later when relational preset/photo metadata actually needs it.
 
 Then consider:
 
-1. Connect the Gallery button to a new route.
-2. Query assets from the IntelliCam album.
-3. Render them with `FlatList`.
-4. Add loading, empty, denied-permission, and error states.
+1. Trace how the gallery queries only the IntelliCam album.
+2. Follow pagination and newest-first sorting.
+3. Inspect loading, empty, denied-permission, and error states.
+4. Add a small persisted preference with validation and migration-safe defaults.
 
 Learn: persistence, data fetching from a device API, list performance, and
 screen navigation.
@@ -517,11 +530,11 @@ screen navigation.
 
 Only after the earlier stages:
 
-- evaluate what `expo-camera` can actually control
+- evaluate what Vision Camera and the active device actually support
 - compare requirements with documented platform support
 - learn development builds and config plugins
 - learn native Android/iOS project structure
-- evaluate Vision Camera or a custom native module
+- extend a local Expo native module only when the shared camera API is insufficient
 - learn Reanimated worklets and Gesture Handler in more depth
 - add SQLite, image processing, or backend synchronization when required
 
@@ -529,15 +542,15 @@ Only after the earlier stages:
 
 Do these in separate Git commits so every exercise is easy to undo.
 
-1. Add a front/back camera toggle.
-2. Display `capturing ? 'Saving…' : 'Ready'`.
+1. Persist the gridline preference with a safe default.
+2. Disable HDR honestly when the active camera does not support it.
 3. Extract the permission screen into a component with typed props.
-4. Extract the preset card into a component.
-5. Add a flash state and connect it to the documented `CameraView` prop.
-6. Remember the last selected preset after restarting the app.
-7. Make Gallery navigate to a new `/gallery` route.
-8. Render a loading state while permissions are still unresolved.
-9. Add a testable pure function `nextPresetIndex(current, direction, length)`.
+4. Extract one camera settings row into a reusable component.
+5. Add a test for an unsupported-camera fallback.
+6. Trace why Portrait processing needs a rebuilt native app.
+7. Add a visible save-queue status without blocking the shutter unnecessarily.
+8. Render a loading state while permissions are unresolved.
+9. Add a pure capability-clamping function and unit tests.
 10. Compare Android and iOS behavior on real devices.
 
 For each exercise, first predict:

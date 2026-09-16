@@ -39,7 +39,7 @@ MVP functionality must not be moved behind the subscription:
 - No advertisements or watermarks
 
 The first subscription monetizes continuing on-device Smart Assistance and
-premium feature updates described in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+premium feature updates described in [`ARCHITECTURE.md`](../ARCHITECTURE.md).
 Cloud AI, synchronization, and cross-platform identity are deferred until the
 project intentionally adds backend infrastructure.
 
@@ -301,8 +301,8 @@ Before implementation begins, approve or revise:
 
 ## Sources
 
-- [IntelliCam architecture and roadmap](ARCHITECTURE.md)
-- [IntelliCam current project state](PROJECT_STATE.md)
+- [IntelliCam architecture and roadmap](../ARCHITECTURE.md)
+- [IntelliCam current project state](../PROJECT_STATE.md)
 - [Adobe Lightroom Malaysia plans](https://www.adobe.com/my_ms/products/photoshop-lightroom/plans.html)
 - [RevenueCat State of Subscription Apps 2026 — Utilities](https://www.revenuecat.com/state-of-subscription-apps-2026-utilities)
 - [RevenueCat — Identifying customers and anonymous App User IDs](https://www.revenuecat.com/docs/customers/identifying-customers)

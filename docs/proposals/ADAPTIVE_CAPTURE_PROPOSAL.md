@@ -1,7 +1,8 @@
 # Adaptive Capture Engine Proposal
 
-Status: Proposed  
-Created: 2026-07-27  
+Status: Proposed foundation; partially implemented prerequisites
+Created: 2026-07-27
+Last reviewed: 2026-09-16
 Target: IntelliCam MVP and later computational-photography phases
 
 ## Purpose
@@ -18,6 +19,18 @@ can measure the scene and control those properties.
 This proposal defines an adaptive capture engine in which every mode describes
 its photographic intent, limits, priorities, and fallback behaviour. Runtime
 scene analysis and device capabilities determine the final capture plan.
+
+## Current implementation boundary
+
+The project has already adopted React Native Vision Camera 5, a single shared
+camera screen, capability-aware focus/zoom/HDR controls, portable capture
+metadata, and native post-capture Portrait processing. The photographic mode
+selector is also complete.
+
+The unified adaptive engine itself is not implemented. Star, Light Trail,
+Waterfall, standalone Portrait, Beauty, and Product still display fixed
+guidance from `constants/presets.ts`; selecting them does not yet apply those
+ISO, shutter, white-balance, focus, RAW, or multi-frame instructions.
 
 ## Goals
 
@@ -348,8 +361,10 @@ Rules:
 - Detect back lighting and use fill flash only when it improves the face.
 - Prefer an appropriate portrait lens when available.
 - Preserve skin highlights and use stable white balance across frames.
-- Computational background blur requires a depth or segmentation pipeline and
-  must not be implied before it is implemented.
+- Auto mode already offers post-capture person segmentation and background
+  blur. A future Portrait capture plan must add face/eye metering, movement and
+  lighting rules, lens choice, and honest segmentation-quality fallback rather
+  than presenting the effect as hardware depth capture.
 
 Fallback:
 
@@ -385,10 +400,11 @@ Fallback:
 
 ## Camera backend requirements
 
-The current `expo-camera` backend supports the existing preview and basic
-capture flow, including controls such as flash, zoom, camera direction, and
-Android preview ratio. It does not expose the complete manual-control surface
-needed by the adaptive engine.
+The current React Native Vision Camera 5 backend supports preview, photo output,
+camera and lens selection, flash, zoom, focus/metering, exposure compensation,
+supported locking modes, and native Photo HDR session configuration. It still
+does not expose every manual ISO, shutter, RAW, metadata, and multi-frame
+control consistently across Android and iOS.
 
 The final engine needs a backend abstraction:
 
@@ -405,10 +421,11 @@ interface CameraController {
 
 Proposed implementations:
 
-- `ExpoCameraController`: current basic automatic capture and early fallback.
-- `AndroidCameraController`: CameraX/Camera2 implementation for manual exposure,
-  RAW, metadata, and multi-frame capture.
-- `IOSCameraController`: AVFoundation implementation for equivalent iOS
+- `VisionCameraController`: shared preview, automatic capture, supported
+  controls, and safe fallback.
+- `AndroidCameraController`: CameraX/Camera2 extensions for missing manual
+  exposure, RAW, metadata, and multi-frame capabilities.
+- `IOSCameraController`: AVFoundation extensions for equivalent missing iOS
   capabilities.
 
 UI components must depend on the controller interface rather than importing a
@@ -457,7 +474,8 @@ Never store large image blobs in SQLite.
 - Add TypeScript contracts for capabilities, measurements, and capture plans.
 - Mark all existing technical chips as suggestions.
 - Add unit tests for rule resolution.
-- Keep actual capture on Expo Camera automatic mode.
+- Keep actual capture on Vision Camera automatic mode until the resolved plan
+  can be applied and verified.
 
 ### Phase 2: Capability and measurement layer
 
@@ -545,8 +563,9 @@ The adaptive capture foundation is complete when:
 
 ## Open decisions
 
-- Whether to adopt VisionCamera before building custom native controllers.
 - Which histogram or frame-analysis API to use with the initial backend.
+- Which missing controls should extend Vision Camera and which justify a local
+  native controller.
 - Whether RAW processing belongs in native platform code or a cross-platform
   processing module.
 - Minimum supported device performance for multi-frame modes.

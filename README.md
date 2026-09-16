@@ -1,10 +1,16 @@
 # IntelliCam
 
-Smart effect camera app. Pick a photography effect (Star, Light Trail, Waterfall, Portrait, Product...) and IntelliCam applies the right camera settings and guides you through the shot — no manual ISO/shutter/focus tuning required.
+Smart camera app built around a reliable Auto camera and guided photography
+modes for Star, Light Trail, Waterfall, Portrait, Beauty, and Product shots.
+Auto capture and the optional computational Portrait effect are functional.
+The guided modes currently provide framing and settings guidance; applying
+their ISO, shutter, focus, RAW, and multi-frame strategies is the next capture
+engine milestone.
 
 MVP is rule-based presets. Premium adds AI scene detection and a natural-language photography assistant.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the technical design and [PROJECT_STATE.md](PROJECT_STATE.md) for what's built vs. planned.
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the technical design and
+[PROJECT_STATE.md](docs/PROJECT_STATE.md) for what is built versus planned.
 
 ## Get started
 
@@ -24,9 +30,13 @@ This project uses [file-based routing](https://docs.expo.dev/router/introduction
 ## Tech stack
 
 - React Native + Expo Router
-- react-native-vision-camera (camera preview/capture, MVP)
-- SQLite (local presets, photo metadata, edit history)
-- Laravel/Node API + Supabase Postgres (premium accounts, sync — optional, not MVP)
+- React Native Vision Camera 5 for preview, capture, focus, metering, and zoom
+- Expo MediaLibrary for the on-device IntelliCam album
+- Local Expo native modules for portable JPEG metadata, recoverable Android
+  deletion, and the computational Portrait effect
+- AsyncStorage for the forced-update policy cache
+- SQLite, editing history, backend services, and cloud sync are planned, not
+  currently installed
 
 ## Learn more
 

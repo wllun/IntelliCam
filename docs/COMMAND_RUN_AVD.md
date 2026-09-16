@@ -39,8 +39,8 @@ emulator-5554    device
 
 ## 3. Install the existing native build
 
-IntelliCam uses the native Expo Camera module, so install its current native
-debug build before starting Metro. The shared APK contains both `arm64-v8a`
+IntelliCam uses React Native Vision Camera and local native Expo modules, so
+install its current native debug build before starting Metro. The shared APK contains both `arm64-v8a`
 for physical phones and `x86_64` for this AVD:
 
 ```powershell

@@ -1,6 +1,15 @@
 1. Copy the latest code to the short build folder
-    `robocopy "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules android ios .expo dist web-build`
-    [Company Laptop Cmd] : `robocopy "C:\Users\User\Desktop\React App\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules android ios .expo dist web-build`
+    `robocopy "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam\android" "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam\ios" .expo dist web-build`
+    [Company Laptop Cmd] : `robocopy "C:\Users\User\Desktop\React App\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules "C:\Users\User\Desktop\React App\IntelliCam\android" "C:\Users\User\Desktop\React App\IntelliCam\ios" .expo dist web-build`
+
+    Use full paths for only the generated app-root `android` and `ios`
+    directories. `/XD android ios` also removes the native folders inside local
+    Expo modules and produces an incomplete release build. Before prebuild,
+    verify that these folders exist in `C:\ICBuild`:
+
+    - `modules\media-trash\android`
+    - `modules\photo-metadata\android`
+    - `modules\portrait-effect\android`
 
 2. Update the generated project
     cd C:\ICBuild
