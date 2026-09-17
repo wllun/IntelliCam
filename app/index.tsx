@@ -3537,7 +3537,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1.5,
     borderColor: '#FFD84D',
-    borderRadius: 10,
+    borderRadius: 38,
   },
   focusReticleLocked: {
     borderColor: '#FFB329',
@@ -3590,8 +3590,8 @@ const styles = StyleSheet.create({
   },
   meteringLock: {
     position: 'absolute',
-    left: 0,
-    top: 86,
+    left: 16,
+    top: 54,
     width: 44,
     height: 44,
     alignItems: 'center',
