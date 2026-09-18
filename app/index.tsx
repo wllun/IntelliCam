@@ -561,6 +561,7 @@ export default function CameraScreen() {
   const nativeExposureUpdateTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastNativeExposureUpdateRef = useRef(0);
   const captureLocationRef = useRef<CaptureLocation | undefined>(undefined);
+  const locationPermissionPendingRef = useRef(false);
   const cameraZoom = useSharedValue(1);
   const zoomGestureActive = useSharedValue(false);
   const pinchStartZoom = useSharedValue(0);
@@ -769,6 +770,8 @@ export default function CameraScreen() {
             accuracy: Location.Accuracy.Balanced,
             timeInterval: 30_000,
             distanceInterval: 25,
+            // Do not open a settings Activity and interrupt the camera preview.
+            mayShowUserSettingsDialog: false,
           },
           updateLocation,
         );
@@ -785,23 +788,41 @@ export default function CameraScreen() {
   }, [appActive, locationEnabled, screenFocused]);
 
   const toggleLocationMetadata = async () => {
+    if (locationPermissionPendingRef.current) return;
     if (locationEnabled) {
       setLocationEnabled(false);
+      captureLocationRef.current = undefined;
       setCaptureLocation(undefined);
       void Haptics.selectionAsync();
       return;
     }
 
-    const permission = await Location.requestForegroundPermissionsAsync();
-    if (!permission.granted) {
+    locationPermissionPendingRef.current = true;
+    try {
+      let permission = await Location.getForegroundPermissionsAsync();
+      if (!permission.granted && permission.canAskAgain) {
+        permission = await Location.requestForegroundPermissionsAsync();
+      }
+      if (!screenFocusedRef.current) return;
+      if (!permission.granted) {
+        Alert.alert(
+          'Location not enabled',
+          'Allow location access in system settings to save coordinates inside new photos.',
+        );
+        return;
+      }
+      setLocationEnabled(true);
+      void Haptics.selectionAsync();
+    } catch (locationError) {
+      console.warn('Could not enable photo location:', locationError);
+      if (!screenFocusedRef.current) return;
       Alert.alert(
         'Location not enabled',
-        'Allow location access in system settings to save coordinates inside new photos.',
+        'Could not check location access. Please try again.',
       );
-      return;
+    } finally {
+      locationPermissionPendingRef.current = false;
     }
-    setLocationEnabled(true);
-    void Haptics.selectionAsync();
   };
 
   const cancelPendingCapture = useCallback((withHapticFeedback = false) => {
@@ -2530,7 +2551,9 @@ export default function CameraScreen() {
     <GestureDetector gesture={cameraGesture}>
       <View style={styles.container}>
         <View style={[styles.previewFrame, previewFrame]}>
-          {appActive && screenFocused && cameraDevice && (
+          {/* Keep the preview surface mounted through permission interruptions.
+              isActive still stops the camera in the background or another route. */}
+          {cameraDevice && (
             <Camera
               key={facing}
               ref={cameraRef}
