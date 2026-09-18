@@ -58,6 +58,11 @@ export const PortraitPreviewBlur = memo(function PortraitPreviewBlur({
       const startedAt = Date.now();
       try {
         snapshot = await getSnapshot();
+        if (cancelled) return;
+        if (!Number.isFinite(snapshot.width) || !Number.isFinite(snapshot.height)
+          || snapshot.width < 1 || snapshot.height < 1) {
+          throw new Error('Portrait snapshot has no valid pixels');
+        }
         // ML Kit recommends at least 512 pixels on both axes, including Full ratio.
         const scale = Math.min(1, Math.max(
           768 / Math.max(snapshot.width, snapshot.height),
@@ -98,8 +103,11 @@ export const PortraitPreviewBlur = memo(function PortraitPreviewBlur({
       } finally {
         if (inputPath) removeTemporaryFile(inputPath);
         if (resultPath) removeTemporaryFile(resultPath);
-        if (small !== snapshot) small?.dispose();
-        snapshot?.dispose();
+        // A stopped/reconfigured camera can invalidate a native image. Cleanup
+        // must not turn a handled preview error into an unhandled rejection.
+        for (const image of [small !== snapshot ? small : undefined, snapshot]) {
+          try { image?.dispose(); } catch { /* Already released native image. */ }
+        }
         running.current = false;
         // Sample the background; the transparent subject stays on the live camera.
         if (!cancelled) nextFrame = setTimeout(updatePreview, 100);

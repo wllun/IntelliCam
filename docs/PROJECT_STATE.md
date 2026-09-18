@@ -25,6 +25,11 @@ blur, which cannot sample camera TextureView/SurfaceView content in the installe
 BlurView version. Detection failures are shown in the existing camera status area
 and logged; slow preview samples have a four-second freshness limit. This native
 preview change requires rebuilding and reinstalling Android, not just restarting Metro.
+Portrait activation now keeps a stable compatible preview surface instead of
+switching surface implementations as sampling starts. Snapshot requests check
+camera lifecycle readiness, and native-image cleanup failures cannot reject the
+preview loop. The reported activation crash still needs device/logcat verification;
+no Android device was connected during these checks.
 iOS 17+ uses Vision foreground-instance masks for saved photos only; live blur is
 not available there with the current camera snapshot API. Tapping a detected subject
 selects it; background taps preserve all detected foreground. Soft mask edges protect

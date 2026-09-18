@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(source, {
 
 // Exercise the real async preview effect with native images, files and React hooks
 // mocked. These tests do not substitute for on-device segmentation/rendering QA.
-function previewHarness(processFrame, snapshotDuration = 0) {
+function previewHarness(processFrame, snapshotDuration = 0, disposalFails = false) {
   const states = [];
   const statuses = [];
   const deleted = [];
@@ -22,12 +22,12 @@ function previewHarness(processFrame, snapshotDuration = 0) {
   let disposed = 0;
   const small = {
     saveToTemporaryFileAsync: async () => 'file:///snapshot.jpg',
-    dispose: () => { disposed++; },
+    dispose: () => { disposed++; if (disposalFails) throw new Error('native image released'); },
   };
   const snapshot = {
     width: 1080, height: 1920,
     resizeAsync: async () => small,
-    dispose: () => { disposed++; },
+    dispose: () => { disposed++; if (disposalFails) throw new Error('native image released'); },
   };
   const mocks = {
     react: {
@@ -121,4 +121,15 @@ test('very stale samples remain clear and report slow processing', async () => {
   assert.match(h.statuses.at(-1), /preview is slow/);
   assert.ok(h.deleted.includes('file:///stale.png'));
   h.cleanup();
+});
+
+test('native image cleanup errors do not reject the preview loop or prevent other cleanup', async () => {
+  const h = previewHarness(async () => { throw new Error('camera stopped'); }, 0, true);
+  await flush();
+  assert.equal(h.disposed(), 2);
+  assert.match(h.statuses.at(-1), /saved-photo processing remains enabled/);
+  assert.deepEqual(h.deleted, ['file:///snapshot.jpg']);
+  assert.equal(h.timers.size, 1, 'sampling should still schedule a retry');
+  h.cleanup();
+  assert.equal(h.timers.size, 0);
 });

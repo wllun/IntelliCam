@@ -515,7 +515,9 @@ export default function CameraScreen() {
   const portraitPreparation = useRef(0);
   const getPortraitSnapshot = useCallback(async () => {
     const camera = cameraRef.current;
-    if (!camera) throw new Error('Camera unavailable');
+    if (!camera || !cameraReadyRef.current || !appActiveRef.current || !screenFocusedRef.current) {
+      throw new Error('Camera preview unavailable');
+    }
     return camera.takeSnapshot();
   }, []);
   useEffect(() => () => { portraitPreparation.current += 1; }, []);
@@ -2565,7 +2567,9 @@ export default function CameraScreen() {
               mirrorMode="auto"
               orientationSource="device"
               resizeMode="cover"
-              implementationMode={isAutoMode && portraitEffectEnabled ? 'compatible' : 'performance'}
+              // Keep the same TextureView for the camera's lifetime. Switching
+              // implementation while Portrait starts races native snapshots.
+              implementationMode="compatible"
               onSessionConfigSelected={(config) => {
                 setHdrSessionConfirmed(
                   nativeHdrRequested && config.isPhotoHDREnabled,

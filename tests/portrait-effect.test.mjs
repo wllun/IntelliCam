@@ -74,13 +74,14 @@ test('portrait effect has native Android and iOS implementations', () => {
 
 test('Portrait uses subject outlines, not fixed sharp rectangles or person-only segmentation', () => {
   assert.match(cameraSource, /<PortraitPreviewBlur/);
-  assert.match(cameraSource, /implementationMode=\{isAutoMode && portraitEffectEnabled \? 'compatible'/);
+  assert.match(cameraSource, /implementationMode="compatible"/);
+  assert.doesNotMatch(cameraSource, /implementationMode=\{[^}]*portraitEffectEnabled/);
   assert.doesNotMatch(previewBlur, /BlurView|MaskedView/);
   assert.match(previewBlur, /previewBackgroundAsync/);
   assert.match(previewBlur, /if \(!backgroundUri\) return null/);
   assert.match(previewBlur, /if \(running.current\)/);
   assert.match(previewBlur, /if \(cancelled\) return/);
-  assert.match(previewBlur, /snapshot\?\.dispose/);
+  assert.match(previewBlur, /image\?\.dispose/);
   assert.match(previewBlur, /retainedFiles.forEach\(removeTemporaryFile\)/);
   assert.doesNotMatch(previewBlur + androidModule + iosModule, /FOCUS_WIDTH_FRACTION|blendFocusPortrait|private func focusMask/);
   assert.match(cameraSource, /setPortraitTarget/);
@@ -111,4 +112,16 @@ test('Android preview renders actual blurred pixels with transparent foreground'
   assert.match(preview, /pixels\[index\] and 0x00ffffff/);
   assert.match(preview, /Bitmap.CompressFormat.PNG/);
   assert.match(previewBlur, /fadeDuration=\{0\}/);
+});
+
+test('Portrait activation keeps its preview surface stable and guards native snapshots', () => {
+  assert.match(cameraSource, /implementationMode="compatible"/);
+  assert.doesNotMatch(cameraSource, /implementationMode=\{[^}]*portraitEffectEnabled/);
+  const snapshot = cameraSource.split('const getPortraitSnapshot = useCallback')[1]
+    .split('}, []);')[0];
+  assert.match(snapshot, /!cameraReadyRef.current/);
+  assert.match(snapshot, /!appActiveRef.current/);
+  assert.match(snapshot, /!screenFocusedRef.current/);
+  assert.ok(snapshot.indexOf('throw new Error') < snapshot.indexOf('camera.takeSnapshot'));
+  assert.match(previewBlur, /snapshot.width < 1 \|\| snapshot.height < 1/);
 });
