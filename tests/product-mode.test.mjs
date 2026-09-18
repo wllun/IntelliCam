@@ -26,7 +26,7 @@ test('Product mode meters the center and locks supported camera channels', () =>
   assert.match(cameraSource, /Could not protect Product highlights/);
   assert.match(cameraSource, /adaptiveness: useLockedMetering \? 'locked' : 'continuous'/);
   assert.match(cameraSource, /Capturing product detail/);
-  assert.match(cameraSource, /flashMode: isFlashDisabledForMode \? 'off'/);
+  assert.match(cameraSource, /plan\.resolved\.flashMode = isFlashDisabledForMode \? 'off'/);
 });
 
 test('Product mode records its applied detail and white-balance strategy', () => {

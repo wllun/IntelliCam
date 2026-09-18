@@ -7,6 +7,7 @@ const metadataSource = await readFile(
   new URL('../services/photo-metadata.ts', import.meta.url),
   'utf8',
 );
+const captureMetadataSource = await readFile(new URL('../services/capture-metadata.ts', import.meta.url), 'utf8');
 const moduleConfig = await readFile(
   new URL('../modules/portrait-effect/expo-module.config.json', import.meta.url),
   'utf8',
@@ -49,8 +50,9 @@ test('portrait processing runs before metadata embedding and save', () => {
   assert.ok(processing >= 0);
   assert.ok(metadata > processing);
   assert.ok(save > metadata);
-  assert.match(cameraSource, /portraitEffectRequested: applyPortraitEffect/);
-  assert.match(cameraSource, /portraitEffectApplied: portraitApplied/);
+  assert.match(cameraSource, /completeCaptureMetadata\(/);
+  assert.match(captureMetadataSource, /portraitEffectRequested: plan\?\.requested\.portraitEffect/);
+  assert.match(captureMetadataSource, /portraitEffectApplied: completedPlan\?\.applied\.portraitEffect/);
   assert.match(cameraSource, /The original photo was saved/);
   assert.match(metadataSource, /row\('Portrait effect'/);
 });

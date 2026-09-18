@@ -96,7 +96,7 @@ export function getLightTrailPlanLabel(plan: LightTrailCapturePlan) {
     case 'manual-long-exposure':
       return 'Long exposure';
     case 'automatic-lighten-composite':
-      return `${plan.frameCount}-frame trail`; 
+      return `${plan.frameCount}-frame trail`;
     default:
       return 'Native low light';
   }

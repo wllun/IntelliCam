@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["MultiFrameProcessorModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.multiframeprocessor.MultiFrameProcessorModule"]
+  }
+}

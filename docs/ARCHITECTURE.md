@@ -1,116 +1,174 @@
 # Architecture
 
-## Overview
+Last updated: 2026-09-16
 
-```
-React Native App (Expo Router)
+## Current system
+
+```text
+Expo Router application
         |
-Local SQLite (presets, photo metadata, edit history)
+React camera screen and shared capture/save pipeline
         |
-Camera Controller
+React Native Vision Camera 5 + Nitro image loading
         |
-Native Camera API (iOS AVFoundation / Android CameraX)
+Android CameraX / Camera2 and iOS AVFoundation
         |
-Image Processing Engine
+Local native processing modules
         |
-AI Layer (Premium, Phase 3)
-        |
-Laravel/Node API
-        |
-Supabase PostgreSQL (users, subscriptions, AI usage)
+Expo MediaLibrary IntelliCam album + portable JPEG metadata
 ```
 
-User picks a desired result (e.g. "Star Photography"); the app maps it to camera settings, guides capture, and processes the output. No manual settings knowledge required.
+IntelliCam is local-first. Auto mode provides reliable everyday capture. Star,
+Light Trail, and Waterfall extend the same camera engine with aligned,
+motion-screened bursts and mode-aware compositing. Portrait, Beauty, and
+Product still provide guidance only. Displayed ISO, shutter, white-balance,
+focus, and RAW values are not treated as applied unless the native camera
+session confirms them. No mode opens a separate camera implementation.
 
-## Frontend — React Native
+## Application layer
 
-Chosen for cross-platform reach, fast MVP iteration, and a large ecosystem.
+- Navigation: Expo Router and React Navigation
+- UI state: React state, refs, effects, and memoized values
+- Motion and gestures: React Native Reanimated, Gesture Handler, and Worklets
+- Images: `expo-image`, `expo-image-manipulator`, and Nitro Image
+- Lifecycle storage: AsyncStorage for the forced-update policy cache and simple
+  camera preferences
 
-- Navigation: React Navigation / Expo Router
-- State: Zustand or Redux Toolkit
-- Animation: React Native Reanimated + Gesture Handler
-- Graphics: React Native SVG
+No global state library or SQLite database is currently installed. Add those
+only when their corresponding roadmap features require them.
 
 ## Application update gate
 
 Android and iOS native builds read `app-update.json` from a public HTTPS URL and
 compare its per-platform minimum with `expo-application`'s immutable native
 build version. A required update replaces the Expo Router stack with a
-non-dismissible update screen. The policy is refreshed on startup and when the
-app returns to the foreground; a recent forced policy is cached in AsyncStorage
-for offline enforcement and expires after 72 hours. Invalid, unavailable, or
-stale policies fail open. Expo Go and web skip the check. See
-[`FORCE_UPDATE.md`](FORCE_UPDATE.md) for release operations.
+non-dismissible update screen. The policy is refreshed at startup and when the
+app returns to the foreground. A recent forced policy is cached in AsyncStorage
+for up to 72 hours; invalid, unavailable, or stale policies fail open. Expo Go
+and web skip the check. See [`FORCE_UPDATE.md`](FORCE_UPDATE.md).
 
 ## Camera layer
 
-React Native alone can't drive manual ISO/shutter/RAW — that needs native APIs.
+React Native Vision Camera 5 owns preview, photo output, camera selection,
+focus/metering, exposure compensation, zoom, and supported native HDR session
+configuration. The app prefers a multi-lens rear virtual camera, can switch to
+a dedicated ultrawide camera, and falls back to the front camera when needed.
 
-| Platform | API | Capabilities |
-|---|---|---|
-| Android | CameraX / Camera2 | Manual ISO/shutter, RAW, focus, exposure, multi-frame capture, sensor info |
-| iOS | AVFoundation / Core Image | RAW, manual exposure, focus, white balance, burst capture |
+The camera screen currently provides:
 
-**MVP bridge:** `react-native-vision-camera` for preview, capture, and frame processing. Features it can't reach require a custom native module.
+- automatic JPEG capture with Standard and Maximum quality choices
+- front/rear switching and device-dependent ultrawide selection
+- quick zoom values, a zoom ruler, and pinch-to-zoom
+- tap-to-focus and metering with a visible reticle
+- AE/AF/AWB locking and automatic metering reset
+- exposure dragging quantized to the device's native detents with throttled
+  latest-value controller updates
+- flash, grid, timer, aspect-ratio crop, shutter sound, and location metadata
+- supported device-native Photo HDR configuration
 
-## Preset engine (no AI)
+Capabilities differ by device. Features must use reported camera capabilities
+and must not infer support from the phone model name.
 
-Pure lookup: user selects an effect → engine returns a settings object (ISO, shutter, focus, white balance, RAW flag, on-screen instructions). No inference, no ML — a table.
+## Capture modes
 
-Example — Star Photography → `{ iso: 3200, shutter: "15s", focus: "infinity", wb: 4000, raw: true }`.
+`constants/presets.ts` currently stores six static guidance definitions:
 
-Supported modes at launch: Star Photography, Light Trail, Waterfall, Portrait, Product Photography — each with its own requirements (long exposure, frame stacking, face detection, stable-camera detection, etc.) noted in the preset engine, not hardcoded per-mode UI.
+- Star
+- Light Trail
+- Waterfall
+- Portrait
+- Beauty (`美顔` in the current UI)
+- Product
 
-## Image processing
+`constants/capture-modes.ts` adds Auto and the bundled photographic artwork used
+by the 3D cover-flow selector. Browsing changes only a draft selection; pressing
+Apply commits the active mode.
 
-Runs after capture: RAW conversion, HDR merge, frame stacking, noise reduction, color correction.
+Star captures six frames, Light Trail captures eight, and Waterfall captures
+six. The user can cancel the burst from the shutter, and lifecycle/session
+checks prevent further frames after the camera becomes unavailable. The other
+special modes remain single-frame guidance. All special-mode ISO, shutter,
+white-balance, focus, and RAW values are guidance only. They must not be
+described as applied until a resolved capture plan and the native backend
+confirm the actual settings. See
+[`proposals/ADAPTIVE_CAPTURE_PROPOSAL.md`](proposals/ADAPTIVE_CAPTURE_PROPOSAL.md).
 
-- iOS: Core Image, Metal Performance Shaders
-- Android: OpenCV, GPU
-- Cross-platform: OpenCV; TensorFlow Lite reserved for future AI features
+## Image processing and native modules
+
+Capture preparation is owned by `hooks/use-capture-preparation.ts` and
+`services/capture-preparation.ts`. Shared engine types live in
+`types/adaptive-capture.ts`; the resolver wraps the existing mode strategies
+rather than duplicating them. `services/capture-metadata.ts` consistently stores
+requested, resolved, confirmed applied, and reason-coded fallback settings.
+Captured-reference JPEG highlight clipping and normalized burst-registration
+stability are measured on-device; absent measurements remain unknown. These
+are not live pre-shutter measurements. See
+[`ADAPTIVE_CAPTURE_ENGINE.md`](ADAPTIVE_CAPTURE_ENGINE.md).
+
+The shared post-capture pipeline crops the source JPEG to the selected aspect
+ratio, embeds portable IntelliCam metadata, saves it into the IntelliCam album,
+and refreshes the latest-photo thumbnail.
+
+Local Expo modules currently provide:
+
+| Module | Purpose |
+| --- | --- |
+| `photo-metadata` | Copies camera EXIF and embeds IntelliCam capture information and optional GPS coordinates into the final JPEG |
+| `portrait-effect` | Uses ML Kit on Android and Vision/Core Image on iOS to keep a detected person sharp and blur the background |
+| `multi-frame-processor` | Aligns burst JPEGs by translation, rejects frames with excessive residual motion or displacement, crops to the common overlap, and composites Star, Light Trail, and Waterfall results |
+| `media-trash` | Uses Android's recoverable system trash flow instead of permanent deletion |
+
+If Portrait processing cannot identify a clear person or fails, the original
+capture is saved. Android uses grayscale correlation for translation alignment;
+iOS uses Vision translational registration. Star rejects locally changed pixels
+before averaging, Light Trail uses lighten compositing, and Waterfall uses
+temporal averaging. When alignment leaves fewer than two usable frames, the
+reference JPEG is saved and the app reports that multi-frame processing was not
+applied. Rotation/perspective registration, exposure-bracketed HDR merging,
+RAW processing, and advanced noise reduction remain future work.
 
 ## Storage
 
-Hybrid — local-first, cloud optional.
+Current storage is local and file-based:
 
-**Files** (on-device): `/DCIM/SmartCamera/IMG_0001.RAW`, `.JPG`, `_EDITED.JPG`. The database never stores photo blobs, only paths.
+- Photos are stored through Expo MediaLibrary in the `IntelliCam` album.
+- Camera EXIF and IntelliCam capture settings travel inside the JPEG where the
+  platform permits it.
+- The gallery queries only that album and displays newest photos first.
+- Gridlines, aspect ratio, timer, shutter sound, and HDR preference are stored
+  as a validated AsyncStorage value with safe defaults.
+- There is no cloud photo storage and no local SQLite database yet.
 
-**Local SQLite** — app data:
-
-| Table | Purpose |
-|---|---|
-| `photos` | filename, file_path, capture_mode, created_at |
-| `camera_presets` | name, category, settings_json |
-| `user_settings` | theme, default_mode, save_raw, save_jpeg |
-| `edit_history` | non-destructive edit params per photo (brightness, contrast, temperature, filter) — original RAW is never modified |
-| `capture_sessions` | mode, total_frames, duration — for long-exposure / stacking sequences |
-
-MVP has no cloud photo storage (cost, privacy, offline support, speed). Cloud storage (Supabase Storage / S3 / Azure Blob) is a future option for backup, sync, and sharing — not required for MVP.
-
-## Backend (premium only)
-
-Only exists for account, subscription, sync, and cloud-AI features — the app works fully offline without it.
-
-- API: Laravel or Node.js
-- DB: Supabase PostgreSQL (free tier, built-in auth, storage, easy mobile SDK)
+Planned SQLite tables:
 
 | Table | Purpose |
-|---|---|
-| `users` | account info |
-| `subscriptions` | plan, start/expire dates |
-| `user_presets` | custom presets synced across devices |
-| `ai_usage` | request_type, created_at — AI feature usage tracking |
+| --- | --- |
+| `photos` | Local file reference, capture mode, and searchable metadata |
+| `camera_presets` | Built-in and future custom preset definitions |
+| `edit_history` | Non-destructive adjustment history; never image blobs |
+| `capture_sessions` | Multi-frame plan, frame count, duration, and result |
 
-## AI layer (Premium, Phase 2/3)
+SQLite must store paths and structured metadata only, never photo blobs.
 
-- **Scene detection**: classify preview frames (night/sky/stars/water/people/lighting) via TensorFlow Lite / Core ML / ML Kit, on-device.
-- **Photography assistant**: natural-language request ("cinematic night photo") → LLM + photography rules → recommended mode/settings/suggestion.
-- **Image enhancement**: AI noise reduction, HDR, sky enhancement, color grading, style transfer via Core ML / TF Lite / cloud AI API.
+## Backend and premium phases
 
-None of this is required for MVP; don't wire it in ahead of Phase 2/3 work.
+The MVP has no application backend, account system, Supabase integration, or
+cloud AI. The app remains usable offline. A future managed subscription layer,
+optional account/sync services, and cloud AI require separate approval and
+must not be introduced as part of core camera work.
 
 ## Roadmap
 
-1. **MVP** — camera preview, effect presets, manual settings control, RAW, long exposure, frame stacking, local SQLite, basic editor.
-2. **Smart Assistance** — scene detection, lighting analysis, stability detection, better recommendations.
-3. **AI Premium** — AI coach, natural-language commands, AI editing/style transfer, cloud AI, subscriptions.
+1. **Capture reliability** — physical-device validation of the honest HDR
+   state, remaining photo-quality persistence, and failure recovery.
+2. **Adaptive capture** — extend the consolidated types/plans/outcome records
+   with live scene sensing and measurement-driven decisions; confirm remaining
+   manual controls against the session/EXIF.
+3. **Computational modes** — physically tune the first aligned Star, Light
+   Trail, and Waterfall pipeline; add rotation/perspective registration where
+   justified; then implement HDR bracketing.
+4. **Local organization and editing** — SQLite metadata, custom presets, and
+   non-destructive editing.
+5. **Smart assistance and premium** — on-device recommendations first; cloud
+   AI, accounts, subscriptions, and synchronization only when explicitly
+   approved.
