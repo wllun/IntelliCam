@@ -2,6 +2,38 @@ export type ComputationalMode = 'star' | 'light-trail' | 'waterfall';
 export type PhotoQuality = 'standard' | 'maximum';
 export type CaptureFlashMode = 'off' | 'auto' | 'on';
 
+/** Preview-relative estimates, not RAW brightness/lux or semantic object detection. */
+export interface LiveCaptureScene {
+  sampledAt: number;
+  source: 'preview-snapshot' | 'metering-only' | 'unavailable';
+  meanLuma: number | null;
+  highlightFraction: number | null;
+  texture: number | null;
+  subjectMotion: number | null;
+  lightMotion: number | null;
+  lightSpeed: number | null;
+  displacement: number | null;
+  gyroRms: number | null;
+  gyroSamples: number;
+  meteredExposureSeconds: number | null;
+  meteredISO: number | null;
+  reason?: string;
+}
+
+export interface EnvironmentCaptureDecision {
+  version: 1;
+  scene: LiveCaptureScene;
+  reasons: string[];
+  exposureSeconds?: number;
+  iso?: number;
+  exposureCompensation: number;
+  frameCount: number;
+  frameIntervalMs: number;
+  maxBurstMs: number;
+  focusStrategy: 'infinity' | 'automatic';
+  whiteBalanceStrategy: 'automatic-locked';
+}
+
 export interface MultiFrameCapturePlan {
   mode: ComputationalMode;
   frameCount: number;
@@ -94,6 +126,9 @@ export interface NativeSettingsSnapshot {
   distortionCorrection: boolean | null;
   focusMode: string | null;
   exposureMode: string | null;
+  exposureSeconds?: number | null;
+  iso?: number | null;
+  whiteBalanceMode?: string | null;
 }
 
 export interface CapturePlan {

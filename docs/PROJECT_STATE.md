@@ -90,7 +90,8 @@ Related design documents:
 ## Next implementation priorities
 
 - [ ] Add capture review and save-failure recovery without discarding the cached source image
-- [ ] Extend the consolidated engine with live timestamped scene sensing and measurement-driven capture decisions; confirm remaining manual settings against the session/EXIF rather than restarting the foundation
+- [x] Add shared environment-adaptive special-mode decisions: Android small preview samples and motion sensing, supported native AE/ISO adaptation, stable burst plans and portable measurement/outcome metadata
+- [ ] Add full iOS visual sensing (current backend lacks preview snapshots), tune adaptive thresholds on devices, and compare acknowledged settings with each frame's EXIF
 - [ ] Replace remaining guidance-only technical values with confirmed camera controls; validate per-mode applied settings on physical devices
 - [ ] Physically tune multi-frame registration and rejection thresholds for low-texture, low-light, moving-water, and moving-light scenes; evaluate rotation/perspective alignment after translation alignment is validated
 - [ ] Add physical-device validation for exposure, focus lock, tap focus, zoom, HDR, Portrait boundaries, multi-frame modes, selector motion, memory use, and release-build capture latency
@@ -136,7 +137,9 @@ settings are listed above.
 - Multi-frame processing currently corrects translation between frames. Large
   rotation, perspective changes, or insufficient scene detail can reject a
   frame; when fewer than two frames remain, the reference JPEG is saved.
-- Clipping/stability are captured-image diagnostics, not live pre-shutter
-  sensing. Single-frame stability and unavailable measurements remain unknown.
+- Post-capture clipping/registration diagnostics remain separate from new
+  pre-shutter environment estimates. Android provides preview-relative brightness,
+  clipping and motion; iOS currently uses native metering/motion-only fallback.
+  Low-texture, stale and unavailable measurements remain explicitly unknown.
 - SQLite and backend services are planned, not installed.
 - Photos remain on-device; the project has no cloud photo storage.

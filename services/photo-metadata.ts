@@ -1,5 +1,5 @@
 import type * as MediaLibrary from 'expo-media-library';
-import type { CapturePlan } from '@/types/adaptive-capture';
+import type { CapturePlan, EnvironmentCaptureDecision } from '@/types/adaptive-capture';
 
 import PhotoMetadata, {
   type EmbeddedPhotoMetadata,
@@ -31,6 +31,24 @@ export interface CapturePhotoMetadata {
   acceptedFrameCount?: number;
   rejectedFrameCount?: number;
   capturePlan?: CapturePlan;
+  environmentCapture?: {
+    requested: EnvironmentCaptureDecision;
+    resolved: EnvironmentCaptureDecision;
+    outcome: {
+      capturedFrameCount: number;
+      frameIntervalMs: number;
+      interFrameStartIntervalsMs: number[];
+      captureDurationMs: number;
+      burstBudgetReached: boolean;
+      manualExposureApplied: boolean;
+      reportedExposureSeconds: number | null;
+      reportedISO: number | null;
+      focusLockApplied: boolean;
+      whiteBalanceLockApplied: boolean;
+      exposureBias: number | null;
+      exposureBiasUnit?: 'native-index' | 'ev';
+    };
+  };
   beautyEffectRequested?: boolean;
   beautyEffectApplied?: boolean;
   captureStrategy?:

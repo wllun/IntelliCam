@@ -13,6 +13,7 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "IntelliCam needs camera access to capture photos.",
+        "NSMotionUsageDescription": "IntelliCam uses phone motion to choose steadier Star, Light Trail, and Waterfall captures.",
         "NSPhotoLibraryAddUsageDescription": "IntelliCam saves your captured photos to your photo library.",
         "NSLocationWhenInUseUsageDescription": "IntelliCam can optionally embed your location inside new photos when you turn Photo location on."
       }

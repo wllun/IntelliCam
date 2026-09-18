@@ -30,6 +30,9 @@ export function readNativeCaptureSettings(
     distortionCorrection: read(() => controller.isDistortionCorrectionEnabled),
     focusMode: read(() => controller.focusMode),
     exposureMode: read(() => controller.exposureMode),
+    exposureSeconds: platform === 'ios' ? number(() => controller.exposureDuration) : null,
+    iso: platform === 'ios' ? number(() => controller.iso) : null,
+    whiteBalanceMode: read(() => controller.whiteBalanceMode),
   };
 }
 

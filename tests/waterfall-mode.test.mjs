@@ -18,7 +18,8 @@ test('Waterfall resolves a real slow-exposure or temporal-average plan', () => {
   assert.match(planSource, /MINIMUM_USEFUL_EXPOSURE_SECONDS = 0\.25/);
   assert.match(planSource, /WATERFALL_FRAME_COUNT = 8/);
   assert.match(planSource, /automatic-temporal-average/);
-  assert.match(cameraSource, /prepareWaterfallCapture\(waterfallCapturePlan\)/);
+  assert.match(cameraSource, /adaptModePlan\('waterfall', waterfallCapturePlan\)/);
+  assert.match(cameraSource, /prepareWaterfallCapture\(requested,/);
 });
 
 test('Waterfall locks metering, protects highlights, and averages timed frames', () => {

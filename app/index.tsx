@@ -80,6 +80,9 @@ import MultiFrameProcessor, {
 } from '@/modules/multi-frame-processor';
 import { resolveCapturePlan } from '@/utils/adaptive-capture.mjs';
 import { useCapturePreparation } from '@/hooks/use-capture-preparation';
+import { useLiveCaptureScene } from '@/hooks/use-live-capture-scene';
+import { resolveEnvironmentCapture } from '@/utils/environment-capture.mjs';
+import type { ComputationalMode, EnvironmentCaptureDecision } from '@/types/adaptive-capture';
 import { getPhotoCaptureSettings, readNativeCaptureSettings } from '@/services/capture-preparation';
 import { completeCaptureMetadata, createCaptureMetadata, measureCaptureScene, startCaptureSceneMeasurement } from '@/services/capture-metadata';
 import PortraitEffect from '@/modules/portrait-effect';
@@ -949,6 +952,11 @@ export default function CameraScreen() {
   const isLongCaptureMode = isStarMode || isLightTrailMode || isWaterfallMode;
   const isMotionCompositeMode = isLightTrailMode || isWaterfallMode;
   const isFlashDisabledForMode = isLongCaptureMode || isBeautyMode || isProductMode;
+  const { getAtShutter: getLiveSceneAtShutter } = useLiveCaptureScene(
+    cameraRef, isLongCaptureMode && cameraReady && appActive && screenFocused,
+    capturing,
+    `${cameraDevice?.id}:${activeCaptureModeId}:${facing}:${displayedZoom}:${aspectRatio}:${width}x${height}`,
+  );
 
   useEffect(() => {
     if (!appActive || !screenFocused) resetMetering();
@@ -1693,7 +1701,7 @@ export default function CameraScreen() {
     supportsFrameStacking: Boolean(MultiFrameProcessor),
   });
 
-  const prepareStarCapture = async (requestedPlan: StarCapturePlan) => {
+  const prepareStarCapture = async (requestedPlan: StarCapturePlan, exposureBias = 1) => {
     const camera = cameraRef.current;
     const controller = camera?.controller;
     if (!camera || !controller) {
@@ -1747,7 +1755,7 @@ export default function CameraScreen() {
       : requestedPlan;
     if (supportsExposure) {
       const starBias = getNativeExposureBias(
-        Math.min(1, exposureMax),
+        clamp(exposureBias, exposureMin, exposureMax),
         exposureMin,
         exposureMax,
         deviceExposureMin,
@@ -1758,7 +1766,7 @@ export default function CameraScreen() {
       });
     }
     let automaticMeteringApplied = false;
-    if (meteringModes.length > 0) {
+    if (lockModes.length > 0) {
       try {
         await camera.focusTo(
           { x: previewFrame.width / 2, y: previewFrame.height / 2 },
@@ -1777,8 +1785,8 @@ export default function CameraScreen() {
     return {
       plan: fallbackPlan,
       manualExposureApplied: false,
-      focusApplied: false,
-      whiteBalanceApplied: false,
+      focusApplied: automaticMeteringApplied && lockModes.includes('AF'),
+      whiteBalanceApplied: automaticMeteringApplied && lockModes.includes('AWB'),
       automaticMeteringApplied,
     };
   };
@@ -1790,7 +1798,7 @@ export default function CameraScreen() {
     supportsLightenCompositing: supportsNativeLightTrailCompositing,
   });
 
-  const prepareLightTrailCapture = async (requestedPlan: LightTrailCapturePlan) => {
+  const prepareLightTrailCapture = async (requestedPlan: LightTrailCapturePlan, exposureBias = -1) => {
     const camera = cameraRef.current;
     const controller = camera?.controller;
     if (!camera || !controller) {
@@ -1799,7 +1807,7 @@ export default function CameraScreen() {
 
     await camera.resetFocus().catch(() => undefined);
     let automaticMeteringApplied = false;
-    if (meteringModes.length > 0) {
+    if (requestedPlan.strategy === 'manual-long-exposure' && lockModes.length > 0) {
       try {
         await camera.focusTo(
           { x: previewFrame.width / 2, y: previewFrame.height / 2 },
@@ -1838,7 +1846,7 @@ export default function CameraScreen() {
         return {
           plan: requestedPlan,
           manualExposureApplied: true,
-          focusApplied: automaticMeteringApplied,
+          focusApplied: automaticMeteringApplied && lockModes.includes('AF'),
           whiteBalanceApplied,
           automaticMeteringApplied,
         };
@@ -1854,7 +1862,7 @@ export default function CameraScreen() {
       : requestedPlan;
     if (supportsExposure) {
       const highlightProtectingBias = getNativeExposureBias(
-        Math.max(-1, exposureMin),
+        clamp(exposureBias, exposureMin, exposureMax),
         exposureMin,
         exposureMax,
         deviceExposureMin,
@@ -1864,7 +1872,7 @@ export default function CameraScreen() {
         console.warn('Could not protect Light Trail highlights:', error);
       });
     }
-    if (!automaticMeteringApplied && meteringModes.length > 0) {
+    if (!automaticMeteringApplied && lockModes.length > 0) {
       try {
         await camera.focusTo(
           { x: previewFrame.width / 2, y: previewFrame.height / 2 },
@@ -1883,8 +1891,8 @@ export default function CameraScreen() {
     return {
       plan: fallbackPlan,
       manualExposureApplied: false,
-      focusApplied: automaticMeteringApplied,
-      whiteBalanceApplied: false,
+      focusApplied: automaticMeteringApplied && lockModes.includes('AF'),
+      whiteBalanceApplied: automaticMeteringApplied && lockModes.includes('AWB'),
       automaticMeteringApplied,
     };
   };
@@ -1896,7 +1904,7 @@ export default function CameraScreen() {
     supportsTemporalAveraging: supportsNativeTemporalAveraging,
   });
 
-  const prepareWaterfallCapture = async (requestedPlan: WaterfallCapturePlan) => {
+  const prepareWaterfallCapture = async (requestedPlan: WaterfallCapturePlan, exposureBias = -0.7) => {
     const camera = cameraRef.current;
     const controller = camera?.controller;
     if (!camera || !controller) {
@@ -1905,7 +1913,7 @@ export default function CameraScreen() {
 
     await camera.resetFocus().catch(() => undefined);
     let automaticMeteringApplied = false;
-    if (meteringModes.length > 0) {
+    if (requestedPlan.strategy === 'manual-slow-exposure' && lockModes.length > 0) {
       try {
         await camera.focusTo(
           { x: previewFrame.width / 2, y: previewFrame.height / 2 },
@@ -1944,7 +1952,7 @@ export default function CameraScreen() {
         return {
           plan: requestedPlan,
           manualExposureApplied: true,
-          focusApplied: automaticMeteringApplied,
+          focusApplied: automaticMeteringApplied && lockModes.includes('AF'),
           whiteBalanceApplied,
           automaticMeteringApplied,
         };
@@ -1960,7 +1968,7 @@ export default function CameraScreen() {
       : requestedPlan;
     if (supportsExposure) {
       const highlightProtectingBias = getNativeExposureBias(
-        Math.max(-0.7, exposureMin),
+        clamp(exposureBias, exposureMin, exposureMax),
         exposureMin,
         exposureMax,
         deviceExposureMin,
@@ -1970,7 +1978,7 @@ export default function CameraScreen() {
         console.warn('Could not protect Waterfall highlights:', error);
       });
     }
-    if (!automaticMeteringApplied && meteringModes.length > 0) {
+    if (!automaticMeteringApplied && lockModes.length > 0) {
       try {
         await camera.focusTo(
           { x: previewFrame.width / 2, y: previewFrame.height / 2 },
@@ -1989,8 +1997,8 @@ export default function CameraScreen() {
     return {
       plan: fallbackPlan,
       manualExposureApplied: false,
-      focusApplied: automaticMeteringApplied,
-      whiteBalanceApplied: false,
+      focusApplied: automaticMeteringApplied && lockModes.includes('AF'),
+      whiteBalanceApplied: automaticMeteringApplied && lockModes.includes('AWB'),
       automaticMeteringApplied,
     };
   };
@@ -2203,26 +2211,67 @@ export default function CameraScreen() {
       let captureFocusApplied = false;
       let captureWhiteBalanceApplied = false;
       let captureAutomaticMeteringApplied = false;
+      let environmentDecision: EnvironmentCaptureDecision | undefined;
+      let environmentResolved: EnvironmentCaptureDecision | undefined;
+      const liveScene = isLongCaptureMode ? await getLiveSceneAtShutter() : null;
+      const environmentDecisionAt = Date.now();
+      if (captureSessionRef.current !== captureSession || !cameraReadyRef.current
+        || !appActiveRef.current || !screenFocusedRef.current) return;
+      // Resolve once after the timer. The same immutable scene drives preparation
+      // and any manual-control fallback; never retune halfway through a burst.
+      const adaptModePlan = <T extends StarCapturePlan | LightTrailCapturePlan | WaterfallCapturePlan>(
+        mode: ComputationalMode, base: T,
+      ): T => {
+        const controller = cameraRef.current?.controller;
+        const decision = resolveEnvironmentCapture(mode, base, liveScene, {
+          exposure: controller && controller.maxExposureDuration > 0
+            ? { min: controller.minExposureDuration, max: controller.maxExposureDuration } : undefined,
+          iso: controller && controller.maxISO > 0 ? { min: controller.minISO, max: controller.maxISO } : undefined,
+        }, environmentDecisionAt);
+        environmentDecision ??= decision;
+        environmentResolved = decision;
+        return { ...base, frameCount: decision.frameCount,
+          exposureSeconds: decision.exposureSeconds, iso: decision.iso,
+          // Keep scene-metered colors, rather than forcing a fixed Kelvin preset.
+          whiteBalanceKelvin: undefined,
+          ...('lockFocusAtInfinity' in base ? { lockFocusAtInfinity: decision.focusStrategy === 'infinity' } : {}),
+        };
+      };
       if (isStarMode) {
         setCaptureStatus('Preparing night capture…');
-        const prepared = await prepareStarCapture(starCapturePlan);
-        appliedCapturePlan = prepared.plan;
+        const requested = adaptModePlan('star', starCapturePlan);
+        const prepared = await prepareStarCapture(requested, environmentDecision?.exposureCompensation);
+        appliedCapturePlan = prepared.manualExposureApplied ? prepared.plan : adaptModePlan('star', prepared.plan);
         manualExposureApplied = prepared.manualExposureApplied;
         captureFocusApplied = prepared.focusApplied;
         captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
         captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
       } else if (isLightTrailMode) {
         setCaptureStatus('Preparing light trails…');
-        const prepared = await prepareLightTrailCapture(lightTrailCapturePlan);
-        appliedCapturePlan = prepared.plan;
+        let requested = adaptModePlan('light-trail', lightTrailCapturePlan);
+        if (requested.strategy === 'manual-long-exposure' && (requested.exposureSeconds ?? 0) < 0.25
+          && supportsNativeLightTrailCompositing) {
+          requested = adaptModePlan('light-trail', getAutomaticLightTrailPlan());
+          environmentResolved?.reasons.push('metered-shutter-too-short-for-trails');
+        }
+        const prepared = await prepareLightTrailCapture(requested, environmentDecision?.exposureCompensation);
+        appliedCapturePlan = prepared.manualExposureApplied || prepared.plan === requested
+          ? prepared.plan : adaptModePlan('light-trail', prepared.plan);
         manualExposureApplied = prepared.manualExposureApplied;
         captureFocusApplied = prepared.focusApplied;
         captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
         captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
       } else if (isWaterfallMode) {
         setCaptureStatus('Preparing waterfall capture…');
-        const prepared = await prepareWaterfallCapture(waterfallCapturePlan);
-        appliedCapturePlan = prepared.plan;
+        let requested = adaptModePlan('waterfall', waterfallCapturePlan);
+        if (requested.strategy === 'manual-slow-exposure' && (requested.exposureSeconds ?? 0) < 0.25
+          && supportsNativeTemporalAveraging) {
+          requested = adaptModePlan('waterfall', getAutomaticWaterfallPlan());
+          environmentResolved?.reasons.push('metered-shutter-too-short-for-water-smoothing');
+        }
+        const prepared = await prepareWaterfallCapture(requested, environmentDecision?.exposureCompensation);
+        appliedCapturePlan = prepared.manualExposureApplied || prepared.plan === requested
+          ? prepared.plan : adaptModePlan('waterfall', prepared.plan);
         manualExposureApplied = prepared.manualExposureApplied;
         captureFocusApplied = prepared.focusApplied;
         captureWhiteBalanceApplied = prepared.whiteBalanceApplied;
@@ -2245,6 +2294,23 @@ export default function CameraScreen() {
         captureAutomaticMeteringApplied = prepared.automaticMeteringApplied;
       }
 
+      if (manualExposureApplied && environmentDecision) {
+        const controller = cameraRef.current?.controller;
+        if (cameraDevice?.supportsWhiteBalanceLocking && controller) {
+          try { await controller.lockCurrentWhiteBalance(); captureWhiteBalanceApplied = true; }
+          catch { captureWhiteBalanceApplied = false; }
+        }
+        if (isStarMode && environmentDecision.focusStrategy === 'automatic' && lockModes.includes('AF')) {
+          try {
+            await cameraRef.current?.focusTo(
+              { x: previewFrame.width / 2, y: previewFrame.height / 2 },
+              { modes: ['AF'], responsiveness: 'steady', adaptiveness: 'locked', autoResetAfter: null },
+            );
+            captureFocusApplied = true;
+          } catch { captureFocusApplied = false; }
+        }
+      }
+
       const plan = resolveCapturePlan(capabilities, {
         modeId: activeCaptureModeId, photoQuality: 'maximum',
         hdr: hdrEnabled, flashMode: flash, shutterSound: shutterSoundEnabled,
@@ -2253,7 +2319,8 @@ export default function CameraScreen() {
         focusExposureLocked: meteringLocked,
       });
       plan.resolved.hdr = nativeHdrRequested;
-      plan.resolved.focusExposureLocked = meteringLocked || captureAutomaticMeteringApplied;
+      plan.resolved.focusExposureLocked = meteringLocked || (captureFocusApplied
+        && (manualExposureApplied || (captureAutomaticMeteringApplied && lockModes.includes('AE'))));
       plan.resolved.flashMode = isFlashDisabledForMode ? 'off' : cameraDevice?.hasFlash ? flash : 'off';
       if (isFlashDisabledForMode && flash !== 'off' && capabilities.flash) {
         plan.fallbacks.push({ setting: 'flashMode', requested: flash, resolved: 'off', reason: 'mode-flash-disabled' });
@@ -2266,10 +2333,25 @@ export default function CameraScreen() {
         plan.fallbacks.push({ setting: 'hdr', requested: true, resolved: false, reason: 'mode-hdr-disabled' });
       }
       const nativeSettings = readNativeCaptureSettings(cameraRef.current?.controller, Platform.OS);
+      if (environmentResolved) {
+        const confirmedStep = exposureSteps.find((step) => nativeSettings?.exposureBias !== null
+          && nativeSettings?.exposureBias !== undefined
+          && Math.abs(step.nativeValue - nativeSettings.exposureBias) < 0.001);
+        plan.resolved.exposureCompensation = confirmedStep?.displayValue
+          ?? clamp(environmentResolved.exposureCompensation, exposureMin, exposureMax);
+      }
       const frameCount = plan.resolved.frameCount;
+      const burstStartedAt = Date.now();
+      const frameStartedAt: number[] = [];
+      let burstBudgetReached = false;
       if (frameCount > 1) setMultiFrameProgress({ captured: 0, total: frameCount });
       const capturedFramePaths: string[] = [];
       for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+        if (environmentResolved && capturedFramePaths.length >= 2
+          && Date.now() - burstStartedAt >= environmentResolved.maxBurstMs) {
+          burstBudgetReached = true;
+          break;
+        }
         if (
           captureSessionRef.current !== captureSession
           || !cameraReadyRef.current
@@ -2299,6 +2381,7 @@ export default function CameraScreen() {
         } else if (isProductMode) {
           setCaptureStatus('Capturing product detail… Hold steady');
         }
+        frameStartedAt.push(Date.now());
         const photoFile = await photoOutput.capturePhotoToFile(
           {
             ...getPhotoCaptureSettings(capabilities, 'maximum', nativeHdrRequested,
@@ -2319,19 +2402,24 @@ export default function CameraScreen() {
           && frameIndex < frameCount - 1
         ) {
           await new Promise<void>((resolve) => {
-            setTimeout(resolve, LIGHT_TRAIL_FRAME_INTERVAL_MS);
+            setTimeout(resolve, environmentResolved?.frameIntervalMs ?? LIGHT_TRAIL_FRAME_INTERVAL_MS);
           });
         } else if (
           appliedCapturePlan?.strategy === 'automatic-temporal-average'
           && frameIndex < frameCount - 1
         ) {
           await new Promise<void>((resolve) => {
-            setTimeout(resolve, WATERFALL_FRAME_INTERVAL_MS);
+            setTimeout(resolve, environmentResolved?.frameIntervalMs ?? WATERFALL_FRAME_INTERVAL_MS);
           });
         }
       }
 
       const metadataSourceFilePath = capturedFramePaths[0];
+      if (burstBudgetReached) {
+        plan.fallbacks.push({ setting: 'frameCount', requested: frameCount,
+          resolved: capturedFramePaths.length, reason: 'burst-time-budget' });
+        plan.resolved.frameCount = capturedFramePaths.length;
+      }
       const outputFilePath = metadataSourceFilePath;
       const captureFallbackReason = appliedCapturePlan?.fallbackReason;
       if (
@@ -2357,19 +2445,38 @@ export default function CameraScreen() {
         beautyEffectApplied: false,
         captureStrategy: appliedCapturePlan?.strategy,
         captureFrameCount: appliedCapturePlan?.frameCount,
+        environmentCapture: environmentDecision && environmentResolved ? {
+          requested: environmentDecision, resolved: environmentResolved,
+          outcome: {
+            capturedFrameCount: capturedFramePaths.length,
+            frameIntervalMs: capturedFramePaths.length > 1 ? environmentResolved.frameIntervalMs : 0,
+            interFrameStartIntervalsMs: frameStartedAt.slice(1).map((time, index) => time - frameStartedAt[index]),
+            captureDurationMs: Date.now() - burstStartedAt,
+            burstBudgetReached, manualExposureApplied,
+            reportedExposureSeconds: nativeSettings?.exposureSeconds ?? null,
+            reportedISO: nativeSettings?.iso ?? null,
+            focusLockApplied: captureFocusApplied,
+            whiteBalanceLockApplied: captureWhiteBalanceApplied,
+            exposureBias: nativeSettings?.exposureBias ?? null,
+            exposureBiasUnit: nativeSettings?.exposureBiasUnit,
+          },
+        } : undefined,
         manualExposureApplied: appliedCapturePlan ? manualExposureApplied : undefined,
-        appliedExposureSeconds: manualExposureApplied ? appliedCapturePlan?.exposureSeconds : undefined,
-        appliedIso: manualExposureApplied ? appliedCapturePlan?.iso : undefined,
+        appliedExposureSeconds: manualExposureApplied && (nativeSettings?.exposureSeconds ?? 0) > 0
+          ? nativeSettings?.exposureSeconds ?? undefined : undefined,
+        appliedIso: manualExposureApplied && (nativeSettings?.iso ?? 0) > 0
+          ? nativeSettings?.iso ?? undefined : undefined,
         appliedWhiteBalanceKelvin: captureWhiteBalanceApplied
           ? appliedCapturePlan?.whiteBalanceKelvin
           : undefined,
         whiteBalanceStrategy: captureWhiteBalanceApplied
-          ? isProductMode ? 'automatic-locked' : 'manual-kelvin'
+          ? isProductMode || environmentDecision ? 'automatic-locked' : 'manual-kelvin'
           : undefined,
         focusStrategy: appliedCapturePlan
-          ? isStarMode && captureFocusApplied
+          ? isStarMode && captureFocusApplied && manualExposureApplied
+            && 'lockFocusAtInfinity' in appliedCapturePlan && appliedCapturePlan.lockFocusAtInfinity
             ? 'infinity-locked'
-            : captureAutomaticMeteringApplied ? 'automatic-locked' : undefined
+            : captureFocusApplied ? 'automatic-locked' : undefined
           : undefined,
         processingOperations: undefined,
         captureFallbackReason,

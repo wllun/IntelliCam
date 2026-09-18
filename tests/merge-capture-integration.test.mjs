@@ -118,7 +118,8 @@ test('scene diagnostics start early and retain alignment measurements without a 
   ];
   const result = service.measureCaptureScene('file:///reference.jpg', alignments, pending);
   finishMeasurement(measurement);
-  assert.equal(JSON.stringify(await result), JSON.stringify(adaptive.measureCapturedScene(measurement, alignments)));
+  const actual = await result;
+  assert.equal(JSON.stringify(actual), JSON.stringify(adaptive.measureCapturedScene(measurement, alignments, actual.sampledAt)));
   assert.equal(reads, 1);
 });
 

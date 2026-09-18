@@ -1,5 +1,5 @@
 import { NativeModule, requireOptionalNativeModule } from 'expo';
-import type { ComputationalMode, FrameRegistration, FrameSceneMeasurement } from '../../../types/adaptive-capture';
+import type { ComputationalMode, FrameRegistration, FrameSceneMeasurement, LiveCaptureScene } from '../../../types/adaptive-capture';
 
 export type MultiFrameMode = ComputationalMode;
 
@@ -15,6 +15,9 @@ export interface MultiFrameProcessResult {
 }
 
 declare class MultiFrameProcessorModule extends NativeModule {
+  analyzePreviewAsync(sourceUri: string, sceneKey: string, sampledAt: number): Promise<Pick<LiveCaptureScene,
+    'meanLuma' | 'highlightFraction' | 'texture' | 'subjectMotion' | 'lightMotion' | 'lightSpeed' | 'displacement'>>;
+  sampleMotionAsync(): Promise<Pick<LiveCaptureScene, 'gyroRms' | 'gyroSamples'>>;
   measureAsync(sourceUri: string): Promise<FrameSceneMeasurement>;
   processAsync(
     sourceUris: string[],

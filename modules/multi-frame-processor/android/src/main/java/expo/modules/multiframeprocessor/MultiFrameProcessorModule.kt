@@ -4,6 +4,13 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.Handler
+import android.os.Looper
 import androidx.exifinterface.media.ExifInterface
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.functions.Coroutine
@@ -11,6 +18,7 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -23,8 +31,50 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 class MultiFrameProcessorModule : Module() {
+  private val previewAnalyzer = PreviewSceneAnalyzer()
   override fun definition() = ModuleDefinition {
     Name("MultiFrameProcessor")
+
+    AsyncFunction("analyzePreviewAsync") Coroutine { sourceUri: String, sceneKey: String, sampledAt: Double ->
+      withContext(Dispatchers.Default) {
+        val bitmap = decodeOrientedBitmap(filePath(sourceUri), 96)
+          ?: throw IllegalArgumentException("Invalid preview sample.")
+        val small = Bitmap.createScaledBitmap(bitmap, 96, 72, true)
+        if (small !== bitmap) bitmap.recycle()
+        try {
+          val colors = IntArray(96 * 72)
+          small.getPixels(colors, 0, 96, 0, 0, 96, 72)
+          previewAnalyzer.analyze(colors, 96, 72, sceneKey, sampledAt)
+        } finally { small.recycle() }
+      }
+    }
+
+    AsyncFunction("sampleMotionAsync") Coroutine { ->
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+      val sensor = manager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+      if (sensor == null) mapOf("gyroRms" to null, "gyroSamples" to 0) else {
+        val lock = Any()
+        var squared = 0.0
+        var samples = 0
+        val listener = object : SensorEventListener {
+          override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+          override fun onSensorChanged(event: SensorEvent) {
+            synchronized(lock) {
+              squared += event.values.take(3).sumOf { it.toDouble() * it }
+              samples++
+            }
+          }
+        }
+        try {
+          manager.registerListener(listener, sensor, 50000, Handler(Looper.getMainLooper()))
+          delay(300)
+          synchronized(lock) {
+            mapOf("gyroRms" to if (samples >= 3) sqrt(squared / samples) else null, "gyroSamples" to samples)
+          }
+        } finally { manager.unregisterListener(listener) }
+      }
+    }
 
     AsyncFunction("measureAsync") Coroutine { sourceUri: String ->
       withContext(Dispatchers.Default) { measureFrame(sourceUri) }

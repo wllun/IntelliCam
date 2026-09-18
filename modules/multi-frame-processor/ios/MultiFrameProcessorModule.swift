@@ -1,5 +1,6 @@
 import CoreGraphics
 import CoreImage
+import CoreMotion
 import ExpoModulesCore
 import Foundation
 import ImageIO
@@ -9,6 +10,30 @@ import Vision
 public final class MultiFrameProcessorModule: Module {
   public func definition() -> ModuleDefinition {
     Name("MultiFrameProcessor")
+
+    AsyncFunction("sampleMotionAsync") { () -> [String: Any] in
+      let motion = CMMotionManager()
+      guard motion.isGyroAvailable else { return ["gyroRms": NSNull(), "gyroSamples": 0] }
+      let lock = NSLock()
+      var squared = 0.0
+      var samples = 0
+      let queue = OperationQueue()
+      queue.maxConcurrentOperationCount = 1
+      motion.gyroUpdateInterval = 0.05
+      motion.startGyroUpdates(to: queue) { data, _ in
+        guard let rate = data?.rotationRate else { return }
+        lock.lock()
+        squared += rate.x * rate.x + rate.y * rate.y + rate.z * rate.z
+        samples += 1
+        lock.unlock()
+      }
+      defer { motion.stopGyroUpdates() }
+      Thread.sleep(forTimeInterval: 0.3)
+      lock.lock()
+      defer { lock.unlock() }
+      return ["gyroRms": samples >= 3 ? sqrt(squared / Double(samples)) as Any : NSNull(),
+        "gyroSamples": samples]
+    }
 
     AsyncFunction("measureAsync") { (sourceURI: String) throws -> [String: Any] in
       return try self.measureFrame(sourceURI)

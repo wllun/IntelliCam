@@ -28,7 +28,8 @@ test('Light Trail resolves a real manual or multi-frame capture plan', () => {
   assert.match(planSource, /IDEAL_EXPOSURE_SECONDS = 4/);
   assert.match(planSource, /LIGHT_TRAIL_FRAME_COUNT = 8/);
   assert.match(planSource, /automatic-lighten-composite/);
-  assert.match(cameraSource, /prepareLightTrailCapture\(lightTrailCapturePlan\)/);
+  assert.match(cameraSource, /adaptModePlan\('light-trail', lightTrailCapturePlan\)/);
+  assert.match(cameraSource, /prepareLightTrailCapture\(requested,/);
   assert.match(cameraSource, /setExposureLocked\(/);
 });
 
