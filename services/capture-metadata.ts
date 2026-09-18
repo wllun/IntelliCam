@@ -1,6 +1,6 @@
 import type { CapturePhotoMetadata } from './photo-metadata';
 import MultiFrameProcessor, { type MultiFrameProcessResult } from '@/modules/multi-frame-processor';
-import type { CapturePlan, FrameRegistration, NativeSettingsSnapshot, SceneMeasurements } from '@/types/adaptive-capture';
+import type { CapturePlan, FrameRegistration, FrameSceneMeasurement, NativeSettingsSnapshot, SceneMeasurements } from '@/types/adaptive-capture';
 import { emptySceneMeasurements, finalizeCapturePlan, measureCapturedScene } from '@/utils/adaptive-capture.mjs';
 
 export interface CaptureMetadataContext {
@@ -38,15 +38,24 @@ export function createCaptureMetadata(plan: CapturePlan, context: CaptureMetadat
   };
 }
 
-export async function measureCaptureScene(uri: string, alignments?: FrameRegistration[]): Promise<SceneMeasurements> {
+export async function startCaptureSceneMeasurement(uri: string): Promise<FrameSceneMeasurement | null> {
   // Existing clients may have the processor but not this newly added method.
-  if (typeof MultiFrameProcessor?.measureAsync !== 'function') return emptySceneMeasurements();
+  if (typeof MultiFrameProcessor?.measureAsync !== 'function') return null;
   try {
-    return measureCapturedScene(await MultiFrameProcessor.measureAsync(uri), alignments);
+    return await MultiFrameProcessor.measureAsync(uri);
   } catch (error) {
     console.warn('Scene measurement unavailable:', error);
-    return emptySceneMeasurements();
+    return null;
   }
+}
+
+export async function measureCaptureScene(
+  uri: string,
+  alignments?: FrameRegistration[],
+  pendingMeasurement?: Promise<FrameSceneMeasurement | null>,
+): Promise<SceneMeasurements> {
+  const measurement = await (pendingMeasurement ?? startCaptureSceneMeasurement(uri));
+  return measurement ? measureCapturedScene(measurement, alignments) : emptySceneMeasurements();
 }
 
 export function completeCaptureMetadata(

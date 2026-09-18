@@ -151,7 +151,7 @@ class MultiFrameProcessorModule : Module() {
 
         val candidatePixels = IntArray(width * height)
         preparedCandidate.getPixels(candidatePixels, 0, width, 0, 0, width, height)
-        blendFrame(
+        FrameBlender.blend(
           outputPixels,
           candidatePixels,
           sampleCounts,
@@ -160,6 +160,8 @@ class MultiFrameProcessorModule : Module() {
           offsetX,
           offsetY,
           mode,
+          STAR_PIXEL_MOTION_THRESHOLD,
+          LIGHT_TRAIL_DELTA,
         )
         acceptedFrames += 1
         cropLeft = max(cropLeft, max(0, -offsetX))
@@ -331,68 +333,6 @@ class MultiFrameProcessorModule : Module() {
       motionScore <= motionLimit &&
       !excessiveOffset &&
       !(atSearchBoundary && correlation < STRONG_ALIGNMENT_CORRELATION)
-  }
-
-  private fun blendFrame(
-    output: IntArray,
-    candidate: IntArray,
-    counts: ByteArray?,
-    width: Int,
-    height: Int,
-    offsetX: Int,
-    offsetY: Int,
-    mode: String,
-  ) {
-    val startX = max(0, -offsetX)
-    val endX = min(width, width - offsetX)
-    val startY = max(0, -offsetY)
-    val endY = min(height, height - offsetY)
-    for (y in startY until endY) {
-      for (x in startX until endX) {
-        val outputIndex = y * width + x
-        val candidateColor = candidate[(y + offsetY) * width + x + offsetX]
-        val outputColor = output[outputIndex]
-        val difference = abs(luma(candidateColor) - luma(outputColor))
-
-        when (mode) {
-          MODE_STAR -> {
-            if (difference <= STAR_PIXEL_MOTION_THRESHOLD) {
-              output[outputIndex] = averageColor(
-                outputColor,
-                candidateColor,
-                incrementCount(counts!!, outputIndex),
-              )
-            }
-          }
-          MODE_LIGHT_TRAIL -> {
-            if (luma(candidateColor) > luma(outputColor) + LIGHT_TRAIL_DELTA) {
-              output[outputIndex] = candidateColor
-            }
-          }
-          MODE_WATERFALL -> {
-            output[outputIndex] = averageColor(
-              outputColor,
-              candidateColor,
-              incrementCount(counts!!, outputIndex),
-            )
-          }
-        }
-      }
-    }
-  }
-
-  private fun incrementCount(counts: ByteArray, index: Int): Int {
-    val count = (counts[index].toInt() and 0xff).coerceAtLeast(1) + 1
-    counts[index] = count.coerceAtMost(255).toByte()
-    return count
-  }
-
-  private fun averageColor(existing: Int, next: Int, count: Int): Int {
-    val previousCount = count - 1
-    val red = ((existing shr 16 and 0xff) * previousCount + (next shr 16 and 0xff)) / count
-    val green = ((existing shr 8 and 0xff) * previousCount + (next shr 8 and 0xff)) / count
-    val blue = ((existing and 0xff) * previousCount + (next and 0xff)) / count
-    return (0xff shl 24) or (red shl 16) or (green shl 8) or blue
   }
 
   private fun luma(color: Int): Int = (

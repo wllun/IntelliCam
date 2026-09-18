@@ -81,7 +81,7 @@ import MultiFrameProcessor, {
 import { resolveCapturePlan } from '@/utils/adaptive-capture.mjs';
 import { useCapturePreparation } from '@/hooks/use-capture-preparation';
 import { getPhotoCaptureSettings, readNativeCaptureSettings } from '@/services/capture-preparation';
-import { completeCaptureMetadata, createCaptureMetadata, measureCaptureScene } from '@/services/capture-metadata';
+import { completeCaptureMetadata, createCaptureMetadata, measureCaptureScene, startCaptureSceneMeasurement } from '@/services/capture-metadata';
 import PortraitEffect from '@/modules/portrait-effect';
 import {
   getStarPlanLabel,
@@ -328,7 +328,7 @@ async function cropPhotoForAspectRatio(
     );
     if (!crop) return sourceUri;
 
-    const croppedImage = normalizedImage.crop(
+    const croppedImage = await normalizedImage.cropAsync(
       crop.originX,
       crop.originY,
       crop.originX + crop.width,
@@ -584,6 +584,9 @@ export default function CameraScreen() {
       .catch(() => undefined)
       .then(async () => {
         const referenceFilePath = sourceFilePaths[0];
+        // Diagnostics only read the immutable source; overlap with processing rather than
+        // add another native decode after the quality-critical work has completed.
+        const sceneMeasurement = startCaptureSceneMeasurement(`file://${referenceFilePath}`);
         let processingSourceUri = `file://${referenceFilePath}`;
         let multiFrameResult: MultiFrameProcessResult | undefined;
         let multiFrameFailureMessage: string | undefined = metadata.capturePlan?.fallbacks
@@ -673,7 +676,9 @@ export default function CameraScreen() {
             }
           }
         }
-        const scene = await measureCaptureScene(`file://${referenceFilePath}`, multiFrameResult?.alignments);
+        const scene = await measureCaptureScene(
+          `file://${referenceFilePath}`, multiFrameResult?.alignments, sceneMeasurement,
+        );
         const completedMetadata = completeCaptureMetadata(
           metadata, sourceFilePaths.length, multiFrameResult, portraitApplied, scene,
           multiFrameFailureReason, effectFailureMessage ? 'portrait-not-applied' : undefined,

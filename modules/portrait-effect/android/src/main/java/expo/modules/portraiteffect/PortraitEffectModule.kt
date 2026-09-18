@@ -424,26 +424,38 @@ class PortraitEffectModule : Module() {
     val backgroundPixels = IntArray(background.width * background.height)
     background.getPixels(backgroundPixels, 0, background.width, 0, 0, background.width, background.height)
 
+    // Coordinates depend on columns/rows, not individual pixels. Preserve the exact
+    // Float operation order and bilinear weights while avoiding millions of divisions.
+    val maskX = FloatArray(subject.width) { x ->
+      x.toFloat() * (mask.width - 1) / max(1, subject.width - 1)
+    }
+    val maskX0 = IntArray(subject.width) { maskX[it].toInt() }
+    val maskX1 = IntArray(subject.width) { min(maskX0[it] + 1, mask.width - 1) }
+    val maskBlendX = FloatArray(subject.width) { maskX[it] - maskX0[it] }
+    val backgroundColumns = IntArray(subject.width) { x ->
+      min(background.width - 1, x * background.width / subject.width)
+    }
+
     for (y in 0 until subject.height) {
       subject.getPixels(subjectRow, 0, subject.width, 0, y, subject.width, 1)
       val backgroundY = min(background.height - 1, y * background.height / subject.height)
+      val my = y.toFloat() * (mask.height - 1) / max(1, subject.height - 1)
+      val y0 = my.toInt()
+      val y1 = min(y0 + 1, mask.height - 1)
+      val dy = my - y0
+      val topRow = y0 * mask.width
+      val bottomRow = y1 * mask.width
+      val backgroundRow = backgroundY * background.width
       for (x in 0 until subject.width) {
-        val backgroundX = min(background.width - 1, x * background.width / subject.width)
-        // Bilinear interpolation avoids blocky edges when the mask is enlarged to photo resolution.
-        val mx = (x.toFloat() * (mask.width - 1) / max(1, subject.width - 1))
-        val my = (y.toFloat() * (mask.height - 1) / max(1, subject.height - 1))
-        val x0 = mx.toInt()
-        val y0 = my.toInt()
-        val x1 = min(x0 + 1, mask.width - 1)
-        val y1 = min(y0 + 1, mask.height - 1)
-        val dx = mx - x0
-        val dy = my - y0
-        val top = mask.confidence[y0 * mask.width + x0] * (1 - dx) + mask.confidence[y0 * mask.width + x1] * dx
-        val bottom = mask.confidence[y1 * mask.width + x0] * (1 - dx) + mask.confidence[y1 * mask.width + x1] * dx
+        val x0 = maskX0[x]
+        val x1 = maskX1[x]
+        val dx = maskBlendX[x]
+        val top = mask.confidence[topRow + x0] * (1 - dx) + mask.confidence[topRow + x1] * dx
+        val bottom = mask.confidence[bottomRow + x0] * (1 - dx) + mask.confidence[bottomRow + x1] * dx
         val alpha = smoothSubjectAlpha(top * (1 - dy) + bottom * dy)
         outputRow[x] = blendColor(
           subjectRow[x],
-          backgroundPixels[backgroundY * background.width + backgroundX],
+          backgroundPixels[backgroundRow + backgroundColumns[x]],
           alpha,
         )
       }

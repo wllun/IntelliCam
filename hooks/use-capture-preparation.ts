@@ -29,11 +29,16 @@ export function useCapturePreparation(
   ], [nativeHdrRequested, photoOutput]);
 
   useEffect(() => {
+    if (!cameraReady || !device) return;
     const modes: CaptureFlashMode[] = capabilities.flash ? ['off', 'auto', 'on'] : ['off'];
-    const settings = modes.flatMap((mode) => [false, true].map((sound) =>
-      getPhotoCaptureSettings(capabilities, photoQuality, nativeHdrRequested, mode, sound)));
+    const settings = modes.flatMap((mode) => [false, true].flatMap((sound) => {
+      const normal = getPhotoCaptureSettings(capabilities, photoQuality, nativeHdrRequested, mode, sound);
+      // Include the exact no-flash variants used by motion composites and special modes.
+      return mode === 'off' ? [normal, { ...normal, enableRedEyeReduction: false },
+        { ...normal, enableRedEyeReduction: false, enableVirtualDeviceFusion: false }] : [normal];
+    }));
     void photoOutput.prepareSettings(settings).catch(() => undefined);
-  }, [capabilities, nativeHdrRequested, photoOutput, photoQuality]);
+  }, [cameraReady, capabilities, device, nativeHdrRequested, photoOutput, photoQuality]);
 
   useEffect(() => {
     if (!cameraReady || !device) return;

@@ -91,3 +91,46 @@ test('merged screen routes raw bursts through alignment only once before crop an
   assert.match(source, /measureCaptureScene\(/);
   assert.ok(source.indexOf('MultiFrameProcessor.processAsync(') < source.indexOf('const processedUri = await cropPhotoForAspectRatio('));
 });
+
+test('scene diagnostics start early and retain alignment measurements without a second native read', async () => {
+  let finishMeasurement;
+  let reads = 0;
+  const measurement = {
+    width: 3072, height: 2304, highlightClippingFraction: 0.04,
+    highlightSampleCount: 49152, highlightThreshold: 250,
+  };
+  const service = await loadService('../services/capture-metadata.ts', {
+    '@/modules/multi-frame-processor': {
+      __esModule: true,
+      default: { measureAsync(uri) {
+        assert.equal(uri, 'file:///reference.jpg');
+        reads += 1;
+        return new Promise((resolve) => { finishMeasurement = resolve; });
+      } },
+    },
+    '@/utils/adaptive-capture.mjs': adaptive,
+  });
+  const pending = service.startCaptureSceneMeasurement('file:///reference.jpg');
+  assert.equal(reads, 1);
+  const alignments = [
+    { index: 0, offsetX: 0, offsetY: 0, motionScore: 0, accepted: true },
+    { index: 1, offsetX: 2, offsetY: -1, motionScore: 0.03, accepted: true },
+  ];
+  const result = service.measureCaptureScene('file:///reference.jpg', alignments, pending);
+  finishMeasurement(measurement);
+  assert.equal(JSON.stringify(await result), JSON.stringify(adaptive.measureCapturedScene(measurement, alignments)));
+  assert.equal(reads, 1);
+});
+
+test('early scene measurement keeps older-native and rejected-read fallbacks safe', async () => {
+  for (const native of [null, {}, { measureAsync: async () => { throw new Error('read failed'); } }]) {
+    const service = await loadService('../services/capture-metadata.ts', {
+      '@/modules/multi-frame-processor': { default: native, __esModule: true },
+      '@/utils/adaptive-capture.mjs': adaptive,
+    });
+    const pending = service.startCaptureSceneMeasurement('file:///reference.jpg');
+    assert.equal(await pending, null);
+    assert.equal(JSON.stringify(await service.measureCaptureScene('file:///reference.jpg', undefined, pending)),
+      JSON.stringify(adaptive.emptySceneMeasurements()));
+  }
+});
