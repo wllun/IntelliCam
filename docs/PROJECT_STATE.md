@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-09-18
+Last updated: 2026-09-19
 Branch reviewed: `feature/improvement` (merge reconciliation)
 
 ## Where we are
@@ -19,7 +19,12 @@ optional photo-location metadata.
 Auto mode also provides an optional Portrait effect beside Flash. It detects actual
 foreground subject outlines (people, pets, objects), rather than retaining a sharp
 rectangle. Android uses ML Kit Subject Segmentation, with a one-time Google Play
-services model download, sampled live preview masks, and subject-aware saved photos.
+services model download, sampled native-blurred background images with transparent
+subject outlines, and subject-aware saved photos. The preview no longer uses view
+blur, which cannot sample camera TextureView/SurfaceView content in the installed
+BlurView version. Detection failures are shown in the existing camera status area
+and logged; slow preview samples have a four-second freshness limit. This native
+preview change requires rebuilding and reinstalling Android, not just restarting Metro.
 iOS 17+ uses Vision foreground-instance masks for saved photos only; live blur is
 not available there with the current camera snapshot API. Tapping a detected subject
 selects it; background taps preserve all detected foreground. Soft mask edges protect

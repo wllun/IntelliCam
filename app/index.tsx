@@ -8,7 +8,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  UIManager,
   useWindowDimensions,
   View,
   type GestureResponderEvent,
@@ -25,7 +24,6 @@ import {
 } from 'react-native-vision-camera';
 import { loadImage } from 'react-native-nitro-image';
 import { Image } from 'expo-image';
-import { requireOptionalNativeModule } from 'expo';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
@@ -513,6 +511,7 @@ export default function CameraScreen() {
   const [cameraPreferencesHydrated, setCameraPreferencesHydrated] = useState(false);
   const [portraitEffectEnabled, setPortraitEffectEnabled] = useState(false);
   const [portraitPreparing, setPortraitPreparing] = useState(false);
+  const [portraitPreviewStatus, setPortraitPreviewStatus] = useState<string>();
   const portraitPreparation = useRef(0);
   const getPortraitSnapshot = useCallback(async () => {
     const camera = cameraRef.current;
@@ -2615,6 +2614,7 @@ export default function CameraScreen() {
                 focusY={portraitTarget.y}
                 sceneKey={`${cameraDevice.id}:${aspectRatio}:${displayedZoom.toFixed(1)}`}
                 getSnapshot={getPortraitSnapshot}
+                onStatus={setPortraitPreviewStatus}
               />
             </Suspense>
           )}
@@ -2654,15 +2654,15 @@ export default function CameraScreen() {
           </Animated.View>
         )}
 
-        {captureStatus && countdown === undefined && (
+        {(captureStatus || portraitPreviewStatus) && countdown === undefined && (
           <View
             accessible
-            accessibilityLabel={captureStatus}
+            accessibilityLabel={captureStatus || portraitPreviewStatus}
             accessibilityLiveRegion="polite"
             pointerEvents="none"
             style={[styles.captureStatus, { bottom: insets.bottom + 160 }]}>
             <Ionicons name={preset.icon} size={16} color={preset.tint} />
-            <Text style={styles.captureStatusText}>{captureStatus}</Text>
+            <Text style={styles.captureStatusText}>{captureStatus || portraitPreviewStatus}</Text>
           </View>
         )}
 
@@ -2871,8 +2871,8 @@ export default function CameraScreen() {
                   return;
                 }
                 if (PortraitEffect?.subjectSegmentationVersion !== 2
-                  || (Platform.OS === 'android' && (!requireOptionalNativeModule('ExpoBlurView')
-                    || !UIManager.getViewManagerConfig('RNCMaskedView')))) {
+                  || (Platform.OS === 'android' && (PortraitEffect.portraitPreviewVersion !== 1
+                    || typeof PortraitEffect.previewBackgroundAsync !== 'function'))) {
                   Alert.alert(
                     'Rebuild required',
                     'Live Portrait preview and photo processing use native modules. Rebuild and reinstall IntelliCam to enable them.',
@@ -2893,6 +2893,7 @@ export default function CameraScreen() {
                   }
                 } catch (error) {
                   if (preparation === portraitPreparation.current) {
+                    console.warn('Portrait preparation failed:', error);
                     Alert.alert('Portrait unavailable', Platform.OS === 'android'
                       ? 'The subject-detection model could not be prepared. Check your internet connection and Google Play services, then try again.'
                       : String(error));

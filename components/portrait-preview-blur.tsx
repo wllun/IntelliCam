@@ -1,7 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
-import MaskedView from '@react-native-masked-view/masked-view';
-import { BlurView } from 'expo-blur';
 import { File } from 'expo-file-system';
 import type { Image as CameraImage } from 'react-native-nitro-image';
 import PortraitEffect from '@/modules/portrait-effect';
@@ -13,6 +11,7 @@ interface PortraitPreviewBlurProps {
   focusY: number;
   sceneKey: string;
   getSnapshot: () => Promise<CameraImage>;
+  onStatus: (status: string | undefined) => void;
 }
 
 function removeTemporaryFile(uri: string) {
@@ -31,8 +30,9 @@ export const PortraitPreviewBlur = memo(function PortraitPreviewBlur({
   focusY,
   sceneKey,
   getSnapshot,
+  onStatus,
 }: PortraitPreviewBlurProps) {
-  const [maskUri, setMaskUri] = useState<string>();
+  const [backgroundUri, setBackgroundUri] = useState<string>();
   const running = useRef(false);
 
   useEffect(() => {
@@ -40,12 +40,14 @@ export const PortraitPreviewBlur = memo(function PortraitPreviewBlur({
     let nextFrame: ReturnType<typeof setTimeout>;
     let expiration: ReturnType<typeof setTimeout>;
     const retainedFiles: string[] = [];
-    setMaskUri(undefined);
+    let reportedError = false;
+    setBackgroundUri(undefined);
+    onStatus('Detecting Portrait subject…');
 
-    async function updateMask() {
+    async function updatePreview() {
       // Single-flight, including a previous scene's request still completing.
       if (running.current) {
-        nextFrame = setTimeout(updateMask, 80);
+        nextFrame = setTimeout(updatePreview, 80);
         return;
       }
       running.current = true;
@@ -67,55 +69,59 @@ export const PortraitPreviewBlur = memo(function PortraitPreviewBlur({
         );
         inputPath = await small.saveToTemporaryFileAsync('jpg', 85);
         if (cancelled) return;
-        const result = await PortraitEffect!.previewMaskAsync(inputPath, focusX, focusY);
+        const result = await PortraitEffect!.previewBackgroundAsync(inputPath, focusX, focusY);
         resultPath = result.uri || undefined;
         if (cancelled) return;
         clearTimeout(expiration);
-        if (Date.now() - startedAt > 1500) {
-          setMaskUri(undefined);
+        if (Date.now() - startedAt > 4000) {
+          setBackgroundUri(undefined);
+          onStatus('Portrait preview is slow — hold still.');
           return;
         }
-        setMaskUri(result.applied ? resultPath : undefined);
+        reportedError = false;
+        setBackgroundUri(result.applied ? resultPath : undefined);
+        onStatus(result.applied ? undefined : 'No Portrait subject found — move closer or improve lighting.');
         if (resultPath) {
           retainedFiles.push(resultPath);
           resultPath = undefined;
-          // Retain recent masks while Image loads their replacement.
+          // Retain recent frames while Image loads their replacement.
           while (retainedFiles.length > 3) removeTemporaryFile(retainedFiles.shift()!);
-          expiration = setTimeout(() => setMaskUri(undefined), 1200);
+          expiration = setTimeout(() => setBackgroundUri(undefined), 4000);
         }
-      } catch {
-        if (!cancelled) setMaskUri(undefined);
+      } catch (error) {
+        if (!cancelled) {
+          setBackgroundUri(undefined);
+          onStatus('Portrait preview unavailable — saved-photo processing remains enabled.');
+          if (!reportedError) console.warn('Portrait preview failed:', error);
+          reportedError = true;
+        }
       } finally {
         if (inputPath) removeTemporaryFile(inputPath);
         if (resultPath) removeTemporaryFile(resultPath);
         if (small !== snapshot) small?.dispose();
         snapshot?.dispose();
         running.current = false;
-        // Only masks are sampled; camera and background blur remain live.
-        if (!cancelled) nextFrame = setTimeout(updateMask, 100);
+        // Sample the background; the transparent subject stays on the live camera.
+        if (!cancelled) nextFrame = setTimeout(updatePreview, 100);
       }
     }
 
-    void updateMask();
+    void updatePreview();
     return () => {
       cancelled = true;
       clearTimeout(nextFrame);
       clearTimeout(expiration);
       retainedFiles.forEach(removeTemporaryFile);
+      onStatus(undefined);
     };
-  }, [width, height, focusX, focusY, sceneKey, getSnapshot]);
+  }, [width, height, focusX, focusY, sceneKey, getSnapshot, onStatus]);
 
   // No subject or stale detection: clear preview, never an invented sharp box.
-  if (!maskUri) return null;
+  if (!backgroundUri) return null;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <MaskedView
-        style={{ width, height }}
-        androidRenderingMode="software"
-        maskElement={<Image source={{ uri: maskUri }} resizeMode="stretch" style={{ width, height }} />}>
-        <BlurView intensity={75} tint="default" experimentalBlurMethod="dimezisBlurView"
-          blurReductionFactor={2} style={StyleSheet.absoluteFill} />
-      </MaskedView>
+      <Image source={{ uri: backgroundUri }} resizeMode="stretch" fadeDuration={0}
+        style={{ width, height }} />
     </View>
   );
 });

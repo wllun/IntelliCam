@@ -75,10 +75,9 @@ test('portrait effect has native Android and iOS implementations', () => {
 test('Portrait uses subject outlines, not fixed sharp rectangles or person-only segmentation', () => {
   assert.match(cameraSource, /<PortraitPreviewBlur/);
   assert.match(cameraSource, /implementationMode=\{isAutoMode && portraitEffectEnabled \? 'compatible'/);
-  assert.match(previewBlur, /BlurView/);
-  assert.match(previewBlur, /MaskedView/);
-  assert.match(previewBlur, /previewMaskAsync/);
-  assert.match(previewBlur, /if \(!maskUri\) return null/);
+  assert.doesNotMatch(previewBlur, /BlurView|MaskedView/);
+  assert.match(previewBlur, /previewBackgroundAsync/);
+  assert.match(previewBlur, /if \(!backgroundUri\) return null/);
   assert.match(previewBlur, /if \(running.current\)/);
   assert.match(previewBlur, /if \(cancelled\) return/);
   assert.match(previewBlur, /snapshot\?\.dispose/);
@@ -96,9 +95,20 @@ test('Portrait uses subject outlines, not fixed sharp rectangles or person-only 
 test('Portrait checks native compatibility and waits for the Android model download', () => {
   assert.match(cameraSource, /subjectSegmentationVersion !== 2/);
   assert.match(cameraSource, /PortraitEffect.prepareAsync/);
-  assert.match(cameraSource, /RNCMaskedView/);
+  assert.match(cameraSource, /portraitPreviewVersion !== 1/);
+  assert.match(cameraSource, /typeof PortraitEffect.previewBackgroundAsync !== 'function'/);
   assert.match(androidModule, /ModuleInstallRequest/);
   assert.match(androidModule, /while \(!awaitTask\(installer.areModulesAvailable/);
   assert.match(androidModule, /withTimeout\(60_000\)/);
   assert.match(cameraSource, /Platform.OS === 'android' && appActive/);
+});
+
+test('Android preview renders actual blurred pixels with transparent foreground', () => {
+  const preview = androidModule.split('AsyncFunction("previewBackgroundAsync")')[1]
+    .split('AsyncFunction("applyAsync")')[0];
+  assert.match(preview, /createBlurredBackground\(bitmap\)/);
+  assert.match(preview, /1f - smoothSubjectAlpha/);
+  assert.match(preview, /pixels\[index\] and 0x00ffffff/);
+  assert.match(preview, /Bitmap.CompressFormat.PNG/);
+  assert.match(previewBlur, /fadeDuration=\{0\}/);
 });

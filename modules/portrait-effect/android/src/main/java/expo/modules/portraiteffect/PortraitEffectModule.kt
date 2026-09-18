@@ -49,7 +49,7 @@ class PortraitEffectModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("PortraitEffect")
-    Constants("subjectSegmentationVersion" to 2)
+    Constants("subjectSegmentationVersion" to 2, "portraitPreviewVersion" to 1)
     OnDestroy {
       if (subjectClient.isInitialized()) subjectClient.value.close()
     }
@@ -71,7 +71,7 @@ class PortraitEffectModule : Module() {
       true
     }
 
-    AsyncFunction("previewMaskAsync") Coroutine { sourceUri: String, focusX: Double, focusY: Double ->
+    AsyncFunction("previewBackgroundAsync") Coroutine { sourceUri: String, focusX: Double, focusY: Double ->
       withContext(Dispatchers.Default) {
         val bitmap = decodeOrientedBitmap(filePath(sourceUri))
           ?: throw IllegalArgumentException("The preview could not be decoded.")
@@ -80,14 +80,25 @@ class PortraitEffectModule : Module() {
           if (mask == null) {
             mapOf("uri" to "", "applied" to false)
           } else {
-            val pixels = IntArray(mask.confidence.size) { index ->
-              // MaskedView uses alpha: blur background, leave detected subject transparent.
+            // Blur actual camera pixels, not the Android view hierarchy. BlurView 2
+            // cannot sample TextureView/SurfaceView camera content.
+            val blurred = createBlurredBackground(bitmap)
+            val scaled = Bitmap.createScaledBitmap(blurred, mask.width, mask.height, true)
+            val pixels = IntArray(mask.confidence.size)
+            try {
+              scaled.getPixels(pixels, 0, mask.width, 0, 0, mask.width, mask.height)
+            } finally {
+              if (scaled !== blurred) scaled.recycle()
+              blurred.recycle()
+            }
+            for (index in pixels.indices) {
+              // Background pixels are visible; foreground reveals the live camera.
               val alpha = ((1f - smoothSubjectAlpha(mask.confidence[index])) * 255).roundToInt()
-              (alpha shl 24) or 0x00ffffff
+              pixels[index] = (alpha shl 24) or (pixels[index] and 0x00ffffff)
             }
             val output = Bitmap.createBitmap(pixels, mask.width, mask.height, Bitmap.Config.ARGB_8888)
             val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
-            val file = File(context.cacheDir, "intellicam-portrait-mask-${UUID.randomUUID()}.png")
+            val file = File(context.cacheDir, "intellicam-portrait-preview-${UUID.randomUUID()}.png")
             try {
               FileOutputStream(file).use { check(output.compress(Bitmap.CompressFormat.PNG, 100, it)) }
             } finally {
