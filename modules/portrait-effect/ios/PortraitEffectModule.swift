@@ -6,6 +6,12 @@ import Vision
 public final class PortraitEffectModule: Module {
   public func definition() -> ModuleDefinition {
     Name("PortraitEffect")
+    Constants(["subjectSegmentationVersion": 2])
+
+    AsyncFunction("prepareAsync") { () -> Bool in
+      if #available(iOS 17.0, *) { return true }
+      return false
+    }
 
     AsyncFunction("applyAsync") { (sourceURI: String, jpegQuality: Int, focusX: Double, focusY: Double) throws -> [String: Any] in
       return try self.applyPortraitEffect(
@@ -56,11 +62,9 @@ public final class PortraitEffectModule: Module {
       y: -image.extent.origin.y
     ))
 
-    let mask = self.focusMask(
-      extent: image.extent,
-      focusX: focusX,
-      focusY: focusY
-    )
+    guard let mask = try self.subjectMask(image: image, focusX: focusX, focusY: focusY) else {
+      return ["uri": sourceURI, "applied": false]
+    }
     let background = image
       .clampedToExtent()
       .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 22])
@@ -90,43 +94,30 @@ public final class PortraitEffectModule: Module {
     return ["uri": outputURL.absoluteString, "applied": true]
   }
 
-  private func focusMask(extent: CGRect, focusX: Double, focusY: Double) -> CIImage {
-    let widthFraction = 0.58
-    let heightFraction = 0.48
-    let centerX = min(max(focusX, widthFraction / 2), 1 - widthFraction / 2)
-    let centerY = min(max(focusY, heightFraction / 2), 1 - heightFraction / 2)
-    let scale = min(1, 512 / max(extent.width, extent.height))
-    let maskWidth = max(1, Int((extent.width * scale).rounded()))
-    let maskHeight = max(1, Int((extent.height * scale).rounded()))
-    var bytes = [UInt8](repeating: 0, count: maskWidth * maskHeight)
-
-    for y in 0..<maskHeight {
-      for x in 0..<maskWidth {
-        let normalizedX = (Double(x) + 0.5) / Double(maskWidth)
-        // Core Image bitmap rows begin at the bottom; preview coordinates begin at the top.
-        let normalizedY = 1 - (Double(y) + 0.5) / Double(maskHeight)
-        let edgeDistance = max(
-          abs(normalizedX - centerX) / (widthFraction / 2),
-          abs(normalizedY - centerY) / (heightFraction / 2)
-        )
-        let feather = min(max((edgeDistance - 0.82) / 0.20, 0), 1)
-        let alpha = 1 - feather * feather * (3 - 2 * feather)
-        bytes[y * maskWidth + x] = UInt8((alpha * 255).rounded())
-      }
+  private func subjectMask(image: CIImage, focusX: Double, focusY: Double) throws -> CIImage? {
+    guard #available(iOS 17.0, *) else { return nil }
+    let request = VNGenerateForegroundInstanceMaskRequest()
+    let handler = VNImageRequestHandler(ciImage: image, orientation: .up)
+    try handler.perform([request])
+    guard let observation = request.results?.first, !observation.allInstances.isEmpty else { return nil }
+    var instances = observation.allInstances
+    let labels = observation.instanceMask
+    CVPixelBufferLockBaseAddress(labels, .readOnly)
+    if let base = CVPixelBufferGetBaseAddress(labels) {
+      let width = CVPixelBufferGetWidth(labels)
+      let height = CVPixelBufferGetHeight(labels)
+      let x = min(width - 1, max(0, Int(focusX * Double(width))))
+      let y = min(height - 1, max(0, Int(focusY * Double(height))))
+      let label = Int(base.assumingMemoryBound(to: UInt8.self)[y * CVPixelBufferGetBytesPerRow(labels) + x])
+      // Background taps retain all detected foreground, never a geometric shape.
+      if label != 0 && instances.contains(label) { instances = IndexSet(integer: label) }
     }
-
-    return CIImage(
-      bitmapData: Data(bytes),
-      bytesPerRow: maskWidth,
-      size: CGSize(width: maskWidth, height: maskHeight),
-      format: .L8,
-      colorSpace: nil
-    )
-      .transformed(by: CGAffineTransform(
-        scaleX: extent.width / CGFloat(maskWidth),
-        y: extent.height / CGFloat(maskHeight)
-      ))
-      .cropped(to: extent)
+    CVPixelBufferUnlockBaseAddress(labels, .readOnly)
+    let buffer = try observation.generateScaledMaskForImage(forInstances: instances, from: handler)
+    return CIImage(cvPixelBuffer: buffer)
+      .clampedToExtent()
+      .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 1.2])
+      .cropped(to: image.extent)
   }
 
   private func applyBeautyEffect(sourceURI: String, jpegQuality: Int) throws -> [String: Any] {

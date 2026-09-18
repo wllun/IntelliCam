@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-09-15
+Last updated: 2026-09-18
 
 ## Where we are
 
@@ -12,11 +12,15 @@ Photo HDR, maximum-quality native capture, gridlines, aspect-ratio selection, an
 "Focus card" UI; swipe to switch presets and view settings and tips. Star,
 Light Trail, Waterfall, Beauty, and Product now execute real capture strategies.
 
-Auto mode also provides an optional Portrait effect beside Flash. After capture,
-the shared save pipeline detects the person locally, keeps the subject sharp,
-and blurs the background using ML Kit on Android or Vision/Core Image on iOS.
-If no clear person is found or processing fails, IntelliCam preserves and saves
-the original photo instead of losing the capture.
+Auto mode also provides an optional Portrait effect beside Flash. It detects actual
+foreground subject outlines (people, pets, objects), rather than retaining a sharp
+rectangle. Android uses ML Kit Subject Segmentation, with a one-time Google Play
+services model download, sampled live preview masks, and subject-aware saved photos.
+iOS 17+ uses Vision foreground-instance masks for saved photos only; live blur is
+not available there with the current camera snapshot API. Tapping a detected subject
+selects it; background taps preserve all detected foreground. Soft mask edges protect
+subject boundaries. If no clear subject is found or processing fails, IntelliCam
+preserves and saves the original photo. Physical-device quality still needs verification.
 
 Auto and every special mode share the same camera screen, preview, shutter, capture,
 processing, and save pipeline. Future mode strategies must extend this shared capture
@@ -44,7 +48,7 @@ pending explicit approval.
 - [x] Auto camera capture mode - the first-launch default for reliable automatic photo capture with flash off/auto/on, zoom controls, front/rear camera switching, gridlines, aspect ratio, and timer
 - [x] Single shared camera engine - Auto and every selected special mode use the same camera screen, preview, shutter, capture function, processing queue, and save pipeline; mode-specific strategies will plug into this engine
 - [x] Native-quality capture pass - All photos request the highest supported 4:3 photo resolution, native quality prioritization, supported low-light boost and Apple fusion/distortion correction, and maximum JPEG quality through aspect-ratio cropping; the Photo quality setting was removed
-- [x] Native Portrait effect in Auto mode - icon control beside Flash, offline person segmentation and background blur after capture, portable applied/not-applied metadata, and safe original-photo fallback (ML Kit on Android; Vision/Core Image on iOS)
+- [x] Subject-aware Portrait effect in Auto mode - icon control beside Flash, object/person/pet masks with soft edges, Android sampled live blur, iOS 17+ saved-photo blur, portable applied/not-applied metadata, and original-photo fallback; requires rebuilt native app and initial Android model download
 - [x] Centered capture-mode swiper - right-side Mode button opens a snapping horizontal selector with one prominent active card, visible previous/next cards, tap/arrow alternatives, dots, guidance, and Apply for Auto, Star, Light Trail, Waterfall, Beauty, and Product; drag and snap calculations remain UI-thread worklet-safe, and applying any special mode activates its capture strategy
 - [ ] Replace the current abstract centered swiper with the approved photographic 3D cover-flow design in `proposal-camera-mode-selection.md` after explicit approval
 - [x] IntelliCam-only gallery - newest-photo-first grid ordering, pull-to-refresh, pagination, full-screen preview, and recoverable deletion through iOS Recently Deleted or the Android 11+ system recycle bin
