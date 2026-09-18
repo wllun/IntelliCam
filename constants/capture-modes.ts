@@ -56,10 +56,17 @@ export const AUTO_CAPTURE_MODE: CaptureModeOption = {
 
 export const DEFAULT_CAPTURE_MODE_ID = AUTO_CAPTURE_MODE.id;
 
+const MODE_CARD_PRIORITY: Record<string, number> = {
+  beauty: 0,
+  product: 1,
+};
+
 export const CAPTURE_MODES: CaptureModeOption[] = [
   AUTO_CAPTURE_MODE,
   ...PRESETS.map((preset) => ({
     ...preset,
     ...MODE_PRESENTATION[preset.id],
-  })),
+  })).sort((first, second) => (
+    (MODE_CARD_PRIORITY[first.id] ?? 2) - (MODE_CARD_PRIORITY[second.id] ?? 2)
+  )),
 ];
