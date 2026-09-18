@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-09-16
+Last updated: 2026-09-18
 Branch reviewed: `feature/improvement` (merge reconciliation)
 
 ## Where we are
@@ -16,10 +16,16 @@ exposure compensation, supported native Photo HDR, maximum native quality,
 gridlines, aspect-ratio cropping, a cancellable timer, shutter sound, and
 optional photo-location metadata.
 
-Auto also has a functional Portrait effect beside Flash. The post-capture
-pipeline uses a selected sharp focus region with feathered background blur on
-Android/iOS, matching the focus-region preview. Beauty uses person segmentation.
-If processing fails, IntelliCam saves the original capture.
+Auto mode also provides an optional Portrait effect beside Flash. It detects actual
+foreground subject outlines (people, pets, objects), rather than retaining a sharp
+rectangle. Android uses ML Kit Subject Segmentation, with a one-time Google Play
+services model download, sampled live preview masks, and subject-aware saved photos.
+iOS 17+ uses Vision foreground-instance masks for saved photos only; live blur is
+not available there with the current camera snapshot API. Tapping a detected subject
+selects it; background taps preserve all detected foreground. Soft mask edges protect
+subject boundaries. If no clear subject is found or processing fails, IntelliCam
+preserves and saves the original photo. Physical-device quality still needs verification.
+Beauty uses person segmentation.
 
 The photographic 3D cover-flow selector is implemented for Auto, Star, Light
 Trail, Waterfall, Beauty, and Product. Standalone Portrait was removed; Auto's
@@ -66,7 +72,7 @@ Related design documents:
 - [x] Timer cancellation on shutter retap, backgrounding, screen exit, remount, or camera unavailability
 - [x] Honest native Photo HDR: disabled as `Unavailable` on unsupported cameras and recorded only after session confirmation
 - [x] AsyncStorage persistence for gridlines, aspect ratio, timer, shutter sound, and HDR preference with validated defaults
-- [x] Functional Auto Portrait effect with movable focus-region preview, native background blur, and safe original fallback
+- [x] Subject-aware Portrait effect in Auto mode - icon control beside Flash, object/person/pet masks with soft edges, Android sampled live blur, iOS 17+ saved-photo blur, portable applied/not-applied metadata, and original-photo fallback; requires rebuilt native app and initial Android model download
 - [x] Executable Star, Light Trail, Waterfall, Beauty, and Product per-mode capture strategies
 - [x] Cancellable Star, Light Trail, and Waterfall bursts with native frame alignment, whole-frame motion rejection, common-overlap cropping, and mode-aware compositing
 - [x] Multi-frame applied/accepted/rejected details stored in portable JPEG information

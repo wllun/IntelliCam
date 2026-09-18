@@ -5,30 +5,101 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import androidx.exifinterface.media.ExifInterface
+import com.google.android.gms.common.moduleinstall.ModuleInstall
+import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.segmentation.Segmentation
 import com.google.mlkit.vision.segmentation.SegmentationMask
 import com.google.mlkit.vision.segmentation.selfie.SelfieSegmenterOptions
+import com.google.mlkit.vision.segmentation.subject.SubjectSegmentation
+import com.google.mlkit.vision.segmentation.subject.SubjectSegmenterOptions
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 class PortraitEffectModule : Module() {
+  // ML Kit's subject model handles objects and animals, not only people.
+  private val subjectClient = lazy {
+    SubjectSegmentation.getClient(
+      SubjectSegmenterOptions.Builder()
+        .enableForegroundConfidenceMask()
+        .enableMultipleSubjects(
+          SubjectSegmenterOptions.SubjectResultOptions.Builder().enableConfidenceMask().build()
+        ).build()
+    )
+  }
+  private val subjectSegmenter get() = subjectClient.value
+  private val subjectMutex = Mutex()
+
   override fun definition() = ModuleDefinition {
     Name("PortraitEffect")
+    Constants("subjectSegmentationVersion" to 2)
+    OnDestroy {
+      if (subjectClient.isInitialized()) subjectClient.value.close()
+    }
+
+    AsyncFunction("prepareAsync") Coroutine { ->
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      val installer = ModuleInstall.getClient(context)
+      if (!awaitTask(installer.areModulesAvailable(subjectSegmenter)).areModulesAvailable()) {
+        awaitTask(installer.installModules(
+          ModuleInstallRequest.newBuilder().addApi(subjectSegmenter).build()
+        ))
+        // installModules completes when the download is requested, not when it is ready.
+        withTimeout(60_000) {
+          while (!awaitTask(installer.areModulesAvailable(subjectSegmenter)).areModulesAvailable()) {
+            delay(500)
+          }
+        }
+      }
+      true
+    }
+
+    AsyncFunction("previewMaskAsync") Coroutine { sourceUri: String, focusX: Double, focusY: Double ->
+      withContext(Dispatchers.Default) {
+        val bitmap = decodeOrientedBitmap(filePath(sourceUri))
+          ?: throw IllegalArgumentException("The preview could not be decoded.")
+        try {
+          val mask = detectSubject(bitmap, focusX, focusY)
+          if (mask == null) {
+            mapOf("uri" to "", "applied" to false)
+          } else {
+            val pixels = IntArray(mask.confidence.size) { index ->
+              // MaskedView uses alpha: blur background, leave detected subject transparent.
+              val alpha = ((1f - smoothSubjectAlpha(mask.confidence[index])) * 255).roundToInt()
+              (alpha shl 24) or 0x00ffffff
+            }
+            val output = Bitmap.createBitmap(pixels, mask.width, mask.height, Bitmap.Config.ARGB_8888)
+            val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+            val file = File(context.cacheDir, "intellicam-portrait-mask-${UUID.randomUUID()}.png")
+            try {
+              FileOutputStream(file).use { check(output.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+            } finally {
+              output.recycle()
+            }
+            mapOf("uri" to Uri.fromFile(file).toString(), "applied" to true)
+          }
+        } finally {
+          bitmap.recycle()
+        }
+      }
+    }
 
     AsyncFunction("applyAsync") Coroutine { sourceUri: String, jpegQuality: Int, focusX: Double, focusY: Double ->
       withContext(Dispatchers.Default) {
@@ -56,9 +127,11 @@ class PortraitEffectModule : Module() {
     if (bitmap !== sourceBitmap) sourceBitmap.recycle()
 
     try {
+      val mask = detectSubject(bitmap, focusX, focusY)
+        ?: return mapOf("uri" to sourceUri, "applied" to false)
       val blurredBackground = createBlurredBackground(bitmap)
       val output = try {
-        blendFocusPortrait(bitmap, blurredBackground, focusX, focusY)
+        blendSubjectPortrait(bitmap, blurredBackground, mask)
       } finally {
         blurredBackground.recycle()
       }
@@ -81,6 +154,58 @@ class PortraitEffectModule : Module() {
       }
     }
   }
+
+  private data class SubjectMask(val confidence: FloatArray, val width: Int, val height: Int)
+
+  private suspend fun detectSubject(bitmap: Bitmap, focusX: Double, focusY: Double): SubjectMask? {
+    val detectionEdge = max(SEGMENTATION_EDGE,
+      (512.0 * max(bitmap.width, bitmap.height) / min(bitmap.width, bitmap.height)).roundToInt()
+    ).coerceAtMost(1536)
+    val input = scaleDown(bitmap, detectionEdge)
+    try {
+      return subjectMutex.withLock {
+        val result = awaitTask(subjectSegmenter.process(InputImage.fromBitmap(input, 0)))
+        val foreground = result.foregroundConfidenceMask ?: return@withLock null
+        foreground.rewind()
+        var confidence = FloatArray(input.width * input.height) { foreground.get() }
+        val tapX = (focusX.coerceIn(0.0, 1.0) * (input.width - 1)).roundToInt()
+        val tapY = (focusY.coerceIn(0.0, 1.0) * (input.height - 1)).roundToInt()
+        // Select the actual subject under the tap; background taps keep all foreground subjects.
+        for (subject in result.subjects) {
+          val x = tapX - subject.startX
+          val y = tapY - subject.startY
+          val buffer = subject.confidenceMask ?: continue
+          if (x !in 0 until subject.width || y !in 0 until subject.height) continue
+          if (buffer.get(y * subject.width + x) < SUBJECT_DETECTION_THRESHOLD) continue
+          confidence = FloatArray(input.width * input.height)
+          buffer.rewind()
+          for (row in 0 until subject.height) {
+            for (column in 0 until subject.width) {
+              val value = buffer.get()
+              val destX = subject.startX + column
+              val destY = subject.startY + row
+              if (destX in 0 until input.width && destY in 0 until input.height) {
+                confidence[destY * input.width + destX] = value
+              }
+            }
+          }
+          break
+        }
+        val count = confidence.count { it >= SUBJECT_DETECTION_THRESHOLD }
+        if (count < max(1, (confidence.size * MIN_SUBJECT_FRACTION).roundToInt())) null
+        else SubjectMask(confidence, input.width, input.height)
+      }
+    } finally {
+      if (input !== bitmap) input.recycle()
+    }
+  }
+
+  private suspend fun <T> awaitTask(task: com.google.android.gms.tasks.Task<T>): T =
+    suspendCancellableCoroutine { continuation ->
+      task.addOnSuccessListener { if (continuation.isActive) continuation.resume(it) }
+        .addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
+        .addOnCanceledListener { continuation.cancel() }
+    }
 
   private suspend fun applyBeautyEffect(
     sourceUri: String,
@@ -288,11 +413,10 @@ class PortraitEffectModule : Module() {
     }
   }
 
-  private fun blendFocusPortrait(
+  private fun blendSubjectPortrait(
     subject: Bitmap,
     background: Bitmap,
-    focusX: Double,
-    focusY: Double,
+    mask: SubjectMask,
   ): Bitmap {
     val output = Bitmap.createBitmap(subject.width, subject.height, Bitmap.Config.ARGB_8888)
     val subjectRow = IntArray(subject.width)
@@ -300,21 +424,23 @@ class PortraitEffectModule : Module() {
     val backgroundPixels = IntArray(background.width * background.height)
     background.getPixels(backgroundPixels, 0, background.width, 0, 0, background.width, background.height)
 
-    val centerX = focusX.coerceIn(FOCUS_WIDTH_FRACTION / 2, 1.0 - FOCUS_WIDTH_FRACTION / 2)
-    val centerY = focusY.coerceIn(FOCUS_HEIGHT_FRACTION / 2, 1.0 - FOCUS_HEIGHT_FRACTION / 2)
     for (y in 0 until subject.height) {
       subject.getPixels(subjectRow, 0, subject.width, 0, y, subject.width, 1)
       val backgroundY = min(background.height - 1, y * background.height / subject.height)
       for (x in 0 until subject.width) {
         val backgroundX = min(background.width - 1, x * background.width / subject.width)
-        val normalizedX = (x + 0.5) / subject.width
-        val normalizedY = (y + 0.5) / subject.height
-        val edgeDistance = max(
-          abs(normalizedX - centerX) / (FOCUS_WIDTH_FRACTION / 2),
-          abs(normalizedY - centerY) / (FOCUS_HEIGHT_FRACTION / 2),
-        )
-        val feather = ((edgeDistance - 0.82) / 0.20).coerceIn(0.0, 1.0)
-        val alpha = (1.0 - feather * feather * (3.0 - 2.0 * feather)).toFloat()
+        // Bilinear interpolation avoids blocky edges when the mask is enlarged to photo resolution.
+        val mx = (x.toFloat() * (mask.width - 1) / max(1, subject.width - 1))
+        val my = (y.toFloat() * (mask.height - 1) / max(1, subject.height - 1))
+        val x0 = mx.toInt()
+        val y0 = my.toInt()
+        val x1 = min(x0 + 1, mask.width - 1)
+        val y1 = min(y0 + 1, mask.height - 1)
+        val dx = mx - x0
+        val dy = my - y0
+        val top = mask.confidence[y0 * mask.width + x0] * (1 - dx) + mask.confidence[y0 * mask.width + x1] * dx
+        val bottom = mask.confidence[y1 * mask.width + x0] * (1 - dx) + mask.confidence[y1 * mask.width + x1] * dx
+        val alpha = smoothSubjectAlpha(top * (1 - dy) + bottom * dy)
         outputRow[x] = blendColor(
           subjectRow[x],
           backgroundPixels[backgroundY * background.width + backgroundX],
@@ -405,8 +531,6 @@ class PortraitEffectModule : Module() {
   }
 
   companion object {
-    private const val FOCUS_WIDTH_FRACTION = 0.58
-    private const val FOCUS_HEIGHT_FRACTION = 0.48
     private const val MAX_OUTPUT_EDGE = 4096
     private const val SEGMENTATION_EDGE = 768
     private const val BLUR_EDGE = 640

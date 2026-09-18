@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  UIManager,
   useWindowDimensions,
   View,
   type GestureResponderEvent,
@@ -508,6 +509,20 @@ export default function CameraScreen() {
   const [shutterSoundEnabled, setShutterSoundEnabled] = useState(false);
   const [cameraPreferencesHydrated, setCameraPreferencesHydrated] = useState(false);
   const [portraitEffectEnabled, setPortraitEffectEnabled] = useState(false);
+  const [portraitPreparing, setPortraitPreparing] = useState(false);
+  const portraitPreparation = useRef(0);
+  const getPortraitSnapshot = useCallback(async () => {
+    const camera = cameraRef.current;
+    if (!camera) throw new Error('Camera unavailable');
+    return camera.takeSnapshot();
+  }, []);
+  useEffect(() => () => { portraitPreparation.current += 1; }, []);
+  useEffect(() => {
+    if (!appActive || !screenFocused) {
+      portraitPreparation.current += 1;
+      setPortraitPreparing(false);
+    }
+  }, [appActive, screenFocused]);
   const [portraitTarget, setPortraitTarget] = useState<PortraitTarget>({ x: 0.5, y: 0.5 });
   const [locationEnabled, setLocationEnabled] = useState(false);
   const [captureLocation, setCaptureLocation] = useState<CaptureLocation>();
@@ -630,7 +645,7 @@ export default function CameraScreen() {
               portraitApplied = result.applied;
               if (!result.applied) {
                 effectFailureTitle = 'Portrait effect not applied';
-                effectFailureMessage = 'The background blur could not be applied. The original photo was saved.';
+                effectFailureMessage = 'No clear foreground subject was detected. The original photo was saved. Try moving closer to the subject or improving the lighting.';
               }
             } catch (portraitError) {
               console.warn('Could not apply portrait effect:', portraitError);
@@ -2456,13 +2471,15 @@ export default function CameraScreen() {
             />
           )}
 
-          {appActive && screenFocused && cameraDevice && cameraReady && isAutoMode && portraitEffectEnabled && (
+          {Platform.OS === 'android' && appActive && screenFocused && !capturing && cameraDevice && cameraReady && isAutoMode && portraitEffectEnabled && (
             <Suspense fallback={null}>
               <PortraitPreviewBlur
                 width={previewFrame.width}
                 height={previewFrame.height}
                 focusX={portraitTarget.x}
                 focusY={portraitTarget.y}
+                sceneKey={`${cameraDevice.id}:${aspectRatio}:${displayedZoom.toFixed(1)}`}
+                getSnapshot={getPortraitSnapshot}
               />
             </Suspense>
           )}
@@ -2705,24 +2722,57 @@ export default function CameraScreen() {
               {flash === 'auto' && <Text style={styles.flashAuto}>A</Text>}
             </Pressable>
             <Pressable
-              accessibilityHint="Blurs the live background around the focus area and applies the effect to photos of any subject. Tap the preview to move the sharp area."
+              accessibilityHint="Detects subject outlines and blurs the background. Tap a person, pet, or object to select it. Live preview is available on Android."
               accessibilityLabel="Portrait effect"
               accessibilityRole="switch"
-              accessibilityState={{ checked: portraitEffectEnabled }}
-              onPress={() => {
-                if (!PortraitEffect || !requireOptionalNativeModule('ExpoBlurView')) {
+              accessibilityState={{ checked: portraitEffectEnabled, busy: portraitPreparing, disabled: capturing }}
+              disabled={capturing}
+              onPress={async () => {
+                if (portraitEffectEnabled || portraitPreparing) {
+                  portraitPreparation.current += 1;
+                  setPortraitPreparing(false);
+                  setPortraitEffectEnabled(false);
+                  setCaptureStatus(undefined);
+                  return;
+                }
+                if (PortraitEffect?.subjectSegmentationVersion !== 2
+                  || (Platform.OS === 'android' && (!requireOptionalNativeModule('ExpoBlurView')
+                    || !UIManager.getViewManagerConfig('RNCMaskedView')))) {
                   Alert.alert(
                     'Rebuild required',
                     'Live Portrait preview and photo processing use native modules. Rebuild and reinstall IntelliCam to enable them.',
                   );
                   return;
                 }
-                setPortraitEffectEnabled((enabled) => !enabled);
-                void Haptics.selectionAsync();
+                const preparation = ++portraitPreparation.current;
+                setPortraitPreparing(true);
+                setCaptureStatus('Preparing Portrait subject detection…');
+                try {
+                  const available = await PortraitEffect.prepareAsync();
+                  if (preparation !== portraitPreparation.current) return;
+                  if (!available) throw new Error('Object-aware Portrait requires iOS 17 or later.');
+                  setPortraitEffectEnabled(true);
+                  void Haptics.selectionAsync();
+                  if (Platform.OS === 'ios') {
+                    Alert.alert('Portrait photos', 'Subject-aware blur will be applied to saved photos. Live Portrait preview is currently available on Android only.');
+                  }
+                } catch (error) {
+                  if (preparation === portraitPreparation.current) {
+                    Alert.alert('Portrait unavailable', Platform.OS === 'android'
+                      ? 'The subject-detection model could not be prepared. Check your internet connection and Google Play services, then try again.'
+                      : String(error));
+                  }
+                } finally {
+                  if (preparation === portraitPreparation.current) {
+                    setPortraitPreparing(false);
+                    setCaptureStatus(undefined);
+                  }
+                }
               }}
               style={[
                 styles.roundControl,
                 portraitEffectEnabled && styles.roundControlActive,
+                capturing && styles.controlDisabled,
               ]}>
               <Ionicons
                 name="aperture-outline"
@@ -2871,13 +2921,13 @@ export default function CameraScreen() {
             accessibilityLabel={captureCanBeCancelled ? 'Cancel photo capture' : 'Take picture'}
             accessibilityHint={captureCanBeCancelled ? 'Stops the active capture without saving another photo' : undefined}
             accessibilityRole="button"
-            accessibilityState={{ disabled: !cameraReady || (capturing && !captureCanBeCancelled) }}
+            accessibilityState={{ disabled: !cameraReady || portraitPreparing || (capturing && !captureCanBeCancelled) }}
             style={[
               styles.shutter,
               captureCanBeCancelled && styles.shutterCancelling,
-              capturing && !captureCanBeCancelled && styles.shutterDisabled,
+              (portraitPreparing || (capturing && !captureCanBeCancelled)) && styles.shutterDisabled,
             ]}
-            disabled={!cameraReady || (capturing && !captureCanBeCancelled)}
+            disabled={!cameraReady || portraitPreparing || (capturing && !captureCanBeCancelled)}
             onPress={captureCanBeCancelled ? () => cancelPendingCapture(true) : capture}>
             <View
               style={[

@@ -63,16 +63,27 @@ test('portrait effect has native Android and iOS implementations', () => {
   assert.match(androidBuild, /com\.google\.mlkit:segmentation-selfie:/);
   assert.match(androidModule, /SelfieSegmenterOptions/);
   assert.match(androidModule, /STREAM_MODE|SINGLE_IMAGE_MODE/);
-  assert.match(androidModule, /blendFocusPortrait/);
-  assert.match(iosModule, /focusMask/);
+  assert.match(androidBuild, /play-services-mlkit-subject-segmentation/);
+  assert.match(androidModule, /blendSubjectPortrait/);
+  assert.match(androidModule, /SubjectSegmentation.getClient/);
+  assert.match(iosModule, /VNGenerateForegroundInstanceMaskRequest/);
+  assert.match(iosModule, /generateScaledMaskForImage/);
   assert.match(iosModule, /CIGaussianBlur/);
   assert.match(iosModule, /CIBlendWithMask/);
 });
 
-test('Portrait uses a live focus-region blur and no longer gates photos on person detection', () => {
+test('Portrait uses subject outlines, not fixed sharp rectangles or person-only segmentation', () => {
   assert.match(cameraSource, /<PortraitPreviewBlur/);
   assert.match(cameraSource, /implementationMode=\{isAutoMode && portraitEffectEnabled \? 'compatible'/);
   assert.match(previewBlur, /BlurView/);
+  assert.match(previewBlur, /MaskedView/);
+  assert.match(previewBlur, /previewMaskAsync/);
+  assert.match(previewBlur, /if \(!maskUri\) return null/);
+  assert.match(previewBlur, /if \(running.current\)/);
+  assert.match(previewBlur, /if \(cancelled\) return/);
+  assert.match(previewBlur, /snapshot\?\.dispose/);
+  assert.match(previewBlur, /retainedFiles.forEach\(removeTemporaryFile\)/);
+  assert.doesNotMatch(previewBlur + androidModule + iosModule, /FOCUS_WIDTH_FRACTION|blendFocusPortrait|private func focusMask/);
   assert.match(cameraSource, /setPortraitTarget/);
   const androidPortrait = androidModule.split('private suspend fun applyPortraitEffect(')[1]
     .split('private suspend fun applyBeautyEffect(')[0];
@@ -80,4 +91,14 @@ test('Portrait uses a live focus-region blur and no longer gates photos on perso
     .split('private func applyBeautyEffect(')[0];
   assert.doesNotMatch(androidPortrait, /hasPerson|SelfieSegmenterOptions/);
   assert.doesNotMatch(iosPortrait, /VNDetectHumanRectanglesRequest|VNGeneratePersonSegmentationRequest/);
+});
+
+test('Portrait checks native compatibility and waits for the Android model download', () => {
+  assert.match(cameraSource, /subjectSegmentationVersion !== 2/);
+  assert.match(cameraSource, /PortraitEffect.prepareAsync/);
+  assert.match(cameraSource, /RNCMaskedView/);
+  assert.match(androidModule, /ModuleInstallRequest/);
+  assert.match(androidModule, /while \(!awaitTask\(installer.areModulesAvailable/);
+  assert.match(androidModule, /withTimeout\(60_000\)/);
+  assert.match(cameraSource, /Platform.OS === 'android' && appActive/);
 });
