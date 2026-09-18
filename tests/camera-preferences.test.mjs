@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
+  CAMERA_ASPECT_RATIOS,
   DEFAULT_CAMERA_PREFERENCES,
   normalizeCameraPreferences,
 } from '../utils/camera-preferences.mjs';
@@ -19,17 +20,26 @@ const preferenceServiceSource = await readFile(
 test('normalizes persisted camera preferences', () => {
   assert.deepEqual(normalizeCameraPreferences({
     gridLines: true,
-    aspectRatio: '16:9',
+    aspectRatio: '9:16',
     timerSeconds: 10,
     shutterSoundEnabled: true,
     hdrEnabled: true,
   }), {
     gridLines: true,
-    aspectRatio: '16:9',
+    aspectRatio: '9:16',
     timerSeconds: 10,
     shutterSoundEnabled: true,
     hdrEnabled: true,
   });
+});
+
+test('orders ratio choices as square, standard, portrait widescreen and Full', () => {
+  assert.deepEqual(CAMERA_ASPECT_RATIOS, ['1:1', '4:3', '9:16', 'Full']);
+  assert.equal(DEFAULT_CAMERA_PREFERENCES.aspectRatio, '4:3');
+});
+
+test('migrates legacy widescreen preferences without losing the selection', () => {
+  assert.equal(normalizeCameraPreferences({ aspectRatio: '16:9' }).aspectRatio, '9:16');
 });
 
 test('falls back field-by-field when stored values are invalid', () => {

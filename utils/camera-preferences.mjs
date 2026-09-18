@@ -1,4 +1,4 @@
-export const CAMERA_ASPECT_RATIOS = Object.freeze(['4:3', '1:1', '16:9', 'Full']);
+export const CAMERA_ASPECT_RATIOS = Object.freeze(['1:1', '4:3', '9:16', 'Full']);
 export const CAMERA_TIMER_SECONDS = Object.freeze([0, 3, 5, 10, 30]);
 
 export const DEFAULT_CAMERA_PREFERENCES = Object.freeze({
@@ -16,13 +16,14 @@ export function normalizeCameraPreferences(value) {
   const preferences = value && typeof value === 'object' && !Array.isArray(value)
     ? value
     : {};
+  const aspectRatio = preferences.aspectRatio === '16:9' ? '9:16' : preferences.aspectRatio;
 
   return {
     gridLines: typeof preferences.gridLines === 'boolean'
       ? preferences.gridLines
       : DEFAULT_CAMERA_PREFERENCES.gridLines,
-    aspectRatio: aspectRatios.has(preferences.aspectRatio)
-      ? preferences.aspectRatio
+    aspectRatio: aspectRatios.has(aspectRatio)
+      ? aspectRatio
       : DEFAULT_CAMERA_PREFERENCES.aspectRatio,
     timerSeconds: timerSeconds.has(preferences.timerSeconds)
       ? preferences.timerSeconds

@@ -1,4 +1,4 @@
-export type CameraAspectRatio = '4:3' | '1:1' | '16:9' | 'Full';
+export type CameraAspectRatio = '1:1' | '4:3' | '9:16' | 'Full';
 export type CameraTimerSeconds = 0 | 3 | 5 | 10 | 30;
 
 export interface CameraPreferences {
