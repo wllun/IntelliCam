@@ -93,8 +93,19 @@ function text(value: unknown) {
   return String(value);
 }
 
-function rationalToNumber(value: string | undefined) {
-  if (!value) return undefined;
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function capitalize(value: unknown) {
+  return typeof value === 'string' && value.length > 0
+    ? value[0].toUpperCase() + value.slice(1)
+    : undefined;
+}
+
+function rationalToNumber(value: unknown) {
+  if (isFiniteNumber(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return undefined;
   const [numerator, denominator] = value.split('/').map(Number);
   if (Number.isFinite(numerator) && Number.isFinite(denominator) && denominator !== 0) {
     return numerator / denominator;
@@ -110,10 +121,10 @@ function formatExposureTime(value: string | undefined) {
   return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
 }
 
-function parseCustomMetadata(value: string | undefined): CapturePhotoMetadata | undefined {
+function parseCustomMetadata(value: string | undefined): Partial<CapturePhotoMetadata> | undefined {
   if (!value) return undefined;
   try {
-    const parsed = JSON.parse(value) as CapturePhotoMetadata;
+    const parsed = JSON.parse(value) as Partial<CapturePhotoMetadata>;
     return parsed?.schemaVersion === 1 ? parsed : undefined;
   } catch {
     return undefined;
@@ -181,7 +192,7 @@ export async function getPhotoInformation(
   const readableUri = assetInfo.localUri ?? asset.uri;
   if (PhotoMetadata && readableUri) {
     try {
-      embedded = await PhotoMetadata.readMetadataAsync(readableUri);
+      embedded = await PhotoMetadata.readMetadataAsync(readableUri) ?? {};
     } catch (error) {
       console.warn('Could not read embedded photo metadata:', error);
     }
@@ -212,7 +223,7 @@ export async function getPhotoInformation(
   const iso = Array.isArray(embedded.iso) ? embedded.iso.join(', ') : embedded.iso;
   const aperture = rationalToNumber(embedded.fNumber);
   const focalLength = rationalToNumber(embedded.focalLength);
-  const coordinates = embedded.latitude !== undefined && embedded.longitude !== undefined
+  const coordinates = isFiniteNumber(embedded.latitude) && isFiniteNumber(embedded.longitude)
     ? `${embedded.latitude.toFixed(6)}, ${embedded.longitude.toFixed(6)}`
     : undefined;
 
@@ -234,8 +245,8 @@ export async function getPhotoInformation(
         row('Frames combined', custom?.captureFrameCount && custom.captureFrameCount > 1
           ? custom.captureFrameCount
           : undefined),
-        row('Manual exposure', custom?.manualExposureApplied && custom.appliedExposureSeconds
-          ? `${custom.appliedExposureSeconds.toFixed(1)} s at ISO ${custom.appliedIso}`
+        row('Manual exposure', custom?.manualExposureApplied === true && isFiniteNumber(custom.appliedExposureSeconds)
+          ? `${custom.appliedExposureSeconds.toFixed(1)} s${isFiniteNumber(custom.appliedIso) ? ` at ISO ${custom.appliedIso}` : ''}`
           : undefined),
         row('White balance', custom?.appliedWhiteBalanceKelvin
           ? `${custom.appliedWhiteBalanceKelvin} K`
@@ -243,15 +254,17 @@ export async function getPhotoInformation(
         row('Capture focus', custom?.focusStrategy === 'infinity-locked'
           ? 'Infinity locked'
           : custom?.focusStrategy === 'automatic-locked' ? 'Automatic metering lock' : undefined),
-        row('Processing', custom?.processingOperations?.join(', ')),
+        row('Processing', Array.isArray(custom?.processingOperations)
+          ? custom.processingOperations.filter((operation) => typeof operation === 'string').join(', ')
+          : undefined),
         row('Fallback', custom?.captureFallbackReason),
         row('Aspect ratio', custom?.aspectRatio),
-        row('Zoom', custom ? `${custom.zoom.toFixed(1)}×` : undefined),
+        row('Zoom', isFiniteNumber(custom?.zoom) ? `${custom.zoom.toFixed(1)}×` : undefined),
         row('Photo quality', custom?.photoQuality === 'maximum' ? 'Maximum' : custom?.photoQuality === 'standard' ? 'Standard' : undefined),
         row('Camera', custom?.cameraName ?? custom?.cameraType),
-        row('Facing', custom ? custom.facing[0].toUpperCase() + custom.facing.slice(1) : undefined),
-        row('Flash', custom ? custom.flash[0].toUpperCase() + custom.flash.slice(1) : undefined),
-        row('HDR', custom ? custom.hdr ? 'Applied' : plan?.requested?.hdr ? 'Not applied' : 'Off' : undefined),
+        row('Facing', capitalize(custom?.facing)),
+        row('Flash', capitalize(custom?.flash)),
+        row('HDR', typeof custom?.hdr === 'boolean' ? custom.hdr ? 'Applied' : plan?.requested?.hdr ? 'Not applied' : 'Off' : undefined),
         row('Portrait effect', custom?.portraitEffectRequested
           ? custom.portraitEffectApplied ? 'Applied' : 'Not applied'
           : custom ? 'Off' : undefined),
@@ -267,9 +280,9 @@ export async function getPhotoInformation(
         row('Beauty effect', custom?.beautyEffectRequested
           ? custom.beautyEffectApplied ? 'Applied' : 'Not applied'
           : undefined),
-        row('Exposure compensation', custom ? `${custom.exposureCompensation >= 0 ? '+' : ''}${custom.exposureCompensation.toFixed(1)} EV` : undefined),
-        row('Focus / exposure lock', custom ? custom.focusExposureLocked ? 'Locked' : 'Automatic' : undefined),
-        row('Timer', custom ? custom.timerSeconds ? `${custom.timerSeconds} s` : 'Off' : undefined),
+        row('Exposure compensation', isFiniteNumber(custom?.exposureCompensation) ? `${custom.exposureCompensation >= 0 ? '+' : ''}${custom.exposureCompensation.toFixed(1)} EV` : undefined),
+        row('Focus / exposure lock', typeof custom?.focusExposureLocked === 'boolean' ? custom.focusExposureLocked ? 'Locked' : 'Automatic' : undefined),
+        row('Timer', isFiniteNumber(custom?.timerSeconds) ? custom.timerSeconds ? `${custom.timerSeconds} s` : 'Off' : undefined),
       ]),
     },
     {
@@ -308,7 +321,7 @@ export async function getPhotoInformation(
       title: 'Location',
       rows: rows([
         row('Coordinates', coordinates),
-        row('Altitude', embedded.altitude !== undefined ? `${embedded.altitude.toFixed(1)} m` : undefined),
+        row('Altitude', isFiniteNumber(embedded.altitude) ? `${embedded.altitude.toFixed(1)} m` : undefined),
       ]),
     },
   ].filter((section) => section.rows.length > 0);
