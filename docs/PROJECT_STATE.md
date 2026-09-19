@@ -107,6 +107,7 @@ Related design documents:
 - [x] Latest-photo thumbnail refresh after a successful save
 - [x] Brief post-capture review with confirmed save status and durable Retry/Delete recovery when MediaLibrary saving fails
 - [x] Capture lifecycle ownership guards for app backgrounding, route exit, and camera/lens changes; invalidated late JPEGs are cleaned instead of entering the save queue
+- [x] Immediate move-first durable ownership for every accepted JPEG, with copy fallback and a 250-capture/62-failure automated recovery stress test
 - [x] Portable JPEG information: preserved EXIF, IntelliCam capture settings, optional GPS, and gallery information sheet
 - [x] Forced-update gate for native Android/iOS builds with public JSON policy, validation, foreground refresh, and a 72-hour offline cache
 - [x] EAS preview profile for an installable standalone Android APK
@@ -170,3 +171,4 @@ settings are listed above.
 - SQLite and backend services are planned, not installed.
 - Photos remain on-device; the project has no cloud photo storage.
 - Automated lifecycle tests cover backgrounding, route blur, and camera identity changes. Physical-device safety case R09 remains Not run and is still required before release.
+- Automated repeated-capture and simulated low-storage recovery pass without losing an original. No Android target was connected, so physical-device case R11 remains required before release.

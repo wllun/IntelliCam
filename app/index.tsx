@@ -724,7 +724,7 @@ export default function CameraScreen() {
   }, []);
 
   const enqueuePhotoSave = useCallback((
-    sourceFilePaths: string[],
+    capturedFilePaths: string[],
     ratio: CameraRatio,
     fullScreenRatio: number,
     captureId: number,
@@ -732,26 +732,36 @@ export default function CameraScreen() {
     metadata: CapturePhotoMetadata,
     location?: CaptureLocation,
     postCaptureEffect?: PostCaptureEffect,
-    metadataSourceFilePath = sourceFilePaths[0],
+    metadataSourceFilePath = capturedFilePaths[0],
     portraitFocus: PortraitTarget = { x: 0.5, y: 0.5 },
     multiFrameMode?: MultiFrameMode,
   ) => {
+    const originalReferenceFilePath = capturedFilePaths[0];
+    let recovery: PendingCaptureRecovery | undefined;
+    try {
+      // Transfer ownership before waiting behind earlier processing jobs. This
+      // prevents repeated captures from remaining only in purgeable camera cache.
+      recovery = retainCaptureForRecovery(originalReferenceFilePath, captureId);
+      if (componentMountedRef.current) {
+        setCaptureReview((current) => current?.captureId === captureId
+          ? { ...current, uri: recovery!.uri, recovery }
+          : current);
+      }
+    } catch (recoveryError) {
+      console.warn('Could not create durable capture recovery file:', recoveryError);
+    }
+    const referenceFilePath = recovery
+      ? localFilePath(recovery.uri)
+      : originalReferenceFilePath;
+    const sourceFilePaths = [referenceFilePath, ...capturedFilePaths.slice(1)];
+    const retainedMetadataSourceFilePath = metadataSourceFilePath === originalReferenceFilePath
+      ? referenceFilePath
+      : metadataSourceFilePath;
+
     photoSaveQueueRef.current = photoSaveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
-        const referenceFilePath = sourceFilePaths[0];
-        let recovery: PendingCaptureRecovery | undefined;
-        const temporaryFiles = [...sourceFilePaths];
-        try {
-          recovery = retainCaptureForRecovery(referenceFilePath, captureId);
-          if (componentMountedRef.current) {
-            setCaptureReview((current) => current?.captureId === captureId
-              ? { ...current, uri: recovery!.uri, recovery }
-              : current);
-          }
-        } catch (recoveryError) {
-          console.warn('Could not create durable capture recovery copy:', recoveryError);
-        }
+        const temporaryFiles = [...capturedFilePaths, ...sourceFilePaths];
         try {
           // Diagnostics only read the immutable source; overlap with processing rather than
           // add another native decode after the quality-critical work has completed.
@@ -875,7 +885,7 @@ export default function CameraScreen() {
         };
         try {
           await embedPhotoMetadata(
-            `file://${metadataSourceFilePath}`,
+            `file://${retainedMetadataSourceFilePath}`,
             finalUri,
             finalMetadata,
             location,

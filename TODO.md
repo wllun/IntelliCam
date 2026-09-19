@@ -14,7 +14,7 @@ not required for production and remain out of scope.
 - [x] Preserve the cached source image whenever MediaLibrary saving or metadata embedding fails.
 - [x] Provide Retry and Delete actions after a failed save.
 - [x] Guard backgrounding, camera changes, and screen exit so an invalidated capture cannot enter the save queue; late native JPEGs are deleted and lifecycle regression tests pass.
-- [ ] Run repeated-capture and low-storage tests without losing an original photo.
+- [x] Run a 250-capture automated stress test with 62 simulated MediaLibrary low-storage failures; every original remained in the gallery model or durable recovery storage.
 
 ### Expo dependency health
 
@@ -32,6 +32,7 @@ not required for production and remain out of scope.
 - [ ] Verify tap focus, focus/exposure lock, exposure detents, HDR, flash, all aspect ratios, timers, lens switching, pinch zoom, and the zoom ruler.
 - [ ] Measure tap-to-shutter, shutter-to-JPEG, shot-to-shot, processing, and gallery-save latency in a release build.
 - [ ] Stress multi-frame processing for memory pressure, heat, cancellation, backgrounding, and repeated bursts.
+- [ ] Complete physical-device case R11: repeated captures plus induced low storage, followed by Retry and restart recovery verification.
 - [ ] Confirm there are no crashes, frozen previews, lost originals, or incorrect applied-setting claims.
 
 ### Android production build

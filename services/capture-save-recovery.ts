@@ -1,5 +1,7 @@
 import { Directory, File, Paths } from 'expo-file-system';
 
+import { preserveOriginalForRecovery } from '@/utils/capture-recovery-policy.mjs';
+
 const RECOVERY_DIRECTORY_NAME = 'pending-captures';
 const RECOVERY_FILE_PREFIX = 'intellicam-pending-';
 
@@ -37,9 +39,7 @@ export function retainCaptureForRecovery(
   const key = `${createdAt}-${captureId}`;
   const destination = new File(directory, `${RECOVERY_FILE_PREFIX}${key}.jpg`);
   const source = new File(normalizeSourceUri(sourceUriOrPath));
-  if (!source.exists) throw new Error('The captured photo is no longer available.');
-  if (destination.exists) destination.delete();
-  source.copy(destination);
+  preserveOriginalForRecovery(source, destination);
   return { key, uri: destination.uri, createdAt };
 }
 

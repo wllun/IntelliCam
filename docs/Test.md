@@ -103,6 +103,7 @@ All cases in this section are Not run. Controlled failures may need a debug buil
 | R08 | Force composition failure or insufficient accepted frames. | The original reference photo is preserved, saved and identified as the fallback. |
 | R09 | Background the app or switch camera during preparation and capture. | No stale camera request, crash or permanently frozen preview. Capture cancels or recovers safely. |
 | R10 | Take repeated bursts, then return to Auto, Beauty and Product. | Analysis files are cleaned up, locks are restored and existing single-photo behavior remains usable. |
+| R11 | On a physical device, take 50 Auto photos and 10 special-mode bursts while reducing free storage until MediaLibrary rejects a save. Restart IntelliCam, free space and use Retry. | Every accepted capture exists either in the IntelliCam album or durable pending recovery. The failed photo survives restart, Retry saves it once, and no earlier original is overwritten or lost. |
 
 ## Platform boundaries
 
@@ -140,7 +141,7 @@ For successful, unsupported-control and fallback captures, compare the saved rec
 
 For each case, complete: test ID; device and OS; app revision/build; camera capabilities; scene and stability; requested versus resolved settings; measured outcome; Pass/Fail/Blocked; JPEG/metadata/log evidence; issue reference and retest date.
 
-Current device status: S01–S02, L01–L02, W01–W02, R01–R10, P01, Q01 and M01 are all Not run.
+Current device status: S01–S02, L01–L02, W01–W02, R01–R11, P01, Q01 and M01 are all Not run. Automated recovery stress coverage passes 250 captures with 62 simulated low-storage save failures, but it does not replace physical R11.
 
 ## Release acceptance
 

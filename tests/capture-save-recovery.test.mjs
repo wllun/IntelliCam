@@ -14,12 +14,15 @@ const reviewSource = await readFile(
 
 test('retains every captured original outside purgeable cache before processing', () => {
   assert.match(recoverySource, /new Directory\(Paths\.document, RECOVERY_DIRECTORY_NAME\)/);
-  assert.match(recoverySource, /source\.copy\(destination\)/);
+  assert.match(recoverySource, /preserveOriginalForRecovery\(source, destination\)/);
   assert.match(recoverySource, /listCaptureRecoveries/);
-  assert.ok(
-    cameraSource.indexOf('retainCaptureForRecovery(referenceFilePath, captureId)')
-      < cameraSource.indexOf('MultiFrameProcessor.processAsync('),
-  );
+  const enqueueStart = cameraSource.indexOf('const enqueuePhotoSave = useCallback');
+  const enqueueEnd = cameraSource.indexOf('useEffect(() => {', enqueueStart);
+  const enqueue = cameraSource.slice(enqueueStart, enqueueEnd);
+  const retain = enqueue.indexOf('retainCaptureForRecovery(originalReferenceFilePath, captureId)');
+  assert.ok(retain >= 0);
+  assert.ok(retain < enqueue.indexOf('photoSaveQueueRef.current = photoSaveQueueRef.current'));
+  assert.ok(retain < enqueue.indexOf('MultiFrameProcessor.processAsync('));
 });
 
 test('replaces a retained original only after the processed copy exists', () => {
