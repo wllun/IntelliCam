@@ -1,7 +1,7 @@
 # Project State
 
 Last updated: 2026-09-19
-Branch reviewed: `feature/improvement` (merge reconciliation)
+Branch reviewed: `markdown`
 
 ## Where we are
 
@@ -45,10 +45,12 @@ cancellable bursts through a native alignment and motion-rejection pipeline.
 Accepted frames are cropped to their common aligned area and composited using
 star-safe averaging, lighten blending, or temporal averaging respectively.
 Capability-resolved per-mode plans preserve manual iOS exposure/focus/white-balance
-where supported, with automatic aligned bursts otherwise: Star uses four frames,
-Light Trail and Waterfall use eight timed frames. Product applies supported
-center metering/locks and highlight protection; Beauty applies offline natural
-skin smoothing. Unsupported settings remain guidance, not confirmed controls.
+where supported, with automatic aligned bursts otherwise. Conservative base
+plans use four Star frames and eight Light Trail or Waterfall frames; fresh
+Android scene measurements can resolve Star to 3-8, Light Trail to 6-12, and
+Waterfall to 4-10 frames. Product applies supported center metering/locks and
+highlight protection; Beauty applies offline natural skin smoothing.
+Unsupported settings remain guidance, not confirmed controls.
 
 Every mode shares one camera screen, shutter, post-processing queue, metadata
 pipeline, and save path. New mode strategies must extend this engine rather
@@ -62,6 +64,8 @@ stability diagnostics. See [`ADAPTIVE_CAPTURE_ENGINE.md`](ADAPTIVE_CAPTURE_ENGIN
 
 Related design documents:
 
+- [`diagrams/INTELLICAM_PROJECT_OVERVIEW.drawio`](diagrams/INTELLICAM_PROJECT_OVERVIEW.drawio)
+- [`diagrams/INTELLICAM_LOCAL_DATABASE.drawio`](diagrams/INTELLICAM_LOCAL_DATABASE.drawio)
 - [`proposals/ADAPTIVE_CAPTURE_PROPOSAL.md`](proposals/ADAPTIVE_CAPTURE_PROPOSAL.md)
 - [`proposals/proposal-camera-mode-selection.md`](proposals/proposal-camera-mode-selection.md)
 - [`CAMERA_CONTROL_AUDIT.md`](CAMERA_CONTROL_AUDIT.md)
@@ -105,7 +109,7 @@ Related design documents:
 - [ ] Replace remaining guidance-only technical values with confirmed camera controls; validate per-mode applied settings on physical devices
 - [ ] Physically tune multi-frame registration and rejection thresholds for low-texture, low-light, moving-water, and moving-light scenes; evaluate rotation/perspective alignment after translation alignment is validated
 - [ ] Add physical-device validation for exposure, focus lock, tap focus, zoom, HDR, Portrait boundaries, multi-frame modes, selector motion, memory use, and release-build capture latency
-- [ ] Add SQLite `photos`, `camera_presets`, `edit_history`, and `capture_sessions` tables when relational features begin
+- [ ] Add SQLite `photos`, `camera_presets`, `edit_history`, and `capture_sessions` tables when relational features begin; use the proposed [`diagrams/INTELLICAM_LOCAL_DATABASE.drawio`](diagrams/INTELLICAM_LOCAL_DATABASE.drawio) schema as the starting point
 - [ ] Add custom presets and non-destructive editing
 - [ ] Add on-device smart assistance only after the rule-based adaptive engine is dependable
 - [ ] Defer backend, Supabase, cloud AI, accounts, and subscriptions until explicitly approved

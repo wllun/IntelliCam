@@ -1,5 +1,7 @@
 # IntelliCam Android Virtual Device Commands
 
+Last reviewed: 2026-09-19
+
 Use these steps to build, install, run, and debug IntelliCam on an Android
 Virtual Device (AVD).
 
@@ -10,7 +12,7 @@ Run these commands in order from the IntelliCam project folder:
 ```powershell
 emulator -avd IntelliCam_API_36
 adb devices
-adb install -r ".\android\app\build\outputs\apk\debug\app-debug.apk"
+adb -e install -r ".\android\app\build\outputs\apk\debug\app-debug.apk"
 npx.cmd expo start --dev-client --localhost
 ```
 
@@ -44,7 +46,7 @@ install its current native debug build before starting Metro. The shared APK con
 for physical phones and `x86_64` for this AVD:
 
 ```powershell
-adb install -r ".\android\app\build\outputs\apk\debug\app-debug.apk"
+adb -e install -r ".\android\app\build\outputs\apk\debug\app-debug.apk"
 ```
 
 If the APK does not exist or was previously built as ARM64-only, rebuild the

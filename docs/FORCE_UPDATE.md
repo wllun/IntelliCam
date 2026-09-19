@@ -1,9 +1,12 @@
 # IntelliCam forced application updates
 
+Last reviewed: 2026-09-19
+
 IntelliCam build 1 is the update-capable baseline. Android and iOS read their
 own entry from the public [`app-update.json`](../app-update.json) policy when the
 app starts and when it returns to the foreground. Web and Expo Go are excluded.
-Enforcement is disabled by default.
+The committed policy currently keeps both platforms at build 1 with
+`forceUpdateEnabled: false`, so enforcement is disabled.
 
 Older builds without this feature cannot be blocked remotely. Users must first
 install this baseline before a later release can be enforced.

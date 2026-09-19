@@ -2,6 +2,8 @@
 
 Last reviewed: 2026-09-19
 
+System context: [`diagrams/INTELLICAM_PROJECT_OVERVIEW.drawio`](diagrams/INTELLICAM_PROJECT_OVERVIEW.drawio)
+
 This table separates what is verified in the implementation from what still
 requires testing on a physical camera. No USB device was connected during this
 review.

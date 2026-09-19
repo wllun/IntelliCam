@@ -1,9 +1,13 @@
 # Adaptive Capture Engine Proposal
 
-Status: Proposed foundation; partially implemented prerequisites
+Status: Foundation and first computational modes implemented; expansion and physical tuning remain
 Created: 2026-07-27
-Last reviewed: 2026-09-16
+Last reviewed: 2026-09-19
 Target: IntelliCam MVP and later computational-photography phases
+
+Current implementation details: [`../ADAPTIVE_CAPTURE_ENGINE.md`](../ADAPTIVE_CAPTURE_ENGINE.md)
+
+System diagram: [`../diagrams/INTELLICAM_PROJECT_OVERVIEW.drawio`](../diagrams/INTELLICAM_PROJECT_OVERVIEW.drawio)
 
 ## Purpose
 
@@ -27,10 +31,36 @@ camera screen, capability-aware focus/zoom/HDR controls, portable capture
 metadata, and native post-capture Portrait processing. The photographic mode
 selector is also complete.
 
-The unified adaptive engine itself is not implemented. Star, Light Trail,
-Waterfall, standalone Portrait, Beauty, and Product still display fixed
-guidance from `constants/presets.ts`; selecting them does not yet apply those
-ISO, shutter, white-balance, focus, RAW, or multi-frame instructions.
+The consolidated adaptive foundation is implemented. Shared plain-data
+capabilities, scene measurements, requested/resolved/applied/fallback records,
+native capture preparation, and portable metadata live outside the camera
+screen. Android provides preview-relative brightness, clipping, motion, and
+gyroscope measurements; iOS currently uses native metering and motion fallback
+because the installed backend cannot provide preview snapshots.
+
+Star, Light Trail, and Waterfall execute capability-bounded manual or automatic
+plans. Automatic paths capture cancellable bursts, align translations, reject
+excess motion, crop the common overlap, and composite by mode. Beauty applies
+offline native processing, while Product requests supported center metering,
+locks, and highlight protection. Standalone Portrait has been removed; Auto
+contains the optional subject-aware Portrait effect.
+
+The numeric ISO, shutter, white-balance, focus, and RAW fields in
+`constants/presets.ts` remain presentation guidance. They are never treated as
+applied unless the resolved plan and native session or saved EXIF confirm the
+actual result. Remaining work is physical-device tuning, fuller iOS visual
+sensing, more confirmed native controls, rotation/perspective registration,
+HDR bracketing, and additional assistance.
+
+Implementation status by original phase:
+
+| Original phase | Current status |
+| --- | --- |
+| Phase 1: Honest preset model | Implemented through versioned capture plans and explicit fallback records; legacy card values remain guidance |
+| Phase 2: Capability and measurement layer | Implemented with Android visual sensing and iOS metering/motion limits |
+| Phase 3: Multi-frame computational capture | Implemented for Star, Light Trail, and Waterfall; HDR bracketing and advanced registration remain |
+| Phase 4: Native manual controls | Partially implemented where Vision Camera/native preparation reports support; broad device confirmation remains |
+| Phase 5: Advanced assistance | Not started beyond current rule-based on-device measurements and Portrait segmentation |
 
 ## Goals
 
@@ -451,7 +481,8 @@ settings can appear in an expandable detail view for users who want them.
 ## Storage requirements
 
 Add capture metadata to the planned local `photos` and `capture_sessions`
-tables:
+tables. The proposed keys and relationships are shown in
+[`../diagrams/INTELLICAM_LOCAL_DATABASE.drawio`](../diagrams/INTELLICAM_LOCAL_DATABASE.drawio):
 
 - Selected mode
 - Capture strategy
@@ -480,7 +511,7 @@ Never store large image blobs in SQLite.
 ### Phase 2: Capability and measurement layer
 
 - Introduce `CameraController`.
-- Implement `ExpoCameraController`.
+- Implement or extend the shared `VisionCameraController` abstraction.
 - Add device-motion stability measurement.
 - Add luminance, histogram, and clipping measurements where available.
 - Add runtime guidance.
@@ -575,13 +606,17 @@ The adaptive capture foundation is complete when:
 
 ## Recommended next implementation task
 
-Start with Phase 1:
+Do not restart Phase 1. Use the existing shared engine and complete the next
+evidence-driven reliability pass:
 
-1. Define the TypeScript contracts in a camera-domain folder.
-2. Convert the five current presets into strategy definitions.
-3. Build a pure `resolveCapturePlan` function.
-4. Add rule-resolution tests using simulated scene and capability inputs.
-5. Update the UI to label unresolved values as suggestions.
-
-This provides an honest, testable foundation without prematurely committing to
-a native camera backend.
+1. Run the documented Star, Light Trail, and Waterfall device matrix on
+   representative Android hardware and iPhone.
+2. Tune brightness, clipping, motion, registration, and burst-budget thresholds
+   from saved JPEG/metadata evidence.
+3. Compare acknowledged native settings with per-frame EXIF where available.
+4. Add an iOS-compatible visual-sensing path without fabricating unavailable
+   measurements.
+5. Evaluate rotation/perspective registration only after translation alignment
+   is physically validated.
+6. Keep HDR bracketing separate from native Photo HDR and record requested,
+   applied, and fallback outcomes honestly.

@@ -1,5 +1,7 @@
 # IntelliCam Android Physical Device Commands
 
+Last reviewed: 2026-09-19
+
 Use these steps to build, install, run, and debug IntelliCam on a physical
 Android device.
 

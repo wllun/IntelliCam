@@ -1,6 +1,8 @@
 # Architecture
 
-Last updated: 2026-09-16
+Last updated: 2026-09-19
+
+Editable overview: [`diagrams/INTELLICAM_PROJECT_OVERVIEW.drawio`](diagrams/INTELLICAM_PROJECT_OVERVIEW.drawio)
 
 ## Current system
 
@@ -20,10 +22,12 @@ Expo MediaLibrary IntelliCam album + portable JPEG metadata
 
 IntelliCam is local-first. Auto mode provides reliable everyday capture. Star,
 Light Trail, and Waterfall extend the same camera engine with aligned,
-motion-screened bursts and mode-aware compositing. Portrait, Beauty, and
-Product still provide guidance only. Displayed ISO, shutter, white-balance,
-focus, and RAW values are not treated as applied unless the native camera
-session confirms them. No mode opens a separate camera implementation.
+motion-screened bursts and mode-aware compositing. Auto's optional Portrait
+effect and Beauty apply local native processing. Product requests supported
+center metering, locks, and highlight protection. Displayed preset ISO,
+shutter, white-balance, focus, and RAW values are not treated as applied unless
+the native camera session or saved EXIF confirms them. No mode opens a separate
+camera implementation.
 
 ## Application layer
 
@@ -71,26 +75,27 @@ and must not infer support from the phone model name.
 
 ## Capture modes
 
-`constants/presets.ts` currently stores six static guidance definitions:
+`constants/presets.ts` currently stores five static guidance definitions:
 
 - Star
 - Light Trail
 - Waterfall
-- Portrait
-- Beauty (`美顔` in the current UI)
+- Beauty
 - Product
 
 `constants/capture-modes.ts` adds Auto and the bundled photographic artwork used
 by the 3D cover-flow selector. Browsing changes only a draft selection; pressing
 Apply commits the active mode.
 
-Star captures six frames, Light Trail captures eight, and Waterfall captures
-six. The user can cancel the burst from the shutter, and lifecycle/session
-checks prevent further frames after the camera becomes unavailable. The other
-special modes remain single-frame guidance. All special-mode ISO, shutter,
-white-balance, focus, and RAW values are guidance only. They must not be
-described as applied until a resolved capture plan and the native backend
-confirm the actual settings. See
+Without a fresh usable scene measurement, the conservative automatic plans use
+four Star frames and eight Light Trail or Waterfall frames. Fresh Android scene
+measurements can resolve Star to 3-8 frames, Light Trail to 6-12, and Waterfall
+to 4-10; supported native manual paths may instead use a single capture. The
+user can cancel a burst from the shutter, and lifecycle/session checks prevent
+further frames after the camera becomes unavailable. Beauty and Product use
+single captures with their processing/preparation strategies. All displayed
+preset ISO, shutter, white-balance, focus, and RAW values remain guidance until
+a resolved plan and the native backend confirm the actual settings. See
 [`proposals/ADAPTIVE_CAPTURE_PROPOSAL.md`](proposals/ADAPTIVE_CAPTURE_PROPOSAL.md).
 
 ## Image processing and native modules
@@ -114,11 +119,11 @@ Local Expo modules currently provide:
 | Module | Purpose |
 | --- | --- |
 | `photo-metadata` | Copies camera EXIF and embeds IntelliCam capture information and optional GPS coordinates into the final JPEG |
-| `portrait-effect` | Uses ML Kit on Android and Vision/Core Image on iOS to keep a detected person sharp and blur the background |
+| `portrait-effect` | Uses ML Kit on Android and Vision/Core Image on iOS for subject-aware Portrait blur and Beauty processing |
 | `multi-frame-processor` | Aligns burst JPEGs by translation, rejects frames with excessive residual motion or displacement, crops to the common overlap, and composites Star, Light Trail, and Waterfall results |
 | `media-trash` | Uses Android's recoverable system trash flow instead of permanent deletion |
 
-If Portrait processing cannot identify a clear person or fails, the original
+If Portrait processing cannot identify a clear foreground subject or fails, the original
 capture is saved. Android uses grayscale correlation for translation alignment;
 iOS uses Vision translational registration. Star rejects locally changed pixels
 before averaging, Light Trail uses lighten compositing, and Waterfall uses
@@ -149,6 +154,9 @@ Planned SQLite tables:
 | `capture_sessions` | Multi-frame plan, frame count, duration, and result |
 
 SQLite must store paths and structured metadata only, never photo blobs.
+The proposed columns, keys, relationships, and indexes are maintained in the
+editable [`diagrams/INTELLICAM_LOCAL_DATABASE.drawio`](diagrams/INTELLICAM_LOCAL_DATABASE.drawio)
+ERD. It is a design artifact, not evidence that `expo-sqlite` is installed.
 
 ## Backend and premium phases
 

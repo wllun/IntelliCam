@@ -1,6 +1,8 @@
 # Consolidated adaptive capture engine
 
-Last updated: 2026-09-18
+Last updated: 2026-09-19
+
+System context: [`diagrams/INTELLICAM_PROJECT_OVERVIEW.drawio`](diagrams/INTELLICAM_PROJECT_OVERVIEW.drawio)
 
 This extends the existing mode plans, rather than restarting the proposal's
 Phase 1. The merged per-mode resolvers select supported manual iOS captures

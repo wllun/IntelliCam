@@ -1,3 +1,9 @@
+# IntelliCam Android build and installation notes
+
+Last reviewed: 2026-09-19
+
+## Short-path standalone release build
+
 1. Copy the latest code to the short build folder
     `robocopy "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam\android" "C:\Users\behwl\OneDrive\Documents\ReactNative\IntelliCam\ios" .expo dist web-build`
     [Company Laptop Cmd] : `robocopy "C:\Users\User\Desktop\React App\IntelliCam" "C:\ICBuild" /MIR /XD .git node_modules "C:\Users\User\Desktop\React App\IntelliCam\android" "C:\Users\User\Desktop\React App\IntelliCam\ios" .expo dist web-build`
@@ -39,8 +45,8 @@
     adb -e reverse tcp:8081 tcp:8081
     npx.cmd expo start --dev-client --localhost
 
-    e. Rebuild after installing or removing native packages.
-    expo run:android
+    d. Rebuild after installing or removing native packages.
+    npx.cmd expo run:android --device
 
 2. Manually built debug APK (development build requiring Metro, but building and installing are separate operations)
     a. ARM64 and x86_64 APK -> generate android\app\build\outputs\apk\debug\app-debug.apk

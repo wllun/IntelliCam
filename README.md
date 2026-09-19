@@ -1,23 +1,26 @@
 # IntelliCam
 
-Smart camera app built around a reliable Auto camera and guided photography
-modes for Star, Light Trail, Waterfall, Portrait, Beauty, and Product shots.
-Auto capture and the optional computational Portrait effect are functional.
-Star, Light Trail, and Waterfall capture aligned, motion-screened bursts with
-mode-aware compositing. Their displayed ISO, shutter, focus, and RAW values are
-still guidance until the native camera session can confirm those controls.
-Portrait, Beauty, and Product remain guided modes.
+Smart camera app built around one reliable Auto camera and five special modes:
+Star, Light Trail, Waterfall, Beauty, and Product. Auto includes an optional
+subject-aware Portrait effect. Star, Light Trail, and Waterfall capture
+environment-adaptive, aligned, motion-screened bursts with mode-aware
+compositing; Beauty applies local skin smoothing; Product applies supported
+metering, locks, and highlight protection. Displayed preset ISO, shutter,
+focus, white-balance, and RAW values remain guidance unless the native session
+or saved EXIF confirms them.
 
-MVP is rule-based presets. Premium adds AI scene detection and a natural-language photography assistant.
+The MVP remains local and rule-based. A future premium phase may add on-device
+smart assistance; cloud AI or a natural-language assistant remains deferred.
 
-See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the technical design and
-[PROJECT_STATE.md](docs/PROJECT_STATE.md) for what is built versus planned.
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the technical design,
+[PROJECT_STATE.md](docs/PROJECT_STATE.md) for what is built versus planned, and
+the editable [project overview diagram](docs/diagrams/INTELLICAM_PROJECT_OVERVIEW.drawio).
 
 ## Get started
 
-```bash
-npm install
-npx expo start
+```powershell
+npm.cmd install
+npx.cmd expo start --dev-client --localhost
 ```
 
 Open it in a [development build](https://docs.expo.dev/develop/development-builds/introduction/)
@@ -34,10 +37,12 @@ This project uses [file-based routing](https://docs.expo.dev/router/introduction
 - React Native Vision Camera 5 for preview, capture, focus, metering, and zoom
 - Expo MediaLibrary for the on-device IntelliCam album
 - Local Expo native modules for portable JPEG metadata, recoverable Android
-  deletion, the computational Portrait effect, and aligned multi-frame capture
+  deletion, the computational Portrait/Beauty effects, and aligned multi-frame
+  capture
 - AsyncStorage for camera preferences and the forced-update policy cache
 - SQLite, editing history, backend services, and cloud sync are planned, not
-  currently installed
+  currently installed; see the editable
+  [proposed local database diagram](docs/diagrams/INTELLICAM_LOCAL_DATABASE.drawio)
 
 ## Learn more
 

@@ -1,9 +1,17 @@
 # IntelliCam Subscription Plans Proposal
 
-Status: Proposed  
-Created: 2026-09-11  
+Status: Proposed
+
+Created: 2026-09-11
+
+Last reviewed: 2026-09-19
+
 Target: Smart Assistance and AI Premium phases
 Account model: No required IntelliCam login
+
+Implementation boundary: no billing SDK, entitlement service, paywall,
+subscription product, account system, or subscription database is currently
+installed. This document is planning only.
 
 ## Recommendation
 
@@ -29,19 +37,25 @@ The annual option should be visually highlighted as **Best value**.
 IntelliCam's documented MVP remains free. Features already identified as core
 MVP functionality must not be moved behind the subscription:
 
-- Auto, Star, Light Trail, Waterfall, Portrait, Beauty, and Product capture modes
+- Auto with its optional Portrait effect, plus Star, Light Trail, Waterfall,
+  Beauty, and Product capture modes
 - Manual camera controls, focus, exposure, zoom, HDR, timer, and aspect ratio
 - Offline rule-based adaptive capture
 - RAW capture where supported by the device
 - Long exposure and frame stacking
 - Local gallery and on-device photo storage
-- Basic editing and non-destructive edit history
+- Basic editing and non-destructive edit history when those planned local
+  features are implemented
 - No advertisements or watermarks
 
 The first subscription monetizes continuing on-device Smart Assistance and
 premium feature updates described in [`ARCHITECTURE.md`](../ARCHITECTURE.md).
 Cloud AI, synchronization, and cross-platform identity are deferred until the
 project intentionally adds backend infrastructure.
+
+The proposed local photo/preset/edit/session SQLite schema is unrelated to
+subscription entitlement storage. See
+[`../diagrams/INTELLICAM_LOCAL_DATABASE.drawio`](../diagrams/INTELLICAM_LOCAL_DATABASE.drawio).
 
 ## No-login purchase model
 

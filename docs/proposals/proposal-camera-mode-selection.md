@@ -3,6 +3,7 @@
 Status: Implemented; physical-device acceptance testing remains
 Created: 2026-08-31
 Implemented before: 2026-09-16
+Last reviewed: 2026-09-19
 Reference image: [`../assets/camera-mode-selection-reference.png`](../assets/camera-mode-selection-reference.png)
 
 ![Approved camera mode selection reference](../assets/camera-mode-selection-reference.png)
@@ -56,7 +57,8 @@ state.
 It includes:
 
 - Opening the selector from the right-side Mode control.
-- Browsing Auto, Star, Light Trail, Waterfall, Portrait, Beauty, and Product.
+- Browsing the configured order: Auto, Beauty, Product, Star, Light Trail, and
+  Waterfall.
 - Drafting a selection without immediately changing the active camera mode.
 - Applying or dismissing the draft selection.
 - Updating the camera UI after Apply.
@@ -113,7 +115,7 @@ Below the card stage:
 
 - Repeat the selected mode name and short guidance only if needed for
   readability on smaller artwork.
-- Show seven pagination dots with the active position visible through shape and
+- Show six pagination dots with the active position visible through shape and
   color, not color alone.
 - Show a subtle swipe affordance for first-time discoverability.
 
@@ -155,9 +157,10 @@ draft.
 ### Card composition
 
 Each mode card uses a stable, bundled photographic image rather than a
-generated gradient or abstract icon background. The current Portrait and
-Beauty cards share the portrait artwork; a dedicated Beauty asset remains an
-optional visual refinement.
+generated gradient or abstract icon background. Beauty currently uses the
+portrait artwork; a dedicated Beauty asset remains an optional visual
+refinement. Standalone Portrait is not a card because the subject-aware
+Portrait effect is an Auto camera control.
 
 Proposed image direction:
 
@@ -167,7 +170,6 @@ Proposed image direction:
 | Star | Milky Way or clear star field over a dark landscape |
 | Light Trail | Vehicle light trails through a city or road |
 | Waterfall | Silky waterfall with visible surrounding detail |
-| Portrait | Naturally lit person with clear subject separation |
 | Beauty | Soft, naturally lit face with realistic skin texture |
 | Product | Refined studio product photograph with controlled highlights |
 
@@ -386,7 +388,7 @@ The redesign is complete only when all of the following are true:
 - One tall center card dominates while angled side cards visibly recede behind
   it.
 - The carousel continuously follows the user's drag and snaps predictably.
-- Auto plus all six smart modes are present in the correct order.
+- Auto plus all five special modes are present in the configured order.
 - Browsing does not apply a mode.
 - Apply commits exactly the centered mode and closes the selector.
 - Dismissal preserves the previously applied mode.

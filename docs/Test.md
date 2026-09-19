@@ -1,6 +1,6 @@
 # IntelliCam Adaptive Capture Tests
 
-Star, Light Trail and Waterfall • 18 September 2026
+Star, Light Trail and Waterfall • 19 September 2026
 
 ## Verification status
 
@@ -8,14 +8,17 @@ The decision logic and Android native module have passed automated checks. Camer
 
 | Check | Recorded result | Scope |
 | --- | --- | --- |
-| JavaScript tests | Passed — 78 tests | Existing suite including adaptive decisions and scene sampling |
+| JavaScript tests | Passed — 98 tests | Existing suite including adaptive decisions, scene sampling, mode execution, Portrait preview lifecycle, gallery ordering, and metadata safety |
 | Lint and TypeScript | Passed | `npm.cmd run check` implementation verification |
 | Android native module | Passed | Compilation and 5 native unit tests |
 | Android camera behavior | Not run | No connected device during implementation verification |
 | iOS native compilation | Not run | Requires macOS and Xcode |
 | iOS camera behavior | Not run | Requires a rebuilt client and physical iPhone |
 
-These results record the implementation verification on 18 September 2026. Writing this document does not constitute a new test run or a full APK build.
+These JavaScript, lint, and TypeScript results were rerun on 19 September 2026
+with `npm.cmd run check`. The Android native-unit and compile entries retain
+their previous recorded status; this documentation update did not run a full
+APK build or physical-device test.
 
 ## Test setup
 

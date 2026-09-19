@@ -1,13 +1,16 @@
 # Learning React Native Through IntelliCam
 
+Last updated: 2026-09-19
+
 This guide is for a web developer who knows Laravel, Node.js, HTML, CSS, and
 vanilla JavaScript, but is starting React and React Native from zero.
 
 IntelliCam is an **Expo SDK 54** React Native app. It uses React Native Vision
 Camera 5 for preview and capture, Expo Router for navigation, and local native
-Expo modules for metadata, recoverable deletion, and Portrait processing. Its
-working flows include Auto capture, a photographic mode selector, the
-IntelliCam gallery, portable photo information, and a forced-update gate.
+Expo modules for metadata, recoverable deletion, Portrait/Beauty processing,
+and aligned multi-frame compositing. Its working flows include Auto capture,
+five special capture modes, a photographic mode selector, the IntelliCam
+gallery, portable photo information, and a forced-update gate.
 
 Use the versioned [Expo SDK 54 documentation](https://docs.expo.dev/versions/v54.0.0/)
 when studying or changing this project. SDK 54 uses React Native 0.81 and React
@@ -213,7 +216,7 @@ In this project:
 - `expo-media-library` connects to the device photo library.
 - `expo-haptics` triggers physical feedback.
 - local Expo modules implement portable JPEG metadata, Android system trash,
-  and computational Portrait processing.
+  computational Portrait/Beauty processing, and aligned multi-frame capture.
 - `app.json` contains native-facing configuration and permission descriptions.
 - `eas.json` contains cloud build profiles.
 - `android/` is generated/native Android code; it is not the best place to begin.
@@ -226,13 +229,16 @@ As the app grows, keep these categories separate:
 - reusable UI in `components/`
 - reusable behavior in `hooks/`
 - static configuration and types in `constants/`
-- API/data access in a future `services/`, `lib/`, or similar directory
+- camera preparation, capture plans, metadata, and policy access in `services/`
+- shared capture-domain contracts in `types/` and pure decision logic in `utils/`
 - persistent state in SQLite, AsyncStorage, SecureStore, or a backend
 
-Avoid putting every concern into one large screen. `app/index.tsx` now contains
-most camera, gesture, settings, capture, processing, and save orchestration, so
-new adaptive-mode work should extract focused services, hooks, and components
-instead of making the screen larger.
+Avoid putting every concern into one large screen. `app/index.tsx` still owns
+camera-screen state, lifecycle cancellation, timer, burst orchestration, and
+the save queue, while capability adaptation, capture preparation, metadata,
+environment decisions, and mode plans have moved into focused services, hooks,
+types, and utilities. New work should continue those boundaries instead of
+making the screen larger again.
 
 ## 2. What this project can teach you
 
@@ -252,8 +258,10 @@ instead of making the screen larger.
 | React Native styling | `StyleSheet.create()` in screen/components | Flexbox, overlays, style arrays, opacity |
 | Gestures | `app/index.tsx`, `components/capture-mode-carousel.tsx` | pinch, drag, swipe, UI-thread shared values, and controlled JS handoff |
 | Animation | camera screen and mode carousel | animated values, timing/spring motion, reduced motion, and enter/exit transitions |
+| Capture-domain separation | `types/adaptive-capture.ts`, `services/capture-preparation.ts`, `services/capture-metadata.ts` | plain-data capabilities, resolved plans, confirmed outcomes, and fallbacks |
+| Pure decision logic | `utils/adaptive-capture.mjs`, `utils/environment-capture.mjs` | deterministic rules that can be tested without a camera |
 | Safe areas | `app/index.tsx` | controls offset by device insets |
-| Rendering lists | preset dot indicator | `PRESETS.map(...)` and `key` |
+| Rendering lists | mode cards and dot indicator | `CAPTURE_MODES.map(...)` and `key` |
 | TypeScript data models | `constants/presets.ts` | interface, unions, library-derived icon type |
 | Path aliases | `tsconfig.json` | `@/` means the project root |
 | Platform-specific files | `components/ui/icon-symbol.tsx` and `.ios.tsx` | Metro selects the iOS implementation on iOS |
@@ -273,8 +281,9 @@ app/index.tsx renders
   -> onPreviewStarted enables the shutter
   -> shutter onPress calls capture()
   -> photoOutput.capturePhotoToFile() creates a cached JPEG
+  -> special modes may collect and align a bounded burst
   -> the save queue crops it to the selected aspect ratio
-  -> optional Portrait processing runs
+  -> optional Portrait or Beauty processing runs
   -> portable EXIF/IntelliCam metadata is embedded
   -> MediaLibrary finds or creates the "IntelliCam" album
   -> photo is saved to that album
@@ -303,20 +312,27 @@ Mode button sets modeMenuVisible
 
 This teaches the relationship among gestures, state, rendering, and animations.
 
-### What is only planned, not implemented
+### What is built versus still planned
 
-Do not assume `ARCHITECTURE.md` describes the current code. It describes a
-target architecture.
+Do not assume every future section in `ARCHITECTURE.md` is executable code.
+Compare it with `PROJECT_STATE.md`, dependencies, and the implementation.
 
-As of 2026-09-16 on `feature/improvement`:
+As of 2026-09-19 on `markdown`:
 
 - Vision Camera preview and Auto JPEG capture are implemented.
 - Gallery, photographic mode selection, settings, metadata, force update, and
   the Auto Portrait effect are functional.
+- Star, Light Trail, and Waterfall execute adaptive, cancellable multi-frame
+  plans with native translation alignment, motion rejection, and mode-aware
+  compositing.
+- Beauty applies offline native smoothing, and Product applies supported
+  metering/lock/highlight-protection preparation.
 - SQLite is planned, but `expo-sqlite` is not currently a dependency.
 - Special presets display ISO, shutter speed, white balance, focus, and RAW
-  values, but those values do **not** change capture yet.
-- Multi-frame special-mode processing and non-destructive editing are planned.
+  values as guidance; only resolved and confirmed native/session values count
+  as applied.
+- Capture review/save-failure recovery, custom presets, SQLite indexing, and
+  non-destructive editing are still planned.
 - There is no Laravel/Node API, Supabase integration, cloud photo storage, or AI
   feature in this repository.
 
@@ -512,9 +528,9 @@ props.
 
 Goal: implement one small roadmap item end to end.
 
-A good first feature is persisting a simple setting such as capture sound,
-gridlines, or aspect ratio. Start with a suitable key-value store; learn SQLite
-later when relational preset/photo metadata actually needs it.
+A good persistence lesson is to trace the existing validated AsyncStorage
+record for capture sound, gridlines, aspect ratio, timer, and HDR preference.
+Learn SQLite later when relational preset/photo metadata actually needs it.
 
 Then consider:
 
@@ -536,13 +552,15 @@ Only after the earlier stages:
 - learn native Android/iOS project structure
 - extend a local Expo native module only when the shared camera API is insufficient
 - learn Reanimated worklets and Gesture Handler in more depth
-- add SQLite, image processing, or backend synchronization when required
+- add SQLite, extend image processing, or introduce backend synchronization
+  only when required
 
 ## Small exercises tied to the current code
 
 Do these in separate Git commits so every exercise is easy to undo.
 
-1. Persist the photo-quality preference with a safe default.
+1. Add capture review and save-failure recovery while preserving the cached
+   source image.
 2. Add a device test that verifies supported HDR session confirmation and the
    unsupported `Unavailable` state.
 3. Extract the permission screen into a component with typed props.
