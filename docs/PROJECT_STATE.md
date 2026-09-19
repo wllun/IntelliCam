@@ -105,13 +105,14 @@ Related design documents:
 - [x] Photographic 3D cover-flow mode selector with draft selection, Apply, tapping, swiping, snapping, dots, haptics, accessibility actions, and reduced-motion handling
 - [x] IntelliCam-only gallery with newest-first ordering, pagination, full-screen viewing, and recoverable deletion
 - [x] Latest-photo thumbnail refresh after a successful save
+- [x] Brief post-capture review with confirmed save status and durable Retry/Delete recovery when MediaLibrary saving fails
 - [x] Portable JPEG information: preserved EXIF, IntelliCam capture settings, optional GPS, and gallery information sheet
 - [x] Forced-update gate for native Android/iOS builds with public JSON policy, validation, foreground refresh, and a 72-hour offline cache
 - [x] EAS preview profile for an installable standalone Android APK
 
 ## Next implementation priorities
 
-- [ ] Add capture review and save-failure recovery without discarding the cached source image
+- [x] Add capture review and save-failure recovery without discarding the cached source image
 - [x] Add shared environment-adaptive special-mode decisions: Android small preview samples and motion sensing, supported native AE/ISO adaptation, stable burst plans and portable measurement/outcome metadata
 - [ ] Add full iOS visual sensing (current backend lacks preview snapshots), tune adaptive thresholds on devices, and compare acknowledged settings with each frame's EXIF
 - [ ] Replace remaining guidance-only technical values with confirmed camera controls; validate per-mode applied settings on physical devices

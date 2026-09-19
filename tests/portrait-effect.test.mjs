@@ -45,7 +45,7 @@ test('Auto camera exposes an accessible Portrait effect beside Flash', () => {
 test('portrait processing runs before metadata embedding and save', () => {
   const processing = cameraSource.indexOf('PortraitEffect.applyAsync(');
   const metadata = cameraSource.indexOf('await embedPhotoMetadata(', processing);
-  const save = cameraSource.indexOf('await savePhotoToAlbum(finalUri)', processing);
+  const save = cameraSource.indexOf('await savePhotoToAlbum(recovery.uri)', processing);
 
   assert.ok(processing >= 0);
   assert.ok(metadata > processing);

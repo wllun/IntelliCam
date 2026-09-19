@@ -34,7 +34,7 @@ test('Beauty is presented in English as an executable capture mode', () => {
 test('Beauty processing runs before metadata embedding and gallery save', () => {
   const processing = cameraSource.indexOf('PortraitEffect.applyBeautyAsync(processedUri, jpegQuality)');
   const metadata = cameraSource.indexOf('await embedPhotoMetadata(', processing);
-  const save = cameraSource.indexOf('await savePhotoToAlbum(finalUri)', processing);
+  const save = cameraSource.indexOf('await savePhotoToAlbum(recovery.uri)', processing);
 
   assert.ok(processing >= 0);
   assert.ok(metadata > processing);

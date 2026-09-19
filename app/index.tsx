@@ -49,6 +49,10 @@ import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { PRESETS } from '@/constants/presets';
 import { CaptureModeCarousel } from '@/components/capture-mode-carousel';
 import {
+  CaptureReviewCard,
+  type CaptureReviewStatus,
+} from '@/components/capture-review-card';
+import {
   AUTO_CAPTURE_MODE,
   DEFAULT_CAPTURE_MODE_ID,
 } from '@/constants/capture-modes';
@@ -106,6 +110,14 @@ import {
   resolveProductCapturePlan,
   type ProductCapturePlan,
 } from '@/services/product-capture';
+import {
+  discardCaptureRecovery,
+  listCaptureRecoveries,
+  removeTemporaryCaptureFiles,
+  replaceRecoveryPhoto,
+  retainCaptureForRecovery,
+  type PendingCaptureRecovery,
+} from '@/services/capture-save-recovery';
 
 const ALBUM_NAME = 'IntelliCam';
 const PortraitPreviewBlur = lazy(async () => {
@@ -159,6 +171,15 @@ interface PortraitTarget {
 interface LatestPhoto {
   key: string;
   uri: string;
+}
+
+interface CaptureReview {
+  key: string;
+  captureId: number;
+  uri: string;
+  status: CaptureReviewStatus;
+  recovery?: PendingCaptureRecovery;
+  errorMessage?: string;
 }
 
 interface MultiFrameProgress {
@@ -455,6 +476,17 @@ function getCameraErrorMessage(error: unknown) {
   return message.split('\n')[0] || 'The camera could not be started.';
 }
 
+function failedCaptureReview(recovery: PendingCaptureRecovery): CaptureReview {
+  return {
+    key: recovery.key,
+    captureId: -1,
+    uri: recovery.uri,
+    status: 'failed',
+    recovery,
+    errorMessage: 'The photo is retained safely. Check photo access or available storage, then retry.',
+  };
+}
+
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -491,6 +523,7 @@ export default function CameraScreen() {
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [latestPhoto, setLatestPhoto] = useState<LatestPhoto>();
+  const [captureReview, setCaptureReview] = useState<CaptureReview>();
   const [cardVisible, setCardVisible] = useState(true);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const [screenFocused, setScreenFocused] = useState(true);
@@ -552,6 +585,7 @@ export default function CameraScreen() {
   const captureSessionRef = useRef(0);
   const latestCaptureRef = useRef(0);
   const photoSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const captureReviewRef = useRef<CaptureReview | undefined>(undefined);
   const cameraPreferencesSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const appActiveRef = useRef(AppState.currentState === 'active');
   const screenFocusedRef = useRef(true);
@@ -576,6 +610,99 @@ export default function CameraScreen() {
   const rulerZoomValue = useSharedValue(1);
   const rulerDragStartZoom = useSharedValue(1);
 
+  useEffect(() => {
+    captureReviewRef.current = captureReview;
+  }, [captureReview]);
+
+  const showNextRetainedCapture = useCallback(() => {
+    const next = listCaptureRecoveries()[0];
+    setCaptureReview((current) => current ?? (next ? failedCaptureReview(next) : undefined));
+  }, []);
+
+  useEffect(() => {
+    showNextRetainedCapture();
+  }, [showNextRetainedCapture]);
+
+  useEffect(() => {
+    if (captureReview?.status !== 'saved') return;
+    const reviewKey = captureReview.key;
+    const timeout = setTimeout(() => {
+      const next = listCaptureRecoveries()[0];
+      setCaptureReview((current) => current?.key === reviewKey
+        ? next ? failedCaptureReview(next) : undefined
+        : current);
+    }, 1800);
+    return () => clearTimeout(timeout);
+  }, [captureReview?.key, captureReview?.status]);
+
+  const retryFailedSave = useCallback(() => {
+    const review = captureReviewRef.current;
+    if (review?.status !== 'failed') return;
+    const recovery = review.recovery;
+    setCaptureReview((current) => current?.key === review.key
+      ? { ...current, status: 'retrying', errorMessage: undefined }
+      : current);
+    photoSaveQueueRef.current = photoSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          const savedPhoto = await savePhotoToAlbum(recovery?.uri ?? review.uri);
+          if (recovery) {
+            try {
+              discardCaptureRecovery(recovery);
+            } catch (cleanupError) {
+              console.warn('Photo saved, but its recovery copy could not be removed.', cleanupError);
+            }
+          }
+          setLatestPhoto(savedPhoto);
+          setCaptureReview((current) => current?.key === review.key
+            ? { ...current, uri: savedPhoto.uri, status: 'saved', recovery: undefined }
+            : current);
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (error) {
+          console.warn('Could not retry captured photo save:', error);
+          setCaptureReview((current) => current?.key === review.key
+            ? {
+              ...current,
+              status: 'failed',
+              errorMessage: 'Retry failed. Your photo is still retained safely. Check photo access or available storage.',
+            }
+            : current);
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        }
+      });
+  }, []);
+
+  const deleteFailedCapture = useCallback(() => {
+    const review = captureReviewRef.current;
+    if (review?.status !== 'failed') return;
+    Alert.alert(
+      'Delete retained photo?',
+      'This removes the unsaved photo from IntelliCam and cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            try {
+              if (review.recovery) discardCaptureRecovery(review.recovery);
+              else removeTemporaryCaptureFiles([review.uri]);
+              const next = listCaptureRecoveries()[0];
+              setCaptureReview((current) => current?.key === review.key
+                ? next ? failedCaptureReview(next) : undefined
+                : current);
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            } catch (error) {
+              console.warn('Could not delete retained photo:', error);
+              Alert.alert('Photo not deleted', 'IntelliCam could not delete the retained photo.');
+            }
+          },
+        },
+      ],
+    );
+  }, []);
+
   const enqueuePhotoSave = useCallback((
     sourceFilePaths: string[],
     ratio: CameraRatio,
@@ -593,9 +720,20 @@ export default function CameraScreen() {
       .catch(() => undefined)
       .then(async () => {
         const referenceFilePath = sourceFilePaths[0];
-        // Diagnostics only read the immutable source; overlap with processing rather than
-        // add another native decode after the quality-critical work has completed.
-        const sceneMeasurement = startCaptureSceneMeasurement(`file://${referenceFilePath}`);
+        let recovery: PendingCaptureRecovery | undefined;
+        const temporaryFiles = [...sourceFilePaths];
+        try {
+          recovery = retainCaptureForRecovery(referenceFilePath, captureId);
+          setCaptureReview((current) => current?.captureId === captureId
+            ? { ...current, uri: recovery!.uri, recovery }
+            : current);
+        } catch (recoveryError) {
+          console.warn('Could not create durable capture recovery copy:', recoveryError);
+        }
+        try {
+          // Diagnostics only read the immutable source; overlap with processing rather than
+          // add another native decode after the quality-critical work has completed.
+          const sceneMeasurement = startCaptureSceneMeasurement(`file://${referenceFilePath}`);
         let processingSourceUri = `file://${referenceFilePath}`;
         let multiFrameResult: MultiFrameProcessResult | undefined;
         let multiFrameFailureMessage: string | undefined = metadata.capturePlan?.fallbacks
@@ -634,6 +772,7 @@ export default function CameraScreen() {
           fullScreenRatio,
           jpegQuality,
         );
+        temporaryFiles.push(processingSourceUri, processedUri);
         let finalUri = processedUri;
         const applyPortraitEffect = postCaptureEffect === 'portrait';
         const applyBeautyEffect = postCaptureEffect === 'beauty';
@@ -654,6 +793,7 @@ export default function CameraScreen() {
                 portraitFocus.y,
               );
               finalUri = result.uri;
+              temporaryFiles.push(finalUri);
               portraitApplied = result.applied;
               if (!result.applied) {
                 effectFailureTitle = 'Portrait effect not applied';
@@ -673,6 +813,7 @@ export default function CameraScreen() {
             try {
               const result = await PortraitEffect.applyBeautyAsync(processedUri, jpegQuality);
               finalUri = result.uri;
+              temporaryFiles.push(finalUri);
               beautyApplied = result.applied;
               if (!result.applied) {
                 effectFailureTitle = 'Beauty effect not applied';
@@ -720,9 +861,27 @@ export default function CameraScreen() {
         } catch (metadataError) {
           console.warn('Could not embed photo metadata:', metadataError);
         }
-        const savedPhoto = await savePhotoToAlbum(finalUri);
+        if (recovery) {
+          recovery = replaceRecoveryPhoto(finalUri, recovery);
+        } else {
+          recovery = retainCaptureForRecovery(finalUri, captureId);
+        }
+        setCaptureReview((current) => current?.captureId === captureId
+          ? { ...current, uri: recovery!.uri, status: 'saving', recovery }
+          : current);
+        const savedPhoto = await savePhotoToAlbum(recovery.uri);
+        try {
+          discardCaptureRecovery(recovery);
+        } catch (cleanupError) {
+          console.warn('Photo saved, but its recovery copy could not be removed.', cleanupError);
+        }
+        removeTemporaryCaptureFiles(temporaryFiles, savedPhoto.uri);
+        setLatestPhoto(savedPhoto);
+        setCaptureReview((current) => current?.captureId === captureId
+          ? { ...current, uri: savedPhoto.uri, status: 'saved', recovery: undefined }
+          : current);
         if (latestCaptureRef.current === captureId) {
-          setLatestPhoto(savedPhoto);
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
         if (
           (effectFailureMessage || multiFrameFailureMessage)
@@ -732,15 +891,31 @@ export default function CameraScreen() {
         ) {
           Alert.alert(effectFailureTitle ?? 'Multi-frame processing not applied', effectFailureMessage ?? multiFrameFailureMessage);
         }
-      })
-      .catch((error: unknown) => {
-        console.warn('Could not save captured photo:', error);
-        if (
-          latestCaptureRef.current === captureId
-          && appActiveRef.current
-          && screenFocusedRef.current
-        ) {
-          Alert.alert('Photo not saved', 'The photo was captured but could not be saved to the gallery.');
+        } catch (error) {
+          console.warn('Could not save captured photo:', error);
+          if (recovery) {
+            removeTemporaryCaptureFiles(temporaryFiles, recovery.uri);
+            setCaptureReview((current) => {
+              if (current && current.captureId > captureId) return current;
+              return {
+                key: recovery!.key,
+                captureId,
+                uri: recovery!.uri,
+                status: 'failed',
+                recovery,
+                errorMessage: 'The photo is retained safely. Check photo access or available storage, then retry.',
+              };
+            });
+          } else {
+            setCaptureReview((current) => current?.captureId === captureId
+              ? {
+                ...current,
+                status: 'failed',
+                errorMessage: 'The photo could not be saved or retained. Retry before leaving the app.',
+              }
+              : current);
+          }
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         }
       });
   }, []);
@@ -2174,6 +2349,8 @@ export default function CameraScreen() {
   const capture = async () => {
     if (
       capturing
+      || captureReviewRef.current?.status === 'failed'
+      || captureReviewRef.current?.status === 'retrying'
       || !cameraReadyRef.current
       || !appActiveRef.current
       || !screenFocusedRef.current
@@ -2512,12 +2689,13 @@ export default function CameraScreen() {
         captureFallbackReason,
       };
       latestCaptureRef.current = captureSession;
-      setLatestPhoto({
-        key: `${captureSession}-${sourcePhotoUri}`,
+      setCaptureReview({
+        key: `capture-${captureSession}`,
+        captureId: captureSession,
         uri: sourcePhotoUri,
+        status: 'processing',
       });
       setCapturing(false);
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       enqueuePhotoSave(
         capturedFramePaths,
         aspectRatio,
@@ -2555,6 +2733,8 @@ export default function CameraScreen() {
 
   const captureCanBeCancelled = countdown !== undefined || multiFrameProgress !== undefined
     || (capturing && isLongCaptureMode && captureStatus !== undefined);
+  const captureBlockedByRecovery = captureReview?.status === 'failed'
+    || captureReview?.status === 'retrying';
 
   return (
     <GestureDetector gesture={cameraGesture}>
@@ -2649,6 +2829,17 @@ export default function CameraScreen() {
             </View>
           )}
         </View>
+
+        {captureReview && (
+          <CaptureReviewCard
+            uri={captureReview.uri}
+            status={captureReview.status}
+            errorMessage={captureReview.errorMessage}
+            topInset={insets.top}
+            onRetry={retryFailedSave}
+            onDelete={deleteFailedCapture}
+          />
+        )}
 
         {countdown !== undefined && (
           <Animated.View
@@ -3066,16 +3257,25 @@ export default function CameraScreen() {
           </Pressable>
 
           <Pressable
-            accessibilityLabel={captureCanBeCancelled ? 'Cancel photo capture' : 'Take picture'}
-            accessibilityHint={captureCanBeCancelled ? 'Stops the active capture without saving another photo' : undefined}
+            accessibilityLabel={captureCanBeCancelled
+              ? 'Cancel photo capture'
+              : captureBlockedByRecovery ? 'Resolve unsaved photo first' : 'Take picture'}
+            accessibilityHint={captureCanBeCancelled
+              ? 'Stops the active capture without saving another photo'
+              : captureBlockedByRecovery ? 'Retry or delete the retained photo before taking another picture' : undefined}
             accessibilityRole="button"
-            accessibilityState={{ disabled: !cameraReady || portraitPreparing || (capturing && !captureCanBeCancelled) }}
+            accessibilityState={{
+              disabled: !cameraReady || portraitPreparing || captureBlockedByRecovery
+                || (capturing && !captureCanBeCancelled),
+            }}
             style={[
               styles.shutter,
               captureCanBeCancelled && styles.shutterCancelling,
-              (portraitPreparing || (capturing && !captureCanBeCancelled)) && styles.shutterDisabled,
+              (portraitPreparing || captureBlockedByRecovery
+                || (capturing && !captureCanBeCancelled)) && styles.shutterDisabled,
             ]}
-            disabled={!cameraReady || portraitPreparing || (capturing && !captureCanBeCancelled)}
+            disabled={!cameraReady || portraitPreparing || captureBlockedByRecovery
+              || (capturing && !captureCanBeCancelled)}
             onPress={captureCanBeCancelled ? () => cancelPendingCapture(true) : capture}>
             <View
               style={[

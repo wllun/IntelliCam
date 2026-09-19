@@ -21,7 +21,7 @@ const moduleConfig = JSON.parse(await readFile(
 
 test('embeds capture metadata before saving the processed JPEG', () => {
   const embedIndex = cameraSource.indexOf('await embedPhotoMetadata(');
-  const saveIndex = cameraSource.indexOf('await savePhotoToAlbum(finalUri)');
+  const saveIndex = cameraSource.indexOf('await savePhotoToAlbum(recovery.uri)');
   assert.ok(embedIndex >= 0);
   assert.ok(saveIndex > embedIndex);
 });
