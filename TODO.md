@@ -13,7 +13,7 @@ not required for production and remain out of scope.
 - [x] Implement capture review and save-failure recovery.
 - [x] Preserve the cached source image whenever MediaLibrary saving or metadata embedding fails.
 - [x] Provide Retry and Delete actions after a failed save.
-- [ ] Confirm that backgrounding, changing camera, and leaving the screen cannot save a stale capture or crash the app.
+- [x] Guard backgrounding, camera changes, and screen exit so an invalidated capture cannot enter the save queue; late native JPEGs are deleted and lifecycle regression tests pass.
 - [ ] Run repeated-capture and low-storage tests without losing an original photo.
 
 ### Expo dependency health

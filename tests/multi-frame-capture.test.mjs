@@ -40,7 +40,7 @@ test('assigns bounded burst plans only to computational capture modes', () => {
 test('captures a cancellable burst and passes every frame to native processing', () => {
   assert.match(cameraScreenSource, /for \(let frameIndex = 0; frameIndex < frameCount;/);
   assert.match(cameraScreenSource, /MultiFrameProcessor\.processAsync/);
-  assert.match(cameraScreenSource, /captureSessionRef\.current !== captureSession/);
+  assert.match(cameraScreenSource, /isCaptureLifecycleCurrent/);
   assert.match(cameraScreenSource, /setMultiFrameProgress/);
   assert.match(cameraScreenSource, /captureCanBeCancelled/);
 });

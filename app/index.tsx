@@ -118,6 +118,7 @@ import {
   retainCaptureForRecovery,
   type PendingCaptureRecovery,
 } from '@/services/capture-save-recovery';
+import { isCaptureLifecycleCurrent } from '@/utils/capture-lifecycle.mjs';
 
 const ALBUM_NAME = 'IntelliCam';
 const PortraitPreviewBlur = lazy(async () => {
@@ -586,10 +587,12 @@ export default function CameraScreen() {
   const latestCaptureRef = useRef(0);
   const photoSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const captureReviewRef = useRef<CaptureReview | undefined>(undefined);
+  const componentMountedRef = useRef(true);
   const cameraPreferencesSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const appActiveRef = useRef(AppState.currentState === 'active');
   const screenFocusedRef = useRef(true);
   const cameraReadyRef = useRef(false);
+  const cameraDeviceIdRef = useRef(cameraDevice?.id);
   const queuedCameraZoomRef = useRef<number | undefined>(undefined);
   const cameraZoomUpdateTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastCameraZoomUpdateRef = useRef(0);
@@ -609,6 +612,15 @@ export default function CameraScreen() {
   const exposureGestureActive = useSharedValue(false);
   const rulerZoomValue = useSharedValue(1);
   const rulerDragStartZoom = useSharedValue(1);
+
+  cameraDeviceIdRef.current = cameraDevice?.id;
+
+  useEffect(() => {
+    componentMountedRef.current = true;
+    return () => {
+      componentMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     captureReviewRef.current = captureReview;
@@ -654,21 +666,29 @@ export default function CameraScreen() {
               console.warn('Photo saved, but its recovery copy could not be removed.', cleanupError);
             }
           }
-          setLatestPhoto(savedPhoto);
-          setCaptureReview((current) => current?.key === review.key
-            ? { ...current, uri: savedPhoto.uri, status: 'saved', recovery: undefined }
-            : current);
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          if (componentMountedRef.current) {
+            setLatestPhoto(savedPhoto);
+            setCaptureReview((current) => current?.key === review.key
+              ? { ...current, uri: savedPhoto.uri, status: 'saved', recovery: undefined }
+              : current);
+            if (appActiveRef.current && screenFocusedRef.current) {
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
+          }
         } catch (error) {
           console.warn('Could not retry captured photo save:', error);
-          setCaptureReview((current) => current?.key === review.key
-            ? {
-              ...current,
-              status: 'failed',
-              errorMessage: 'Retry failed. Your photo is still retained safely. Check photo access or available storage.',
+          if (componentMountedRef.current) {
+            setCaptureReview((current) => current?.key === review.key
+              ? {
+                ...current,
+                status: 'failed',
+                errorMessage: 'Retry failed. Your photo is still retained safely. Check photo access or available storage.',
+              }
+              : current);
+            if (appActiveRef.current && screenFocusedRef.current) {
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             }
-            : current);
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          }
         }
       });
   }, []);
@@ -724,9 +744,11 @@ export default function CameraScreen() {
         const temporaryFiles = [...sourceFilePaths];
         try {
           recovery = retainCaptureForRecovery(referenceFilePath, captureId);
-          setCaptureReview((current) => current?.captureId === captureId
-            ? { ...current, uri: recovery!.uri, recovery }
-            : current);
+          if (componentMountedRef.current) {
+            setCaptureReview((current) => current?.captureId === captureId
+              ? { ...current, uri: recovery!.uri, recovery }
+              : current);
+          }
         } catch (recoveryError) {
           console.warn('Could not create durable capture recovery copy:', recoveryError);
         }
@@ -866,9 +888,11 @@ export default function CameraScreen() {
         } else {
           recovery = retainCaptureForRecovery(finalUri, captureId);
         }
-        setCaptureReview((current) => current?.captureId === captureId
-          ? { ...current, uri: recovery!.uri, status: 'saving', recovery }
-          : current);
+        if (componentMountedRef.current) {
+          setCaptureReview((current) => current?.captureId === captureId
+            ? { ...current, uri: recovery!.uri, status: 'saving', recovery }
+            : current);
+        }
         const savedPhoto = await savePhotoToAlbum(recovery.uri);
         try {
           discardCaptureRecovery(recovery);
@@ -876,11 +900,14 @@ export default function CameraScreen() {
           console.warn('Photo saved, but its recovery copy could not be removed.', cleanupError);
         }
         removeTemporaryCaptureFiles(temporaryFiles, savedPhoto.uri);
-        setLatestPhoto(savedPhoto);
-        setCaptureReview((current) => current?.captureId === captureId
-          ? { ...current, uri: savedPhoto.uri, status: 'saved', recovery: undefined }
-          : current);
-        if (latestCaptureRef.current === captureId) {
+        if (componentMountedRef.current) {
+          setLatestPhoto(savedPhoto);
+          setCaptureReview((current) => current?.captureId === captureId
+            ? { ...current, uri: savedPhoto.uri, status: 'saved', recovery: undefined }
+            : current);
+        }
+        if (componentMountedRef.current && latestCaptureRef.current === captureId
+          && appActiveRef.current && screenFocusedRef.current) {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
         if (
@@ -895,18 +922,20 @@ export default function CameraScreen() {
           console.warn('Could not save captured photo:', error);
           if (recovery) {
             removeTemporaryCaptureFiles(temporaryFiles, recovery.uri);
-            setCaptureReview((current) => {
-              if (current && current.captureId > captureId) return current;
-              return {
-                key: recovery!.key,
-                captureId,
-                uri: recovery!.uri,
-                status: 'failed',
-                recovery,
-                errorMessage: 'The photo is retained safely. Check photo access or available storage, then retry.',
-              };
-            });
-          } else {
+            if (componentMountedRef.current) {
+              setCaptureReview((current) => {
+                if (current && current.captureId > captureId) return current;
+                return {
+                  key: recovery!.key,
+                  captureId,
+                  uri: recovery!.uri,
+                  status: 'failed',
+                  recovery,
+                  errorMessage: 'The photo is retained safely. Check photo access or available storage, then retry.',
+                };
+              });
+            }
+          } else if (componentMountedRef.current) {
             setCaptureReview((current) => current?.captureId === captureId
               ? {
                 ...current,
@@ -915,7 +944,9 @@ export default function CameraScreen() {
               }
               : current);
           }
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          if (componentMountedRef.current && appActiveRef.current && screenFocusedRef.current) {
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          }
         }
       });
   }, []);
@@ -1616,6 +1647,11 @@ export default function CameraScreen() {
     setDisplayedZoom(option.displayZoom);
 
     if (facing === 'back' && option.device.id !== cameraDevice?.id) {
+      // Invalidate an in-flight capture before React commits the new camera.
+      // Any native JPEG that finishes afterward is treated as abandoned and deleted.
+      cameraReadyRef.current = false;
+      setCameraReady(false);
+      cancelPendingCapture();
       cancelZoomAnimations();
       pendingZoomTargetRef.current = {
         deviceId: option.device.id,
@@ -2358,16 +2394,24 @@ export default function CameraScreen() {
 
     const captureSession = captureSessionRef.current + 1;
     captureSessionRef.current = captureSession;
+    const captureIdentity = {
+      sessionId: captureSession,
+      cameraDeviceId: cameraDeviceIdRef.current,
+    };
+    const captureLifecycleIsCurrent = () => isCaptureLifecycleCurrent(captureIdentity, {
+      sessionId: captureSessionRef.current,
+      cameraDeviceId: cameraDeviceIdRef.current,
+      appActive: appActiveRef.current,
+      screenFocused: screenFocusedRef.current,
+      cameraReady: cameraReadyRef.current,
+    });
+    const capturedFramePaths: string[] = [];
+    let saveEnqueued = false;
     countdownActiveRef.current = timerSeconds > 0;
     setCapturing(true);
     try {
       for (let remaining: number = timerSeconds; remaining > 0; remaining -= 1) {
-        if (
-          captureSessionRef.current !== captureSession
-          || !cameraReadyRef.current
-          || !appActiveRef.current
-          || !screenFocusedRef.current
-        ) return;
+        if (!captureLifecycleIsCurrent()) return;
 
         setCountdown(remaining);
         void Haptics.impactAsync(
@@ -2390,13 +2434,7 @@ export default function CameraScreen() {
         });
       }
 
-      if (
-        captureSessionRef.current !== captureSession
-        || !cameraReadyRef.current
-        || !appActiveRef.current
-        || !screenFocusedRef.current
-        || !cameraRef.current
-      ) return;
+      if (!captureLifecycleIsCurrent() || !cameraRef.current) return;
 
       countdownActiveRef.current = false;
       setCountdown(undefined);
@@ -2418,8 +2456,7 @@ export default function CameraScreen() {
       let environmentResolved: EnvironmentCaptureDecision | undefined;
       const liveScene = isLongCaptureMode ? await getLiveSceneAtShutter() : null;
       const environmentDecisionAt = Date.now();
-      if (captureSessionRef.current !== captureSession || !cameraReadyRef.current
-        || !appActiveRef.current || !screenFocusedRef.current) return;
+      if (!captureLifecycleIsCurrent()) return;
       // Resolve once after the timer. The same immutable scene drives preparation
       // and any manual-control fallback; never retune halfway through a burst.
       const adaptModePlan = <T extends StarCapturePlan | LightTrailCapturePlan | WaterfallCapturePlan>(
@@ -2548,19 +2585,13 @@ export default function CameraScreen() {
       const frameStartedAt: number[] = [];
       let burstBudgetReached = false;
       if (frameCount > 1) setMultiFrameProgress({ captured: 0, total: frameCount });
-      const capturedFramePaths: string[] = [];
       for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
         if (environmentResolved && capturedFramePaths.length >= 2
           && Date.now() - burstStartedAt >= environmentResolved.maxBurstMs) {
           burstBudgetReached = true;
           break;
         }
-        if (
-          captureSessionRef.current !== captureSession
-          || !cameraReadyRef.current
-          || !appActiveRef.current
-          || !screenFocusedRef.current
-        ) return;
+        if (!captureLifecycleIsCurrent()) return;
         if (isStarMode) {
           setCaptureStatus(
             frameCount === 1
@@ -2598,11 +2629,8 @@ export default function CameraScreen() {
               : undefined,
           },
         );
-        if (
-          captureSessionRef.current !== captureSession || !cameraReadyRef.current
-          || !appActiveRef.current || !screenFocusedRef.current
-        ) return;
         capturedFramePaths.push(photoFile.filePath);
+        if (!captureLifecycleIsCurrent()) return;
         if (frameCount > 1) setMultiFrameProgress({ captured: frameIndex + 1, total: frameCount });
         if (
           appliedCapturePlan?.strategy === 'automatic-lighten-composite'
@@ -2629,12 +2657,7 @@ export default function CameraScreen() {
       }
       const outputFilePath = metadataSourceFilePath;
       const captureFallbackReason = appliedCapturePlan?.fallbackReason;
-      if (
-        captureSessionRef.current !== captureSession
-        || !cameraReadyRef.current
-        || !appActiveRef.current
-        || !screenFocusedRef.current
-      ) return;
+      if (!captureLifecycleIsCurrent()) return;
 
       const sourcePhotoUri = `file://${outputFilePath}`;
       const captureModeName = activeCaptureModeId === AUTO_CAPTURE_MODE.id
@@ -2709,12 +2732,16 @@ export default function CameraScreen() {
         portraitTarget,
         plan.resolved.processing === 'single' ? undefined : plan.resolved.processing,
       );
+      saveEnqueued = true;
     } catch (error) {
-      if (captureSessionRef.current === captureSession) {
+      if (captureLifecycleIsCurrent()) {
         Alert.alert('Capture failed', String(error));
       }
     } finally {
-      if (captureSessionRef.current === captureSession) {
+      if (!saveEnqueued) {
+        removeTemporaryCaptureFiles(capturedFramePaths);
+      }
+      if (captureLifecycleIsCurrent()) {
         countdownActiveRef.current = false;
         setCountdown(undefined);
         setCaptureStatus(undefined);
