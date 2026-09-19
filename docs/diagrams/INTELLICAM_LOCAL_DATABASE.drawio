@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" version="26.0.0">
+  <diagram id="intellicam-local-db" name="Local Database">
+    <mxGraphModel dx="1420" dy="980" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="schema_title" value="IntelliCam local database table structure" style="text;html=1;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#1f2937;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="760" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="schema_status" value="PROPOSED SQLITE SCHEMA · NOT IMPLEMENTED YET" style="rounded=1;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontSize=12;fontStyle=1;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#7a4b00;arcSize=20;" vertex="1" parent="1">
+          <mxGeometry x="990" y="20" width="360" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="schema_subtitle" value="Paths and structured metadata only. JPEG image bytes remain in device storage." style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#4b5563;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="850" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="table_photos" value="photos" style="shape=table;startSize=34;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;fontSize=15;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="390" height="370" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_id" value="PK  id : TEXT (UUID)" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;fontStyle=1;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="34" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_asset_id" value="UQ  asset_id : TEXT?  · MediaLibrary identifier" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="58" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_file_uri" value="file_uri : TEXT NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="82" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_filename" value="filename : TEXT NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="106" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_captured_at" value="IDX  captured_at : INTEGER NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="130" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_dimensions" value="width : INTEGER?   ·   height : INTEGER?" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="154" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_media_type" value="media_type : TEXT NOT NULL DEFAULT 'photo'" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="178" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_capture_mode" value="IDX  capture_mode_id : TEXT NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="202" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_favorite" value="favorite : INTEGER NOT NULL DEFAULT 0" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="226" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_metadata" value="metadata_json : TEXT NOT NULL  · portable capture data" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="250" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_location" value="latitude : REAL?   ·   longitude : REAL?" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="274" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_created_at" value="created_at : INTEGER NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="298" width="390" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="photos_updated_at" value="updated_at : INTEGER NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_photos">
+          <mxGeometry x="0" y="322" width="390" height="24" as="geometry" />
+        </mxCell>
+
+        <mxCell id="table_sessions" value="capture_sessions" style="shape=table;startSize=34;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;fontSize=15;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="540" y="120" width="430" height="418" as="geometry" />
+        </mxCell>
+        <mxCell id="sessions_id" value="PK  id : TEXT (UUID)" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;fontStyle=1;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="34" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_photo_id" value="FK UQ  photo_id : TEXT? → photos.id" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="58" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_preset_id" value="FK IDX  preset_id : TEXT? → camera_presets.id" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="82" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_mode" value="mode_id : TEXT NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="106" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_status" value="status : TEXT NOT NULL  · planned/capturing/saved/failed" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="130" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_times" value="started_at : INTEGER   ·   completed_at : INTEGER?" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="154" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_requested" value="requested_json : TEXT NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="178" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_resolved" value="resolved_plan_json : TEXT NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="202" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_applied" value="applied_settings_json : TEXT?" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="226" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_fallback" value="fallbacks_json : TEXT?  · reason-coded outcomes" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="250" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_scene" value="scene_measurements_json : TEXT?" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="274" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_frames" value="input_frames : INTEGER   ·   accepted_frames : INTEGER" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="298" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_rejected" value="rejected_frames : INTEGER NOT NULL DEFAULT 0" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="322" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_duration" value="capture_duration_ms : INTEGER?" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="346" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="sessions_error" value="error_code : TEXT?   ·   error_detail : TEXT?" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_sessions"><mxGeometry x="0" y="370" width="430" height="24" as="geometry" /></mxCell>
+
+        <mxCell id="table_presets" value="camera_presets" style="shape=table;startSize=34;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;fontSize=15;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="40" y="600" width="390" height="250" as="geometry" />
+        </mxCell>
+        <mxCell id="presets_id" value="PK  id : TEXT (UUID)" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;fontStyle=1;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_presets"><mxGeometry x="0" y="34" width="390" height="24" as="geometry" /></mxCell>
+        <mxCell id="presets_name" value="UQ  name : TEXT NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_presets"><mxGeometry x="0" y="58" width="390" height="24" as="geometry" /></mxCell>
+        <mxCell id="presets_mode" value="mode_id : TEXT NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_presets"><mxGeometry x="0" y="82" width="390" height="24" as="geometry" /></mxCell>
+        <mxCell id="presets_settings" value="settings_json : TEXT NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_presets"><mxGeometry x="0" y="106" width="390" height="24" as="geometry" /></mxCell>
+        <mxCell id="presets_builtin" value="is_builtin : INTEGER NOT NULL DEFAULT 0" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_presets"><mxGeometry x="0" y="130" width="390" height="24" as="geometry" /></mxCell>
+        <mxCell id="presets_created" value="created_at : INTEGER NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_presets"><mxGeometry x="0" y="154" width="390" height="24" as="geometry" /></mxCell>
+        <mxCell id="presets_updated" value="updated_at : INTEGER NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_presets"><mxGeometry x="0" y="178" width="390" height="24" as="geometry" /></mxCell>
+        <mxCell id="presets_last_used" value="last_used_at : INTEGER?" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_presets"><mxGeometry x="0" y="202" width="390" height="24" as="geometry" /></mxCell>
+
+        <mxCell id="table_edits" value="edit_history" style="shape=table;startSize=34;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;fontSize=15;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="540" y="620" width="430" height="274" as="geometry" />
+        </mxCell>
+        <mxCell id="edits_id" value="PK  id : TEXT (UUID)" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;fontStyle=1;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_edits"><mxGeometry x="0" y="34" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="edits_photo_id" value="FK IDX  photo_id : TEXT NOT NULL → photos.id" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_edits"><mxGeometry x="0" y="58" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="edits_parent" value="FK  parent_edit_id : TEXT? → edit_history.id" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_edits"><mxGeometry x="0" y="82" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="edits_sequence" value="UQ  sequence : INTEGER NOT NULL  · per photo" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_edits"><mxGeometry x="0" y="106" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="edits_operation" value="operation : TEXT NOT NULL  · crop/adjust/filter/etc." style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_edits"><mxGeometry x="0" y="130" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="edits_parameters" value="parameters_json : TEXT NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_edits"><mxGeometry x="0" y="154" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="edits_output_uri" value="output_uri : TEXT?  · rendered file, never a blob" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_edits"><mxGeometry x="0" y="178" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="edits_created" value="created_at : INTEGER NOT NULL" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_edits"><mxGeometry x="0" y="202" width="430" height="24" as="geometry" /></mxCell>
+        <mxCell id="edits_deleted" value="deleted_at : INTEGER?  · reversible history removal" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;fillColor=none;collapsible=0;dropTarget=0;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=12;html=1;align=left;spacingLeft=8;" vertex="1" parent="table_edits"><mxGeometry x="0" y="226" width="430" height="24" as="geometry" /></mxCell>
+
+        <mxCell id="device_storage" value="Device photo storage&#xa;MediaLibrary IntelliCam album&#xa;Original and rendered JPEG files" style="shape=cylinder3;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontSize=13;fontStyle=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;boundedLbl=1;size=18;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="210" width="260" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="index_notes" value="Recommended indexes&#xa;&#xa;• photos(captured_at DESC)&#xa;• photos(capture_mode_id, captured_at DESC)&#xa;• capture_sessions(photo_id) UNIQUE&#xa;• capture_sessions(preset_id, started_at DESC)&#xa;• edit_history(photo_id, sequence) UNIQUE" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="430" width="310" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="schema_rules" value="Data rules&#xa;&#xa;• Delete children with the photo, or use soft deletion.&#xa;• Keep capture settings versioned JSON for forward compatibility.&#xa;• Reconcile missing MediaLibrary assets on gallery refresh.&#xa;• Never store JPEG/BLOB payloads in SQLite." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#5f4500;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="660" width="310" height="190" as="geometry" />
+        </mxCell>
+
+        <mxCell id="rel_photo_session" value="0..1 capture result" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;startArrow=ERone;startFill=0;endArrow=ERzeroToOne;endFill=0;strokeColor=#6c8ebf;fontSize=11;labelBackgroundColor=#ffffff;exitX=1;exitY=0.25;entryX=0;entryY=0.25;" edge="1" parent="1" source="table_photos" target="table_sessions">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_preset_session" value="optional preset; many uses" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;startArrow=ERzeroToOne;startFill=0;endArrow=ERzeroToMany;endFill=0;strokeColor=#d79b00;fontSize=11;labelBackgroundColor=#ffffff;exitX=1;exitY=0.35;entryX=0;entryY=0.78;" edge="1" parent="1" source="table_presets" target="table_sessions">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="490" y="690" /><mxPoint x="490" y="450" /></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rel_photo_edits" value="0..* non-destructive edits" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;startArrow=ERone;startFill=0;endArrow=ERzeroToMany;endFill=0;strokeColor=#9673a6;fontSize=11;labelBackgroundColor=#ffffff;exitX=1;exitY=0.85;entryX=0;entryY=0.28;" edge="1" parent="1" source="table_photos" target="table_edits">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="490" y="430" /><mxPoint x="490" y="700" /></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rel_edit_parent" value="optional parent edit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;startArrow=ERzeroToOne;startFill=0;endArrow=ERzeroToMany;endFill=0;strokeColor=#9673a6;fontSize=11;labelBackgroundColor=#ffffff;exitX=1;exitY=0.72;entryX=1;entryY=0.35;" edge="1" parent="1" source="table_edits" target="table_edits">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1000" y="820" /><mxPoint x="1000" y="700" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="rel_photo_files" value="file_uri / asset_id" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;strokeColor=#666666;fontSize=11;labelBackgroundColor=#ffffff;exitX=1;exitY=0.15;entryX=0;entryY=0.5;" edge="1" parent="1" source="table_photos" target="device_storage">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="500" y="100" /><mxPoint x="1010" y="100" /><mxPoint x="1010" y="275" /></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="rel_edit_files" value="output_uri" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endSize=8;strokeColor=#666666;fontSize=11;labelBackgroundColor=#ffffff;exitX=1;exitY=0.1;entryX=1;entryY=0.5;" edge="1" parent="1" source="table_edits" target="device_storage">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1000" y="640" /><mxPoint x="1360" y="640" /><mxPoint x="1360" y="275" /></Array></mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
