@@ -104,7 +104,7 @@ class MultiFrameProcessorModule : Module() {
     )
     val sourceWidth = if (rotated) bounds.outHeight else bounds.outWidth
     val sourceHeight = if (rotated) bounds.outWidth else bounds.outHeight
-    val outputScale = min(1.0, MAX_OUTPUT_EDGE.toDouble() / max(sourceWidth, sourceHeight))
+    val outputScale = min(1.0, maximumOutputEdge().toDouble() / max(sourceWidth, sourceHeight))
     val bitmap = decodeOrientedBitmap(path, ANALYSIS_EDGE)
       ?: throw IllegalArgumentException("The scene image could not be decoded.")
     val sampled = scaleDown(bitmap, ANALYSIS_EDGE)
@@ -135,10 +135,11 @@ class MultiFrameProcessorModule : Module() {
     require(mode in SUPPORTED_MODES) { "Unsupported multi-frame mode: $mode" }
     require(sourceUris.size >= 2) { "At least two frames are required." }
 
+    val outputEdge = maximumOutputEdge()
     val referenceUri = sourceUris.first()
     val referenceBitmap = decodeOrientedBitmap(filePath(referenceUri))
       ?: throw IllegalArgumentException("The reference frame could not be decoded.")
-    val preparedReference = scaleDown(referenceBitmap, MAX_OUTPUT_EDGE)
+    val preparedReference = scaleDown(referenceBitmap, outputEdge)
     if (preparedReference !== referenceBitmap) referenceBitmap.recycle()
 
     val width = preparedReference.width
@@ -163,7 +164,7 @@ class MultiFrameProcessorModule : Module() {
       try {
         val decoded = decodeOrientedBitmap(filePath(sourceUri))
           ?: throw IllegalArgumentException("Frame $frameIndex could not be decoded.")
-        val scaled = scaleDown(decoded, MAX_OUTPUT_EDGE)
+        val scaled = scaleDown(decoded, outputEdge)
         if (scaled !== decoded) decoded.recycle()
         val preparedCandidate = if (scaled.width == width && scaled.height == height) {
           scaled
@@ -493,6 +494,15 @@ class MultiFrameProcessorModule : Module() {
     )
   }
 
+  private fun maximumOutputEdge(): Int {
+    val maximumHeapMb = Runtime.getRuntime().maxMemory() / (1024L * 1024L)
+    return when {
+      maximumHeapMb >= 512L -> HIGH_MEMORY_OUTPUT_EDGE
+      maximumHeapMb >= 384L -> MID_MEMORY_OUTPUT_EDGE
+      else -> BASE_OUTPUT_EDGE
+    }
+  }
+
   private data class AnalysisImage(val width: Int, val height: Int, val pixels: IntArray)
   private data class Translation(
     val offsetX: Int,
@@ -506,7 +516,9 @@ class MultiFrameProcessorModule : Module() {
     private const val MODE_LIGHT_TRAIL = "light-trail"
     private const val MODE_WATERFALL = "waterfall"
     private val SUPPORTED_MODES = setOf(MODE_STAR, MODE_LIGHT_TRAIL, MODE_WATERFALL)
-    private const val MAX_OUTPUT_EDGE = 3072
+    private const val BASE_OUTPUT_EDGE = 3072
+    private const val MID_MEMORY_OUTPUT_EDGE = 3584
+    private const val HIGH_MEMORY_OUTPUT_EDGE = 4096
     private const val ANALYSIS_EDGE = 256
     private const val MAX_ANALYSIS_SHIFT = 14
     private const val ANALYSIS_SAMPLE_STRIDE = 3

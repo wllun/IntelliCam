@@ -59,14 +59,21 @@ export function readCameraCapabilities(
   };
 }
 
-export function getPhotoOutputOptions(photoQuality: PhotoQuality, hdr: boolean): PhotoOutputOptions {
+export function getPhotoOutputOptions(
+  photoQuality: PhotoQuality,
+  hdr: boolean,
+  preferResponsiveCapture = false,
+): PhotoOutputOptions {
   const maximumPhotoQuality = photoQuality === 'maximum';
   return {
     targetResolution: maximumPhotoQuality ? CommonResolutions.HIGHEST_4_3 : CommonResolutions.UHD_4_3,
     containerFormat: 'jpeg',
     quality: hdr || maximumPhotoQuality ? 1 : 0.92,
-    // Do not enable CameraX ZSL/speed prioritization: Samsung preview regression.
-    qualityPrioritization: hdr || maximumPhotoQuality ? 'quality' : 'balanced',
+    // Balanced maps to CameraX MINIMIZE_LATENCY, not the unstable ZSL mode.
+    // Keep maximum-quality priority for HDR and computational captures.
+    qualityPrioritization: preferResponsiveCapture && !hdr
+      ? 'balanced'
+      : hdr || maximumPhotoQuality ? 'quality' : 'balanced',
   };
 }
 

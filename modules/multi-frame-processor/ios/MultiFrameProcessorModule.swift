@@ -501,7 +501,12 @@ public final class MultiFrameProcessorModule: Module {
   private static let lightTrailMode = "light-trail"
   private static let waterfallMode = "waterfall"
   private static let supportedModes = Set([starMode, lightTrailMode, waterfallMode])
-  private static let maximumOutputEdge: CGFloat = 3072
+  private static let maximumOutputEdge: CGFloat = {
+    let physicalMemory = ProcessInfo.processInfo.physicalMemory
+    if physicalMemory >= 4 * 1024 * 1024 * 1024 { return 4096 }
+    if physicalMemory >= 3 * 1024 * 1024 * 1024 { return 3584 }
+    return 3072
+  }()
   private static let maximumOutputShiftFraction: CGFloat = 0.12
   private static let motionLumaThreshold = 36
   private static let motionSampleStride = 8

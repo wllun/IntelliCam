@@ -495,9 +495,14 @@ export default function CameraScreen() {
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const [screenFocused, setScreenFocused] = useState(true);
   const [activeCaptureModeId, setActiveCaptureModeId] = useState(DEFAULT_CAPTURE_MODE_ID);
+  const [portraitEffectEnabled, setPortraitEffectEnabled] = useState(false);
   const specialModeDisablesHdr = ['star', 'light-trail', 'waterfall'].includes(activeCaptureModeId);
+  const preferResponsiveCapture = activeCaptureModeId === DEFAULT_CAPTURE_MODE_ID
+    && !portraitEffectEnabled
+    && !hdrEnabled;
   const { capabilities, supportsNativeHdr, nativeHdrRequested, photoOutput, cameraOutputs, cameraConstraints } = useCapturePreparation(
     cameraDevice, cameraRef, cameraReady, 'maximum', hdrEnabled && !specialModeDisablesHdr,
+    preferResponsiveCapture,
   );
   const [modeMenuVisible, setModeMenuVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -509,7 +514,6 @@ export default function CameraScreen() {
   const [timerSeconds, setTimerSeconds] = useState<CameraTimerSeconds>(0);
   const [shutterSoundEnabled, setShutterSoundEnabled] = useState(false);
   const [cameraPreferencesHydrated, setCameraPreferencesHydrated] = useState(false);
-  const [portraitEffectEnabled, setPortraitEffectEnabled] = useState(false);
   const [portraitPreparing, setPortraitPreparing] = useState(false);
   const [portraitPreviewStatus, setPortraitPreviewStatus] = useState<string>();
   const portraitPreparation = useRef(0);
@@ -2408,10 +2412,14 @@ export default function CameraScreen() {
           {
             ...getPhotoCaptureSettings(capabilities, 'maximum', nativeHdrRequested,
               plan.resolved.flashMode, shutterSoundEnabled, frameIndex),
-            enableRedEyeReduction: !isFlashDisabledForMode,
+            enableRedEyeReduction: !isFlashDisabledForMode && plan.resolved.flashMode !== 'off',
             enableVirtualDeviceFusion: capabilities.virtualDeviceFusion && !isMotionCompositeMode,
           },
-          {},
+          {
+            onWillCapturePhoto: frameIndex === 0
+              ? () => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
+              : undefined,
+          },
         );
         if (
           captureSessionRef.current !== captureSession || !cameraReadyRef.current

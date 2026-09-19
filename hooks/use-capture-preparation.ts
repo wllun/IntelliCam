@@ -14,6 +14,7 @@ export function useCapturePreparation(
   cameraReady: boolean,
   photoQuality: PhotoQuality,
   hdrEnabled: boolean,
+  preferResponsiveCapture = false,
 ) {
   const capabilities = useMemo(() => readCameraCapabilities(device, Platform.OS, {
     multiFrame: Boolean(MultiFrameProcessor),
@@ -22,7 +23,11 @@ export function useCapturePreparation(
   }), [device]);
   const supportsNativeHdr = capabilities.photoHDR;
   const nativeHdrRequested = hdrEnabled && supportsNativeHdr;
-  const photoOutput = usePhotoOutput(getPhotoOutputOptions(photoQuality, nativeHdrRequested));
+  const photoOutput = usePhotoOutput(getPhotoOutputOptions(
+    photoQuality,
+    nativeHdrRequested,
+    preferResponsiveCapture,
+  ));
   const cameraOutputs = useMemo(() => [photoOutput], [photoOutput]);
   const cameraConstraints = useMemo<Constraint[]>(() => [
     { photoHDR: nativeHdrRequested }, { resolutionBias: photoOutput },

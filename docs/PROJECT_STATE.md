@@ -16,6 +16,12 @@ exposure compensation, supported native Photo HDR, maximum native quality,
 gridlines, aspect-ratio cropping, a cancellable timer, shutter sound, and
 optional photo-location metadata.
 
+Plain Auto capture now keeps the highest supported 4:3 JPEG and maximum JPEG
+quality while asking the native backend to minimize capture latency. HDR,
+Portrait, and special modes retain maximum-quality prioritization. The unstable
+Android zero-shutter-lag mode remains disabled. The shutter haptic is emitted at
+the native will-capture callback, so feedback matches the actual sensor event.
+
 Auto mode also provides an optional Portrait effect beside Flash. It detects actual
 foreground subject outlines (people, pets, objects), rather than retaining a sharp
 rectangle. Android uses ML Kit Subject Segmentation, with a one-time Google Play
@@ -81,6 +87,7 @@ Related design documents:
 - [x] Vertical exposure control quantized to native device detents with UI-thread dragging and throttled latest-value camera updates
 - [x] Flash off/auto/on and shutter sound disabled by default
 - [x] Always request maximum native quality and the highest supported 4:3 output; the Photo quality setting was removed
+- [x] Minimize plain Auto shutter latency without enabling unstable Android zero-shutter-lag; retain quality prioritization for HDR, Portrait, and special modes
 - [x] Gridlines and centered `4:3`, `1:1`, `16:9`, or `Full` output framing
 - [x] Off, 3-second, 5-second, 10-second, and 30-second cancellable timer with haptics
 - [x] Timer cancellation on shutter retap, backgrounding, screen exit, remount, or camera unavailability
@@ -90,6 +97,7 @@ Related design documents:
 - [x] Executable Star, Light Trail, Waterfall, Beauty, and Product per-mode capture strategies
 - [x] Cancellable Star, Light Trail, and Waterfall bursts with native frame alignment, whole-frame motion rejection, common-overlap cropping, and mode-aware compositing
 - [x] Multi-frame applied/accepted/rejected details stored in portable JPEG information
+- [x] Adaptive multi-frame output resolution: 3072 px on constrained devices, 3584 px on mid-memory devices, and up to 4096 px on capable devices
 - [x] Consolidated adaptive types and plan resolution reusing the existing per-mode burst plans
 - [x] Extracted native capture preparation, capability adaptation, and capture-metadata assembly from the camera screen
 - [x] Captured-reference highlight-clipping and burst-stability measurements with explicit unknown values and reason-coded portable fallback records
@@ -132,8 +140,10 @@ settings are highlighted; each button retains an accessible name and state.
   photo information records HDR only after the active session confirms it.
 - **Photo location:** optionally embeds coordinates in new JPEGs. Default: off;
   permission is requested only after enabling it.
-- **Photo quality:** always maximum; highest supported 4:3 resolution, quality
-  prioritization, and available native enhancements. No settings choice.
+- **Photo quality:** always requests the highest supported 4:3 source and maximum
+  JPEG quality. Plain Auto uses native balanced/minimize-latency capture; HDR,
+  Portrait, and special modes use quality prioritization. Available native
+  enhancements remain enabled. No settings choice.
 - **Aspect ratio:** `4:3`, `1:1`, `16:9`, or `Full`. Cropping occurs after the
   full-quality source capture.
 - **Timer:** off, 3, 5, 10, or 30 seconds.
