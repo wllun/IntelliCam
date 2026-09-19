@@ -18,11 +18,11 @@ not required for production and remain out of scope.
 
 ### Expo dependency health
 
-- [ ] Run `npx.cmd expo install --check`.
-- [ ] Align `expo` with the SDK 54 expected patch version (`~54.0.37` at the last review).
-- [ ] Align `expo-constants` with the SDK 54 expected patch version (`~18.0.14` at the last review).
-- [ ] Run `npx.cmd expo-doctor` until all checks pass.
-- [ ] Run `npm.cmd run check` on the final release revision.
+- [x] Run `npx.cmd expo install --check`.
+- [x] Align `expo` with the SDK 54 expected patch version (`~54.0.37`).
+- [x] Align `expo-constants` with the SDK 54 expected patch version (`~18.0.14`).
+- [x] Run `npx.cmd expo-doctor`: 18/18 checks pass.
+- [x] Run `npm.cmd run check` after dependency alignment: lint, TypeScript, and 114/114 tests pass.
 
 ### Physical Android validation
 

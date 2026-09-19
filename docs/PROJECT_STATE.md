@@ -79,6 +79,7 @@ Related design documents:
 ## Completed
 
 - [x] Expo SDK 54 + Expo Router scaffold with TypeScript and the new architecture
+- [x] SDK 54 dependency health aligned to Expo `54.0.37` and Expo Constants `18.0.14`; Expo Doctor passes 18/18 checks and the full project check passes 114/114 tests
 - [x] React Native Vision Camera preview and JPEG capture
 - [x] Auto as the first-launch and fallback camera mode
 - [x] Rear/front switching and device-dependent integrated or dedicated ultrawide selection
